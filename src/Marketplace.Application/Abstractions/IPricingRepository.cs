@@ -1,7 +1,5 @@
 using Marketplace.Domain.Pricing;
-
 namespace Marketplace.Application.Abstractions;
-
 public interface IPricingRepository
 {
     Task<Campaign?> GetRunningCampaignAsync(long storeId,long productId,long? variantId,DateTime nowUtc,CancellationToken ct=default);
@@ -16,6 +14,8 @@ public interface IPricingRepository
     void AddCampaign(Campaign campaign);
     void AddCampaignTarget(CampaignProduct target);
     void AddCoupon(Coupon coupon);
+    void AddCouponProduct(CouponProduct scope);
+    void AddCouponCategory(CouponCategory scope);
     void AddCouponUsage(CouponUsage usage);
     Task<bool> HasOverlappingCampaignAsync(long storeId,DateTime startsAtUtc,DateTime endsAtUtc,long? exceptCampaignId=null,CancellationToken ct=default);
 }
