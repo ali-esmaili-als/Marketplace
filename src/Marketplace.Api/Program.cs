@@ -172,29 +172,19 @@ app.MapPost("/api/payments/{paymentId:long}/verify",async(long paymentId,Payment
     return result.Paid ? Results.Ok(result) : Results.BadRequest(result);
 }).RequirePermission("Order.Create");
 
-app.MapPost("/api/orders/{orderId:long}/delivery/ready",async(long orderId,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
-    await service.MarkReadyForDeliveryAsync(orderId,ct);return Results.Ok();
-}).RequirePermission("Order.Delivery.Confirm");
+app.MapPost("/api/seller/orders/{orderId:long}/delivery/ready",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{await service.ReadyAsync(CurrentUserId(user),orderId,ct);return Results.Ok();}).RequirePermission("Order.Delivery.Confirm");
 
-app.MapPost("/api/orders/{orderId:long}/delivery/confirm",async(long orderId,DeliveryConfirmRequest request,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
-    await service.MarkDeliveredAsync(orderId,request.Reference,request.DeliveredAtUtc,request.ComplaintExpiresAtUtc,ct); return Results.Ok();
-}).RequirePermission("Order.Delivery.Confirm");
+app.MapPost("/api/seller/orders/{orderId:long}/delivery/confirm",async(System.Security.Claims.ClaimsPrincipal user,long orderId,DeliveryConfirmRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{await service.DeliverAsync(CurrentUserId(user),orderId,request.Reference,request.DeliveredAtUtc,request.ComplaintExpiresAtUtc,ct);return Results.Ok();}).RequirePermission("Order.Delivery.Confirm");
 
-app.MapPost("/api/orders/{orderId:long}/delivery/expire",async(long orderId,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
-    await service.ExpireDeliveryAsync(orderId,DateTime.UtcNow,ct);return Results.Ok();
-}).RequirePermission("Order.Delivery.Confirm");
+app.MapPost("/api/seller/orders/{orderId:long}/delivery/expire",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{await service.ExpireAsync(CurrentUserId(user),orderId,ct);return Results.Ok();}).RequirePermission("Order.Delivery.Confirm");
 
-app.MapPost("/api/orders/{orderId:long}/complaints",async(long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
-    var id=await service.OpenComplaintAsync(orderId,request.CustomerId,request.Reason,ct);return Results.Ok(new{id});
-}).RequirePermission("Order.Create");
+app.MapPost("/api/orders/{orderId:long}/complaints",async(System.Security.Claims.ClaimsPrincipal user,long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{var id=await service.ComplaintAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok(new{id});}).RequirePermission("Order.Create");
 
 app.MapPost("/api/complaints/{complaintId:long}/resolve",async(long complaintId,ComplaintResolveRequest request,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
     await service.ResolveComplaintAsync(complaintId,request.CustomerWon,request.Note,ct);return Results.Ok();
 }).RequirePermission("Complaint.Resolve");
 
-app.MapPost("/api/orders/{orderId:long}/refund",async(long orderId,RefundRequest request,Marketplace.Application.Orders.RefundService service,CancellationToken ct)=>{
-    await service.ProcessAsync(orderId,request.Reason,ct);return Results.Ok();
-}).RequirePermission("Order.Create");
+app.MapPost("/api/orders/{orderId:long}/refund",async(System.Security.Claims.ClaimsPrincipal user,long orderId,RefundRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{await service.RefundAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok();}).RequirePermission("Order.Create");
 
 
 app.MapPost("/api/sellers/me/campaigns",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Pricing.CreateCampaignRequest request,Marketplace.Application.Pricing.PricingManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
@@ -255,6 +245,11 @@ app.MapPost("/api/sellers/me/products/{productId:long}/warranties/{warrantyId:lo
  var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.LinkWarrantyAsync(seller.Id,productId,warrantyId,request.IsDefault,ct); return Results.NoContent();
 }).RequirePermission("Seller.Shipping.Configure");
 
+
+app.MapGet("/api/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrdersAsync(CurrentUserId(user),ct))).RequirePermission("Order.ReadOwn");
+app.MapGet("/api/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrderAsync(CurrentUserId(user),orderId,ct))).RequirePermission("Order.ReadOwn");
+app.MapGet("/api/seller/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrdersAsync(seller.Id,ct));}).RequirePermission("Order.ReadOwn");
+app.MapGet("/api/seller/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrderAsync(seller.Id,orderId,ct));}).RequirePermission("Order.ReadOwn");
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
