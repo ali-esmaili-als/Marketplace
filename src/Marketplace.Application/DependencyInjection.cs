@@ -19,6 +19,7 @@ public static class DependencyInjection
         services.AddScoped<Identity.AuthenticationService>();
         services.AddScoped<Identity.RegistrationService>();
         services.AddScoped<Identity.PermissionService>();
+        services.AddScoped<Identity.IdentityAdminService>();
         return services;
     }
 }
