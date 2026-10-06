@@ -47,6 +47,26 @@ app.MapPost("/api/auth/register/customer",async(RegisterCustomerRequest request,
     return Results.Ok(new { userId=id });
 });
 
+app.MapGet("/api/admin/users/{userId:long}/rules",async(long userId,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>
+    Results.Ok(await service.GetRulesAsync(userId,ct)))
+    .RequirePermission("Admin.Identity.Manage");
+
+app.MapPost("/api/admin/users/{userId:long}/rules",async(long userId,UserRuleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
+    await service.GrantRuleAsync(userId,request.Code,ct); return Results.NoContent();
+}).RequirePermission("Admin.Identity.Manage");
+
+app.MapDelete("/api/admin/users/{userId:long}/rules",async(long userId,UserRuleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
+    await service.RevokeRuleAsync(userId,request.Code,ct); return Results.NoContent();
+}).RequirePermission("Admin.Identity.Manage");
+
+app.MapPost("/api/admin/users/{userId:long}/roles",async(long userId,UserRoleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
+    await service.AssignRoleAsync(userId,request.RoleName,ct); return Results.NoContent();
+}).RequirePermission("Admin.Identity.Manage");
+
+app.MapDelete("/api/admin/users/{userId:long}/roles",async(long userId,UserRoleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
+    await service.RevokeRoleAsync(userId,request.RoleName,ct); return Results.NoContent();
+}).RequirePermission("Admin.Identity.Manage");
+
 app.MapPost("/api/auth/login",async(LoginRequest request,Marketplace.Application.Identity.AuthenticationService service,CancellationToken ct)=>
 {
     var result=await service.LoginAsync(request.Mobile,request.Password,ct);
