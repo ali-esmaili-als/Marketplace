@@ -1,0 +1,3 @@
+using Microsoft.AspNetCore.Authorization;
+namespace Marketplace.Infrastructure.Authorization;
+public sealed record PermissionRequirement(string Permission):IAuthorizationRequirement;
