@@ -17,5 +17,7 @@ public interface IPricingRepository
     void AddCouponProduct(CouponProduct scope);
     void AddCouponCategory(CouponCategory scope);
     void AddCouponUsage(CouponUsage usage);
+    Task<bool> ProductBelongsToStoreAsync(long productId,long storeId,CancellationToken ct=default);
+    Task<bool> VariantBelongsToProductAsync(long variantId,long productId,CancellationToken ct=default);
     Task<bool> HasOverlappingCampaignAsync(long storeId,DateTime startsAtUtc,DateTime endsAtUtc,long? exceptCampaignId=null,CancellationToken ct=default);
 }
