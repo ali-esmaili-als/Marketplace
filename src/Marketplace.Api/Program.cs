@@ -267,3 +267,4 @@ public sealed record CatalogVariantRequest(string SKU,string VariantKey,long? Pr
 public sealed record StockRequest(long Quantity);
 public sealed record WarrantyRequest(string Name,long PriceIRR);
 public sealed record LinkWarrantyRequest(bool IsDefault);
+public sealed record CommissionConfigRequest(int RateBasisPoints,long MinimumCommissionIRR);
