@@ -29,6 +29,7 @@ public sealed class Product : AggregateRoot<long>
         };
     }
 
+    public void Rename(string name,string slug){if(string.IsNullOrWhiteSpace(name)||string.IsNullOrWhiteSpace(slug))throw new DomainException("Product name and slug are required.");Name=name.Trim();Slug=slug.Trim();}
     public void SetDescription(string? description) => Description = description?.Trim();
     public void SetBasePrice(long priceIrr) { if (priceIrr < 0) throw new DomainException("Price cannot be negative."); BasePriceIRR = priceIrr; }
     public void Activate() => Status = ProductStatus.Active;
