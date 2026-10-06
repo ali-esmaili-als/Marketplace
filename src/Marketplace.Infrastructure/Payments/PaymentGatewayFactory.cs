@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
