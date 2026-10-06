@@ -64,6 +64,17 @@ public sealed class CheckoutPricingService : ICheckoutPricingService
             shippingGross, shippingBenefit, shippingAmount, total, items));
     }
 
+    private static long CalculateDiscount(CampaignDiscountSnapshot? rule, long amount)
+    {
+        if (rule is null || amount <= 0) return 0;
+        return rule.DiscountType switch
+        {
+            1 => Math.Min(amount, checked(amount * rule.DiscountValue / 100)),
+            2 => Math.Min(amount, rule.DiscountValue),
+            _ => throw new InvalidOperationException("Unknown discount type.")
+        };
+    }
+
     private static long CalculateDiscount(DiscountSnapshot? rule, long amount)
     {
         if (rule is null || amount <= 0) return 0;
@@ -141,7 +152,7 @@ public sealed record PricedCheckoutItem(
     int Quantity,
     long UnitPriceIRR,
     string ProductNameSnapshot,
-    string? VariantKeySnapshot,
+    string VariantKeySnapshot,
     string? SkuSnapshot,
     long? WarrantyId,
     string? WarrantyNameSnapshot,
