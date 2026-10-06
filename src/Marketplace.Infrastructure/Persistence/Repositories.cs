@@ -10,6 +10,7 @@ using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
 using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Sellers;
+using Marketplace.Domain.Shipping;
 
 namespace Marketplace.Infrastructure.Persistence;
 
@@ -72,6 +73,50 @@ public sealed class CatalogRepository(MarketplaceDbContext db) : ICatalogReposit
 
     public Task<Store?> GetStoreAsync(long storeId, CancellationToken ct=default)
         => db.Stores.SingleOrDefaultAsync(x=>x.Id==storeId,ct);
+}
+
+
+public sealed class ShippingRepository(MarketplaceDbContext db) : IShippingRepository
+{
+    public Task<DeliveryCity?> GetCityAsync(long cityId, CancellationToken ct=default)
+        => db.DeliveryCities.SingleOrDefaultAsync(x => x.Id == cityId, ct);
+
+    public Task<List<DeliveryCity>> GetActiveCitiesAsync(CancellationToken ct=default)
+        => db.DeliveryCities.Where(x => x.IsActive).OrderBy(x => x.ProvinceName).ThenBy(x => x.Name).ToListAsync(ct);
+
+    public Task<List<DeliveryCity>> GetStoreCitiesAsync(long storeId, CancellationToken ct=default)
+        => db.StoreShippingCities
+            .Where(x => x.StoreId == storeId && x.City.IsActive)
+            .Select(x => x.City)
+            .OrderBy(x => x.ProvinceName).ThenBy(x => x.Name)
+            .ToListAsync(ct);
+
+    public Task<bool> StoreShipsToCityAsync(long storeId, long cityId, CancellationToken ct=default)
+        => db.StoreShippingCities.AnyAsync(x => x.StoreId == storeId && x.CityId == cityId && x.City.IsActive, ct);
+
+    public Task<List<long>> GetStoreCityIdsAsync(long storeId, CancellationToken ct=default)
+        => db.StoreShippingCities.Where(x => x.StoreId == storeId).Select(x => x.CityId).ToListAsync(ct);
+
+    public async Task ReplaceStoreCitiesAsync(long storeId, IReadOnlyCollection<long> cityIds, CancellationToken ct=default)
+    {
+        var desired = cityIds.Distinct().ToHashSet();
+        var current = await db.StoreShippingCities.Where(x => x.StoreId == storeId).ToListAsync(ct);
+
+        foreach (var row in current.Where(x => !desired.Contains(x.CityId)))
+            db.StoreShippingCities.Remove(row);
+
+        var currentIds = current.Select(x => x.CityId).ToHashSet();
+        foreach (var cityId in desired.Where(x => !currentIds.Contains(x)))
+        {
+            var id = await db.Database.SqlQueryRaw<long>("SELECT NEXT VALUE FOR dbo.MarketplaceSequence").SingleAsync(ct);
+            db.StoreShippingCities.Add(StoreShippingCity.Create(id, storeId, cityId));
+        }
+    }
+
+    public void AddStoreShippingCity(StoreShippingCity item) => db.StoreShippingCities.Add(item);
+
+    public void RemoveStoreShippingCities(IEnumerable<StoreShippingCity> items)
+        => db.StoreShippingCities.RemoveRange(items);
 }
 
 public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRepository
