@@ -9,7 +9,7 @@ public sealed class EfOrderWriter(MarketplaceDbContext db, IIdGenerator ids) : I
 {
     public async Task<long> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken = default)
     {
-        var id = ids.NewId();
+        var id = request.Id;
         var number = $"ORD-{id}";
         var order = Order.Create(id, number, request.CustomerId, request.StoreId, request.CartId,
             request.SubTotalIRR, request.CampaignDiscountIRR, request.DirectDiscountIRR,
