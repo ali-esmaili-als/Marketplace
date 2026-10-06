@@ -18,6 +18,18 @@ public sealed class RegistrationService(
         var user = User.Create(await ids.NextAsync(ct), mobile, "", displayName);
         user.SetPasswordHash(hasher.HashPassword(user, password));
         identity.AddUser(user);
+
+        var customerRole = await identity.GetRoleByNameAsync("Customer", ct)
+            ?? throw new Marketplace.Domain.Common.DomainException("Customer role is not configured.");
+        identity.AddUserRoleAssignment(UserRoleAssignment.Create(await ids.NextAsync(ct), user.Id, customerRole.Id));
+
+        foreach (var code in new[] { "Cart.Read", "Order.Create", "Order.ReadOwn" })
+        {
+            var rule = await identity.GetRuleByCodeAsync(code, ct)
+                ?? throw new Marketplace.Domain.Common.DomainException($"Rule {code} is not configured.");
+            identity.AddUserRule(UserRule.Create(await ids.NextAsync(ct), user.Id, rule.Id));
+        }
+
         await uow.SaveChangesAsync(ct);
         return user.Id;
     }
