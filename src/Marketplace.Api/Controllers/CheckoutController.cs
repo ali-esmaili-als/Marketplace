@@ -1,17 +1,18 @@
-using Marketplace.Application.Checkout.Commands;
 using Marketplace.Application.Authorization;
+using Marketplace.Application.Checkout.Commands;
 using Marketplace.Application.Checkout.Results;
 using Marketplace.Application.Checkout.Services;
+using Marketplace.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Marketplace.Api.Controllers;
 
-[ApiController,Authorize]
+[ApiController, Authorize]
 [Route("api/checkout")]
 public sealed class CheckoutController(CheckoutPayService checkout) : ControllerBase
 {
-    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:"+PermissionCodes.CheckoutPay)]
+    [ActionAccess(UserTypeId.Admin, UserTypeId.Customer)]
     [HttpPost("pay")]
     public async Task<ActionResult<CheckoutPayResult>> Pay(
         [FromBody] CheckoutPayCommand command,
