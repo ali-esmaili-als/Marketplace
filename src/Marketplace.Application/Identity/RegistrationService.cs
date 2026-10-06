@@ -15,7 +15,7 @@ public sealed class RegistrationService(
         if (await identity.GetUserByMobileAsync(mobile.Trim(), ct) is not null)
             throw new Marketplace.Domain.Common.DomainException("Mobile is already registered.");
 
-        var user = User.Create(await ids.NextAsync(ct), mobile, "", displayName);
+        var user = User.Create(await ids.NextAsync(ct), mobile, "pending", displayName);
         user.SetPasswordHash(hasher.HashPassword(user, password));
         identity.AddUser(user);
 
