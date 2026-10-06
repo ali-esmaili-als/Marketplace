@@ -12,12 +12,30 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
     [AllowAnonymous]
     [HttpPost("login")]
     public async Task<ActionResult<AuthResult>> Login(LoginRequest request, CancellationToken ct)
-        => Ok(await auth.LoginAsync(request.Mobile, request.Password, HttpContext.Connection.RemoteIpAddress?.ToString(), ct));
+    {
+        try
+        {
+            return Ok(await auth.LoginAsync(request.Mobile, request.Password, HttpContext.Connection.RemoteIpAddress?.ToString(), ct));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized();
+        }
+    }
 
     [AllowAnonymous]
     [HttpPost("refresh")]
     public async Task<ActionResult<AuthResult>> Refresh(RefreshRequest request, CancellationToken ct)
-        => Ok(await auth.RefreshAsync(request.RefreshToken, HttpContext.Connection.RemoteIpAddress?.ToString(), ct));
+    {
+        try
+        {
+            return Ok(await auth.RefreshAsync(request.RefreshToken, HttpContext.Connection.RemoteIpAddress?.ToString(), ct));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized();
+        }
+    }
 
     [Authorize]
     [HttpPost("revoke")]
