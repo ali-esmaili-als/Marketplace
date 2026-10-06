@@ -1,5 +1,6 @@
 using Marketplace.Domain.Carts;
 using Marketplace.Domain.Catalog;
+using Marketplace.Domain.Authorization;
 using Marketplace.Domain.Coupons;
 using Marketplace.Domain.Delivery;
 using Marketplace.Domain.Finance;
@@ -17,6 +18,11 @@ namespace Marketplace.Infrastructure.Persistence;
 public sealed class MarketplaceDbContext(DbContextOptions<MarketplaceDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
+    public DbSet<Permission> Permissions => Set<Permission>();
+    public DbSet<Rule> Rules => Set<Rule>();
+    public DbSet<UserRule> UserRules => Set<UserRule>();
+    public DbSet<RulePermission> RulePermissions => Set<RulePermission>();
+    public DbSet<PermissionUserType> PermissionUserTypes => Set<PermissionUserType>();
     public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<UserSession> UserSessions => Set<UserSession>();
