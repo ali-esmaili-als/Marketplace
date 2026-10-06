@@ -22,3 +22,8 @@ public sealed record UpdateRulePermissionsRequest(
 public sealed record AssignRuleRequest(
     long UserId,
     long RuleId);
+
+
+public sealed record UserAuthorizationRulesDto(
+    long UserId,
+    IReadOnlyList<long> RuleIds);
