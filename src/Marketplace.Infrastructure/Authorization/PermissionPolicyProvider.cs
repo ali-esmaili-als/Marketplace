@@ -11,7 +11,7 @@ public sealed class PermissionPolicyProvider(IOptions<AuthorizationOptions> opti
 
     private readonly DefaultAuthorizationPolicyProvider fallback = new(options);
 
-    public Task<AuthorizationPolicy?> GetDefaultPolicyAsync()
+    public Task<AuthorizationPolicy> GetDefaultPolicyAsync()
         => fallback.GetDefaultPolicyAsync();
 
     public Task<AuthorizationPolicy?> GetFallbackPolicyAsync()
