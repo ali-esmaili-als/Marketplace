@@ -38,7 +38,7 @@ public sealed class SettlementService
             var before=balance.WithdrawableIRR+amountIRR;
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),seller.Id,null,settlement.Id,
-                BalanceTransactionType.Settlement,amountIRR,before,balance.WithdrawableIRR,"SETTLEMENT_REQUESTED"));
+                BalanceTransactionType.Settlement,amountIRR,before,balance.WithdrawableIRR,"SETTLEMENT_REQUESTED",BalanceBucket.ReservedForSettlement));
 
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id,amountIRR,settlement.Status.ToString(),null);
@@ -85,7 +85,7 @@ public sealed class SettlementService
             balance.RemoveAvailable(amount);
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),sellerId,null,settlement.Id,
-                BalanceTransactionType.Settlement,amount,before,balance.WithdrawableIRR,result.Reference));
+                BalanceTransactionType.Settlement,amount,before,balance.WithdrawableIRR,result.Reference,BalanceBucket.Available));
 
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),result.Reference);
