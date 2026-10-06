@@ -1,4 +1,3 @@
 namespace Marketplace.Application.Pricing;
-
 public sealed record CreateCampaignRequest(string Name,Marketplace.Domain.Pricing.DiscountType DiscountType,decimal DiscountValue,DateTime StartsAtUtc,DateTime EndsAtUtc,long[] ProductIds,long[] VariantIds);
 public sealed record CreateCouponRequest(string Code,Marketplace.Domain.Pricing.DiscountType DiscountType,decimal DiscountValue,long? MaxDiscountAmountIRR,long? MinimumPurchaseIRR,int? MaxUses,bool NewCustomerOnly,DateTime? StartsAtUtc,DateTime? EndsAtUtc,long[] ProductIds,long[] CategoryIds);
