@@ -85,7 +85,7 @@ app.MapPost("/api/admin/users/{userId:long}/rules",async(long userId,UserRuleReq
     await service.GrantRuleAsync(userId,request.Code,ct); return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
-app.MapDelete("/api/admin/users/{userId:long}/rules",async(long userId,UserRuleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
+app.MapDelete("/api/admin/users/{userId:long}/rules",async(long userId,[Microsoft.AspNetCore.Mvc.FromBody] UserRuleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
     await service.RevokeRuleAsync(userId,request.Code,ct); return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
@@ -93,7 +93,7 @@ app.MapPost("/api/admin/users/{userId:long}/roles",async(long userId,UserRoleReq
     await service.AssignRoleAsync(userId,request.RoleName,ct); return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
-app.MapDelete("/api/admin/users/{userId:long}/roles",async(long userId,UserRoleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
+app.MapDelete("/api/admin/users/{userId:long}/roles",async(long userId,[Microsoft.AspNetCore.Mvc.FromBody] UserRoleRequest request,Marketplace.Application.Identity.IdentityAdminService service,CancellationToken ct)=>{
     await service.RevokeRoleAsync(userId,request.RoleName,ct); return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
