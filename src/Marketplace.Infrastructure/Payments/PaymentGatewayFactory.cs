@@ -19,7 +19,7 @@ public sealed class PaymentGatewayFactory(
         var setting=await db.PaymentProviderSettings.SingleOrDefaultAsync(x=>x.Provider==provider,ct)
             ?? throw new DomainException("Payment provider is not configured.");
 
-        if(!setting.IsEnabled || !setting.IsVisible)
+        if(!setting.IsEnabled)
             throw new DomainException("Payment provider is not currently available.");
 
         var config=BankGatewayAdapterBase.Parse(setting.ConfigurationJson);
