@@ -21,18 +21,18 @@ public sealed class OrderCreationService
     private readonly ILifecycleRepository _life;
     private readonly IUnitOfWork _uow;
     private readonly IIdGenerator _ids;
-    private readonly IPaymentGateway _gateway;
+    private readonly IPaymentGatewayFactory _gatewayFactory;
 
     public OrderCreationService(
         ICartRepository carts, ICatalogRepository catalog, IOrderRepository orders,
         IPaymentRepository payments, ILifecycleRepository life, IUnitOfWork uow,
-        IIdGenerator ids, IPaymentGateway gateway)
+        IIdGenerator ids, IPaymentGatewayFactory gatewayFactory)
     {
         _carts=carts; _catalog=catalog; _orders=orders; _payments=payments;
-        _life=life; _uow=uow; _ids=ids; _gateway=gateway;
+        _life=life; _uow=uow; _ids=ids; _gatewayFactory=gatewayFactory;
     }
 
-    public async Task<CheckoutResult> CheckoutAsync(long customerId, CancellationToken ct=default)
+    public async Task<CheckoutResult> CheckoutAsync(long customerId,Marketplace.Domain.Payments.PaymentProviderCode provider,CancellationToken ct=default)
     {
         long orderId=0, paymentId=0, total=0;
 
@@ -111,7 +111,8 @@ public sealed class OrderCreationService
         },ct);
 
         // Never hold a SQL transaction open while calling the external payment gateway.
-        var redirect=await _gateway.CreatePaymentAsync(paymentId,orderId,total,ct);
+        var gateway=await _gatewayFactory.GetAsync(provider,ct);
+        var redirect=await gateway.CreatePaymentAsync(paymentId,orderId,total,ct);
 
         await _uow.ExecuteInTransactionAsync(async token =>
         {
