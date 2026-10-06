@@ -72,6 +72,14 @@ public sealed class OrderLifecycleService
         var pendingBefore=b.PendingIRR;
         _domain.OnDelivered(o,d,b,now,complaintExpiresAtUtc);
 
+        var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
+        foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
+        {
+            var inventory=await _life.GetInventoryItemAsync(reservation.ProductVariantId,token)??throw new DomainException("Inventory item not found.");
+            inventory.ConsumeReservation(reservation.Quantity);
+            reservation.Consume();
+        }
+
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.PendingReleased,
             o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY"));
@@ -92,6 +100,14 @@ public sealed class OrderLifecycleService
         var pendingBefore=b.PendingIRR;
         d.Expire(now);
         _domain.OnDeliveryExpired(o,d,b);
+
+        var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
+        foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
+        {
+            var inventory=await _life.GetInventoryItemAsync(reservation.ProductVariantId,token)??throw new DomainException("Inventory item not found.");
+            inventory.Release(reservation.Quantity);
+            reservation.Release();
+        }
 
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.PendingRemoved,
