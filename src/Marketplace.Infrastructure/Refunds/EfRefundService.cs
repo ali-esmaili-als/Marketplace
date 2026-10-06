@@ -9,7 +9,7 @@ namespace Marketplace.Infrastructure.Refunds;
 
 public sealed class EfRefundService(
     MarketplaceDbContext db,
-    IIdGenerator ids, ICurrentUser currentUser) : IRefundService
+    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance) : IRefundService
 {
     public async Task<long> CreateAsync(
         long orderId, long paymentId, long amountIRR, string? reason,
@@ -89,22 +89,28 @@ public sealed class EfRefundService(
             db.CommissionReversals.Add(CommissionReversal.Create(
                 ids.NewId(), commission.Id, orderId, refund.Id, amountIRR, reversed));
 
-            var balance = await db.SellerBalances.SingleOrDefaultAsync(
-                x => x.SellerId == commission.SellerId, cancellationToken)
-                ?? throw new InvalidOperationException("Seller balance not found.");
-
             var sellerDebit = amountIRR - reversed;
             if (sellerDebit > 0)
             {
-                var withdrawable = balance.WithdrawableIRR;
-                var fromAvailable = Math.Min(sellerDebit, withdrawable);
+                var balance = await db.SellerBalances.SingleOrDefaultAsync(
+                    x => x.SellerId == commission.SellerId, cancellationToken)
+                    ?? throw new InvalidOperationException("Seller balance not found.");
+
+                var fromAvailable = Math.Min(sellerDebit, balance.WithdrawableIRR);
+                var liability = sellerDebit - fromAvailable;
 
                 if (fromAvailable > 0)
-                    balance.RemoveAvailable(fromAvailable);
+                    await sellerBalance.DebitAvailableAsync(
+                        commission.SellerId, orderId, fromAvailable,
+                        BalanceTransactionType.Refund,
+                        $"REFUND:{refund.Id}",
+                        cancellationToken);
 
-                var liability = sellerDebit - fromAvailable;
                 if (liability > 0)
-                    balance.AddLiability(liability);
+                    await sellerBalance.AddLiabilityAsync(
+                        commission.SellerId, orderId, liability,
+                        $"REFUND:{refund.Id}:LIABILITY",
+                        cancellationToken);
             }
 
             if (completedRefund + amountIRR == payment.AmountIRR)
