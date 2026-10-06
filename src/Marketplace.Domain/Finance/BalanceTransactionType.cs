@@ -9,5 +9,10 @@ public enum BalanceTransactionType : byte
     Adjustment = 5,
     Reversal = 6,
     ReleasePending = 7,
-    CommissionReversal = 8
+    CommissionReversal = 8,
+    PendingReleased = 9,
+    ComplaintHold = 10,
+    ComplaintHoldReleased = 11,
+    ComplaintHoldConsumed = 12,
+    PendingRemoved = 13
 }
