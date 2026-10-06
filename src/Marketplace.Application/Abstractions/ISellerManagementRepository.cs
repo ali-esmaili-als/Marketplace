@@ -15,6 +15,7 @@ public interface ISellerManagementRepository
     Task<SellerBankAccount?> GetBankAccountAsync(long sellerId, long accountId, CancellationToken ct = default);
     Task<List<SellerBankAccount>> GetBankAccountsAsync(long sellerId, CancellationToken ct = default);
     Task<SellerBalance?> GetBalanceAsync(long sellerId, CancellationToken ct = default);
+    Task<bool> StoreBelongsToSellerAsync(long storeId, long sellerId, CancellationToken ct = default);
     Task<bool> StoreSlugExistsAsync(long sellerId, string slug, long? exceptStoreId = null, CancellationToken ct = default);
     void AddSeller(Seller seller);
     void AddStore(Store store);
