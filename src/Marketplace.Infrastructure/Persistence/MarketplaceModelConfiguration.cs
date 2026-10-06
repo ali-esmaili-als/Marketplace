@@ -85,7 +85,7 @@ internal static class MarketplaceModelConfiguration
         modelBuilder.Entity<DeliveryCode>().HasIndex("OrderId").IsUnique();
         modelBuilder.Entity<Commission>().HasIndex("OrderId").IsUnique();
         modelBuilder.Entity<SellerBalance>().HasIndex("SellerId").IsUnique();
-        modelBuilder.Entity<CommissionReversal>().HasIndex("CommissionId").IsUnique();
+        modelBuilder.Entity<CommissionReversal>().HasIndex("CommissionId", "RefundId").IsUnique();
 
         modelBuilder.Entity<Category>().Property<string>("Path").HasMaxLength(850).IsUnicode(false);
         modelBuilder.Entity<ProductVariant>().Property<string>("VariantKey").HasMaxLength(1000).IsUnicode(false);
