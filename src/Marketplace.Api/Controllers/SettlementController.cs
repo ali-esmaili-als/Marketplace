@@ -1,15 +1,16 @@
+using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Finance.Ports;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-
 namespace Marketplace.Api.Controllers;
-
-[ApiController]
-[Route("api/settlements")]
-public sealed class SettlementController(ISettlementService service) : ControllerBase
+[ApiController,Authorize,Route("api/settlements")]
+public sealed class SettlementController(ISettlementService service,ICurrentUser currentUser):ControllerBase
 {
-    [HttpPost]
-    public async Task<ActionResult<long>> Request([FromBody] RequestSettlementRequest request, CancellationToken cancellationToken)
-        => Ok(await service.RequestAsync(request.SellerId, request.BankAccountId, request.AmountIRR, cancellationToken));
-
-    public sealed record RequestSettlementRequest(long SellerId, long BankAccountId, long AmountIRR);
+ [HttpPost]
+ public async Task<ActionResult<long>> Request(RequestSettlementRequest request,CancellationToken ct)
+ {
+  if(!currentUser.IsAuthenticated)return Unauthorized();
+  return Ok(await service.RequestAsync(currentUser.UserId,request.BankAccountId,request.AmountIRR,ct));
+ }
+ public sealed record RequestSettlementRequest(long BankAccountId,long AmountIRR);
 }
