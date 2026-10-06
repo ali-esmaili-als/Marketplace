@@ -1,4 +1,5 @@
 using Marketplace.Application.Payments.Ports;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Marketplace.Api.Controllers;
@@ -7,6 +8,7 @@ namespace Marketplace.Api.Controllers;
 [Route("api/payments")]
 public sealed class PaymentController(IPaymentCompletionService completion) : ControllerBase
 {
+    [AllowAnonymous]
     [HttpPost("{paymentAttemptId:long}/complete")]
     public async Task<IActionResult> Complete(
         long paymentAttemptId,
