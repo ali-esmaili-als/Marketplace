@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Marketplace.Application.Abstractions;
+using Marketplace.Domain.Identity;
 using Marketplace.Infrastructure.Payments;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
