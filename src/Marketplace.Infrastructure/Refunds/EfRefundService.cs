@@ -9,13 +9,14 @@ namespace Marketplace.Infrastructure.Refunds;
 
 public sealed class EfRefundService(
     MarketplaceDbContext db,
-    IIdGenerator ids) : IRefundService
+    IIdGenerator ids, ICurrentUser currentUser) : IRefundService
 {
     public async Task<long> CreateAsync(
         long orderId, long paymentId, long amountIRR, string? reason,
         IReadOnlyList<RefundLineRequest> items,
         CancellationToken cancellationToken = default)
     {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required.");
         if (items.Count == 0)
             throw new InvalidOperationException("At least one refund item is required.");
 
@@ -26,6 +27,8 @@ public sealed class EfRefundService(
         {
             var order = await db.Orders.SingleOrDefaultAsync(x => x.Id == orderId, cancellationToken)
                 ?? throw new InvalidOperationException("Order not found.");
+            if (order.CustomerId != currentUser.UserId)
+                throw new UnauthorizedAccessException("You cannot refund this order.");
 
             var payment = await db.Payments.SingleOrDefaultAsync(
                 x => x.Id == paymentId && x.OrderId == orderId, cancellationToken)
