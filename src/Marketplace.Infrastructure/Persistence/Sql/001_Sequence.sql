@@ -1,0 +1,3 @@
+IF OBJECT_ID(N'dbo.MarketplaceSequence',N'SQ') IS NULL
+    EXEC(N'CREATE SEQUENCE dbo.MarketplaceSequence AS BIGINT START WITH 1000000000 INCREMENT BY 1;');
+GO
