@@ -178,3 +178,19 @@ public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRep
     public void AddCommission(Commission commission)=>db.Commissions.Add(commission);
     public void AddCouponUsage(CouponUsage usage)=>db.CouponUsages.Add(usage);
 }
+
+
+public sealed class CatalogManagementRepository(MarketplaceDbContext db) : ICatalogManagementRepository
+{
+ public Task<Product?> GetProductAsync(long id,CancellationToken ct=default)=>db.Products.SingleOrDefaultAsync(x=>x.Id==id,ct);
+ public Task<ProductVariant?> GetVariantAsync(long id,CancellationToken ct=default)=>db.ProductVariants.SingleOrDefaultAsync(x=>x.Id==id,ct);
+ public Task<bool> ProductBelongsToStoreAsync(long productId,long storeId,CancellationToken ct=default)=>db.Products.AnyAsync(x=>x.Id==productId&&x.StoreId==storeId,ct);
+ public Task<bool> VariantBelongsToStoreAsync(long variantId,long storeId,CancellationToken ct=default)=>db.ProductVariants.AnyAsync(x=>x.Id==variantId&&db.Products.Any(p=>p.Id==x.ProductId&&p.StoreId==storeId),ct);
+ public Task<bool> CategoryIsActiveAsync(long categoryId,CancellationToken ct=default)=>db.Categories.AnyAsync(x=>x.Id==categoryId&&x.IsActive,ct);
+ public Task<bool> WarrantyBelongsToStoreAsync(long warrantyId,long storeId,CancellationToken ct=default)=>db.Warranties.AnyAsync(x=>x.Id==warrantyId&&x.StoreId==storeId&&x.IsActive,ct);
+ public Task<InventoryItem?> GetInventoryAsync(long variantId,CancellationToken ct=default)=>db.InventoryItems.SingleOrDefaultAsync(x=>x.ProductVariantId==variantId,ct);
+ public Task<List<Product>> GetProductsAsync(long storeId,CancellationToken ct=default)=>db.Products.Where(x=>x.StoreId==storeId).OrderByDescending(x=>x.Id).ToListAsync(ct);
+ public Task<List<ProductVariant>> GetVariantsAsync(long productId,CancellationToken ct=default)=>db.ProductVariants.Where(x=>x.ProductId==productId).OrderBy(x=>x.Id).ToListAsync(ct);
+ public Task<List<Warranty>> GetWarrantiesAsync(long storeId,CancellationToken ct=default)=>db.Warranties.Where(x=>x.StoreId==storeId).OrderBy(x=>x.Id).ToListAsync(ct);
+ public void AddProduct(Product x)=>db.Products.Add(x); public void AddVariant(ProductVariant x)=>db.ProductVariants.Add(x); public void AddInventory(InventoryItem x)=>db.InventoryItems.Add(x); public void AddWarranty(Warranty x)=>db.Warranties.Add(x); public void AddProductWarranty(ProductWarranty x)=>db.ProductWarranties.Add(x);
+}
