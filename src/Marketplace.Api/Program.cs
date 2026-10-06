@@ -36,6 +36,9 @@ builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationP
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
 
 var app=builder.Build();
+
+long CurrentUserId(System.Security.Claims.ClaimsPrincipal user)
+    => long.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : throw new UnauthorizedAccessException();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -89,11 +92,47 @@ app.MapDelete("/api/cart/items/{variantId:long}",async(long variantId,long custo
 app.MapGet("/api/shipping/cities",async(Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>
     Results.Ok(await service.GetCitiesAsync(ct)));
 
+app.MapPost("/api/sellers/apply",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    var id=await service.ApplyAsync(CurrentUserId(user),ct); return Results.Ok(new { sellerId=id });
+}).RequireAuthorization();
+
+app.MapGet("/api/sellers/me/stores",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>
+    Results.Ok(await service.GetMyStoresAsync(CurrentUserId(user),ct)))
+    .RequirePermission("Seller.Shipping.Configure");
+
+app.MapPost("/api/sellers/me/stores",async(System.Security.Claims.ClaimsPrincipal user,CreateStoreRequest request,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    var id=await service.CreateStoreAsync(CurrentUserId(user),request.Name,request.Slug,request.Description,ct); return Results.Ok(new { storeId=id });
+}).RequirePermission("Seller.Shipping.Configure");
+
+app.MapPut("/api/sellers/me/stores/{storeId:long}",async(System.Security.Claims.ClaimsPrincipal user,long storeId,UpdateStoreRequest request,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    await service.UpdateStoreAsync(CurrentUserId(user),storeId,request.Name,request.Slug,request.Description,ct); return Results.NoContent();
+}).RequirePermission("Seller.Shipping.Configure");
+
+app.MapPost("/api/sellers/me/stores/{storeId:long}/activate",async(System.Security.Claims.ClaimsPrincipal user,long storeId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    await service.ActivateStoreAsync(CurrentUserId(user),storeId,ct); return Results.NoContent();
+}).RequirePermission("Seller.Shipping.Configure");
+
+app.MapPost("/api/sellers/me/stores/{storeId:long}/close",async(System.Security.Claims.ClaimsPrincipal user,long storeId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    await service.CloseStoreAsync(CurrentUserId(user),storeId,ct); return Results.NoContent();
+}).RequirePermission("Seller.Shipping.Configure");
+
+app.MapGet("/api/sellers/me/bank-accounts",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>
+    Results.Ok(await service.GetMyBankAccountsAsync(CurrentUserId(user),ct)))
+    .RequirePermission("Seller.Settlement.Request");
+
+app.MapPost("/api/sellers/me/bank-accounts",async(System.Security.Claims.ClaimsPrincipal user,AddBankAccountRequest request,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    var id=await service.AddBankAccountAsync(CurrentUserId(user),request.BankName,request.Iban,request.AccountHolderName,request.MakeDefault,ct); return Results.Ok(new { bankAccountId=id });
+}).RequirePermission("Seller.Settlement.Request");
+
+app.MapPost("/api/sellers/me/bank-accounts/{accountId:long}/default",async(System.Security.Claims.ClaimsPrincipal user,long accountId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    await service.SetDefaultBankAccountAsync(CurrentUserId(user),accountId,ct); return Results.NoContent();
+}).RequirePermission("Seller.Settlement.Request");
+
 app.MapGet("/api/stores/{storeId:long}/shipping-cities",async(long storeId,Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>
     Results.Ok(await service.GetStoreCitiesAsync(storeId,ct)));
 
-app.MapPut("/api/stores/{storeId:long}/shipping-cities",async(long storeId,StoreShippingCitiesRequest request,Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>{
-    await service.ConfigureStoreCitiesAsync(storeId,request.CityIds,ct); return Results.NoContent();
+app.MapPut("/api/stores/{storeId:long}/shipping-cities",async(System.Security.Claims.ClaimsPrincipal user,long storeId,StoreShippingCitiesRequest request,Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>{
+    await service.ConfigureStoreCitiesAsync(CurrentUserId(user),storeId,request.CityIds,ct); return Results.NoContent();
 }).RequirePermission("Seller.Shipping.Configure");
 
 app.MapGet("/api/payments/providers",async(Marketplace.Application.Abstractions.IPaymentProviderSettings settings,CancellationToken ct)=>
@@ -107,8 +146,8 @@ app.MapPut("/api/admin/payment-providers/{provider}",async(Marketplace.Domain.Pa
     return Results.NoContent();
 }).RequirePermission("Admin.PaymentProviders.Configure");
 
-app.MapPost("/api/settlements",async(SettlementRequest request,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
-    var result=await service.RequestAsync(request.SellerId,request.BankAccountId,request.AmountIRR,ct); return Results.Ok(result);
+app.MapPost("/api/settlements",async(System.Security.Claims.ClaimsPrincipal user,SettlementRequest request,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
+    var result=await service.RequestAsync(CurrentUserId(user),request.BankAccountId,request.AmountIRR,ct); return Results.Ok(result);
 }).RequirePermission("Seller.Settlement.Request");
 
 app.MapPost("/api/settlements/{settlementId:long}/process",async(long settlementId,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
@@ -154,7 +193,7 @@ app.Run();
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
-public sealed record SettlementRequest(long SellerId,long BankAccountId,long AmountIRR);
+public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record PaymentVerifyRequest(string Authority);
 public sealed record DeliveryConfirmRequest(string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
