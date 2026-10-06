@@ -18,11 +18,12 @@ public sealed class PaymentVerificationService
         _payments=payments; _gatewayFactory=gatewayFactory; _uow=uow; _lifecycle=lifecycle;
     }
 
-    public async Task<PaymentVerificationResult> VerifyAsync(long paymentId,string authority,CancellationToken ct=default)
+    public async Task<PaymentVerificationResult> VerifyAsync(long userId,long paymentId,string authority,CancellationToken ct=default)
     {
         if(string.IsNullOrWhiteSpace(authority)) throw new DomainException("Payment authority is required.");
 
         var payment=await _payments.GetAsync(paymentId,ct)??throw new DomainException("Payment not found.");
+        if(payment.CustomerId!=userId) throw new DomainException("Customer does not own this payment.");
         if(!string.Equals(payment.Authority,authority,StringComparison.Ordinal))
             throw new DomainException("Payment authority does not match.");
 
