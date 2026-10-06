@@ -28,6 +28,19 @@ public sealed class RefundController(IRefundService service) : ControllerBase
                 x.InventoryDisposition)).ToArray(),
             ct));
 
+    [ActionAccess(UserTypeId.Admin)]
+    [HttpPost("{refundId:long}/complete")]
+    public async Task<IActionResult> Complete(
+        long refundId,
+        CompleteRefundRequest request,
+        CancellationToken ct)
+    {
+        await service.CompleteAsync(refundId, request.GatewayRefundReference, ct);
+        return NoContent();
+    }
+
+    public sealed record CompleteRefundRequest(string GatewayRefundReference);
+
     public sealed record CreateRefundRequest(
         long OrderId,
         long PaymentId,
