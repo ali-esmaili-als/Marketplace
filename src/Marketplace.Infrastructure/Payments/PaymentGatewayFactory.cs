@@ -14,12 +14,15 @@ public sealed class PaymentGatewayFactory(
     public Task<IReadOnlyList<PaymentProviderInfo>> GetAvailableAsync(CancellationToken ct=default)
         => settings.GetAvailableAsync(ct);
 
-    public async Task<IPaymentGateway> GetAsync(PaymentProviderCode provider,CancellationToken ct=default)
+    public Task<IPaymentGateway> GetForExistingPaymentAsync(PaymentProviderCode provider,CancellationToken ct=default)=>CreateAsync(provider,ct,false);
+    public Task<IPaymentGateway> GetAsync(PaymentProviderCode provider,CancellationToken ct=default)=>CreateAsync(provider,ct,true);
+
+    private async Task<IPaymentGateway> CreateAsync(PaymentProviderCode provider,CancellationToken ct,bool requireVisible)
     {
         var setting=await db.PaymentProviderSettings.SingleOrDefaultAsync(x=>x.Provider==provider,ct)
             ?? throw new DomainException("Payment provider is not configured.");
 
-        if(!setting.IsEnabled)
+        if(!setting.IsEnabled || (requireVisible && !setting.IsVisible))
             throw new DomainException("Payment provider is not currently available.");
 
         var config=BankGatewayAdapterBase.Parse(setting.ConfigurationJson);
