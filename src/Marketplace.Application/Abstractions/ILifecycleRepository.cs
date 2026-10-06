@@ -11,6 +11,7 @@ namespace Marketplace.Application.Abstractions;
 public interface ILifecycleRepository
 {
     Task<Delivery?> GetDeliveryByOrderAsync(long orderId,CancellationToken ct=default);
+    Task<DeliveryCode?> GetDeliveryCodeByOrderAsync(long orderId,CancellationToken ct=default);
     Task<Complaint?> GetComplaintAsync(long complaintId,CancellationToken ct=default);
     Task<Complaint?> GetOpenComplaintByOrderAsync(long orderId,CancellationToken ct=default);
     Task<Refund?> GetActiveRefundByOrderAsync(long orderId,CancellationToken ct=default);
@@ -24,6 +25,7 @@ public interface ILifecycleRepository
     Task<Settlement?> GetSettlementAsync(long settlementId,CancellationToken ct=default);
     void AddSettlement(Settlement settlement);
     void AddDelivery(Delivery delivery);
+    void AddDeliveryCode(DeliveryCode code);
     void AddComplaint(Complaint complaint);
     void AddRefund(Refund refund);
     void AddBalanceHold(SellerBalanceHold hold);
