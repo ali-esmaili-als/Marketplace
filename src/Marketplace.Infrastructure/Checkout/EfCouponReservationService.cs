@@ -86,7 +86,9 @@ public sealed class EfCouponReservationService(MarketplaceDbContext db, IIdGener
     {
         var usage = await db.CouponUsages.SingleOrDefaultAsync(
             x => x.OrderId == orderId && x.Status == CouponUsageStatus.Reserved,
-            cancellationToken) ?? throw new InvalidOperationException("Coupon reservation not found.");
+            cancellationToken);
+
+        if (usage is null) return;
 
         var coupon = await db.Coupons.SingleAsync(x => x.Id == usage.CouponId, cancellationToken);
         coupon.MarkUsageUsed();
