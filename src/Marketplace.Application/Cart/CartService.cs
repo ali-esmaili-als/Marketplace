@@ -19,6 +19,11 @@ public sealed class CartService
     public Task AddItemAsync(long customerId, long sellerId, long storeId, long productId, long variantId, int quantity, long? warrantyId, CancellationToken ct=default)
         => _uow.ExecuteInTransactionAsync(async token =>
         {
+            if (customerId <= 0 || sellerId <= 0 || storeId <= 0) throw new DomainException("Invalid cart ownership data.");
+            var store = await _catalog.GetStoreAsync(storeId, token) ?? throw new DomainException("Store not found.");
+            if (store.SellerId != sellerId || store.Status != Marketplace.Domain.Sellers.StoreStatus.Active)
+                throw new DomainException("Store is not available.");
+
             var line = await _catalog.GetCheckoutLineAsync(variantId, warrantyId, token)
                 ?? throw new DomainException("Product variant or warranty not found.");
             if (line.Product.Id != productId) throw new DomainException("Variant does not belong to the product.");
