@@ -2,6 +2,10 @@ using Marketplace.Application.Common.Abstractions;
 using Marketplace.Infrastructure.Persistence;
 using Marketplace.Application.Checkout.Ports;
 using Marketplace.Infrastructure.Checkout;
+using Marketplace.Application.Delivery.Ports;
+using Marketplace.Application.Finance.Ports;
+using Marketplace.Infrastructure.Delivery;
+using Marketplace.Infrastructure.Finance;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +29,8 @@ public static class DependencyInjection
         services.AddScoped<IPaymentAttemptFactory, EfPaymentAttemptFactory>();
         services.AddScoped<IInventoryReservationService, EfInventoryReservationService>();
         services.AddScoped<ICouponReservationService, EfCouponReservationService>();
+        services.AddScoped<IDeliveryService, EfDeliveryService>();
+        services.AddScoped<IFinanceService, EfFinanceService>();
         return services;
     }
 
