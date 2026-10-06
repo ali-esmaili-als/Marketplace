@@ -18,6 +18,8 @@ public static class DependencyInjection
         services.AddScoped<IOrderRepository,OrderRepository>();
         services.AddScoped<IPaymentRepository,PaymentRepository>();
         services.AddScoped<ILifecycleRepository,LifecycleRepository>();
+        services.AddScoped<ICartRepository,CartRepository>();
+        services.AddScoped<ICatalogRepository,CatalogRepository>();
         services.AddScoped<IPaymentGateway,NotConfiguredPaymentGateway>();
         return services;
     }
