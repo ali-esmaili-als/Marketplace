@@ -24,6 +24,19 @@ public sealed class EfSellerBalanceService(MarketplaceDbContext db, IIdGenerator
     public Task DebitAvailableAsync(long sellerId,long orderId,long amount,BalanceTransactionType type,string reference,CancellationToken ct=default)
         => Change(sellerId,orderId,amount,type,BalanceBucket.Available,reference,b=>b.RemoveAvailable(amount));
 
+    public Task ReserveForSettlementAsync(long sellerId, long settlementId, long amount, string reference, CancellationToken ct = default)
+        => ChangeSettlement(sellerId, settlementId, amount, reference, ct);
+
+    private async Task ChangeSettlement(long sellerId, long settlementId, long amount, string reference, CancellationToken ct)
+    {
+        if (amount <= 0) throw new ArgumentOutOfRangeException(nameof(amount));
+        var b = await Get(sellerId);
+        var before = b.ReservedForSettlementIRR;
+        b.ReserveForSettlement(amount);
+        var after = b.ReservedForSettlementIRR;
+        db.BalanceTransactions.Add(BalanceTransaction.Create(ids.NewId(), sellerId, null, settlementId, BalanceTransactionType.Settlement, BalanceBucket.ReservedForSettlement, amount, before, after, reference));
+    }
+
     public Task AddLiabilityAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
         => Change(sellerId,orderId,amount,BalanceTransactionType.Adjustment,BalanceBucket.Liability,reference,b=>b.AddLiability(amount));
 
