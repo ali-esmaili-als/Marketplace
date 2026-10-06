@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<ICartRepository,CartRepository>();
         services.AddScoped<ICatalogRepository,CatalogRepository>();
         services.AddScoped<IShippingRepository,ShippingRepository>();
+        services.AddScoped<ISellerManagementRepository,SellerManagementRepository>();
         services.AddScoped<IIdentityRepository, IdentityRepository>();
         services.AddScoped<ITokenService, Identity.JwtTokenService>();
         services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
