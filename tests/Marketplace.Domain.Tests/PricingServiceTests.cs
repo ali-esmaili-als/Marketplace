@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Marketplace.Application.Abstractions;
 using Marketplace.Application.Pricing;
 using Marketplace.Domain.Cart;
@@ -62,6 +66,8 @@ public sealed class PricingServiceTests
         public Task<bool> CouponHasCategoryScopeAsync(long couponId,long categoryId,CancellationToken ct=default)=>Task.FromResult(false);
         public Task<bool> CouponHasProductScopeAsync(long couponId,long productId,CancellationToken ct=default)=>Task.FromResult(false);
         public Task<bool> CouponHasAnyScopeAsync(long couponId,CancellationToken ct=default)=>Task.FromResult(false);
+        public Task<bool> ProductBelongsToStoreAsync(long productId,long storeId,CancellationToken ct=default)=>Task.FromResult(true);
+        public Task<bool> VariantBelongsToProductAsync(long variantId,long productId,CancellationToken ct=default)=>Task.FromResult(true);
         public void AddCampaign(Campaign campaign){}
         public void AddCampaignTarget(CampaignProduct target){}
         public void AddCoupon(Coupon coupon){}
