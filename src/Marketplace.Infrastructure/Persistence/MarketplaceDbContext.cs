@@ -5,6 +5,8 @@ using Marketplace.Domain.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Identity;
 using Marketplace.Domain.Inventory;
+using Marketplace.Domain.Refunds;
+using Marketplace.Domain.Complaints;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
 using Marketplace.Domain.Sellers;
@@ -63,6 +65,9 @@ public sealed class MarketplaceDbContext(DbContextOptions<MarketplaceDbContext> 
     public DbSet<SellerBalanceHold> SellerBalanceHolds => Set<SellerBalanceHold>();
     public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<CommissionReversal> CommissionReversals => Set<CommissionReversal>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundItem> RefundItems => Set<RefundItem>();
+    public DbSet<Complaint> Complaints => Set<Complaint>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
