@@ -6,10 +6,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Marketplace.Infrastructure.Checkout;
 
-public sealed class EfInventoryReservationService(MarketplaceDbContext db, IIdGenerator ids, IClock clock)
-    : IInventoryReservationService
+public sealed class EfInventoryReservationService(
+    MarketplaceDbContext db,
+    IIdGenerator ids,
+    IClock clock) : IInventoryReservationService
 {
-    public async Task ReserveAsync(long orderId, IReadOnlyList<InventoryReservationRequest> items, CancellationToken cancellationToken = default)
+    public async Task ReserveAsync(
+        long orderId,
+        IReadOnlyList<InventoryReservationRequest> items,
+        CancellationToken cancellationToken = default)
     {
         foreach (var item in items.OrderBy(x => x.ProductVariantId))
         {
@@ -22,26 +27,36 @@ public sealed class EfInventoryReservationService(MarketplaceDbContext db, IIdGe
                 """, cancellationToken);
 
             if (affected != 1)
-                throw new InvalidOperationException($"Insufficient stock for variant {item.ProductVariantId}.");
+                throw new InvalidOperationException(
+                    $"Insufficient stock for variant {item.ProductVariantId}.");
 
-            db.InventoryReservations.Add(InventoryReservation.Create(
-                ids.NewId(), orderId, item.ProductId, item.ProductVariantId,
-                item.Quantity, clock.UtcNow.AddMinutes(20)));
+            db.InventoryReservations.Add(
+                InventoryReservation.Create(
+                    ids.NewId(),
+                    orderId,
+                    item.ProductId,
+                    item.ProductVariantId,
+                    item.Quantity,
+                    clock.UtcNow.AddMinutes(20)));
         }
 
         await db.SaveChangesAsync(cancellationToken);
     }
-}
 
-    public async Task ConsumeAsync(long orderId, CancellationToken cancellationToken = default)
+    public async Task ConsumeAsync(
+        long orderId,
+        CancellationToken cancellationToken = default)
     {
         var reservations = await db.InventoryReservations
-            .Where(x => x.OrderId == orderId && x.Status == InventoryReservationStatus.Reserved)
+            .Where(x =>
+                x.OrderId == orderId &&
+                x.Status == InventoryReservationStatus.Reserved)
             .OrderBy(x => x.ProductVariantId)
             .ToListAsync(cancellationToken);
 
         if (reservations.Count == 0)
-            throw new InvalidOperationException("No active inventory reservations found for order.");
+            throw new InvalidOperationException(
+                "No active inventory reservations found for order.");
 
         foreach (var reservation in reservations)
         {
@@ -63,3 +78,4 @@ public sealed class EfInventoryReservationService(MarketplaceDbContext db, IIdGe
 
         await db.SaveChangesAsync(cancellationToken);
     }
+}
