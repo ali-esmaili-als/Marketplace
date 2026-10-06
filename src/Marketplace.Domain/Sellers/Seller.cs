@@ -10,6 +10,7 @@ public sealed class Seller : AggregateRoot<long>
     public SellerStatus Status { get; private set; }
     public int CommissionRateBasisPoints { get; private set; }
     public long MinimumCommissionIRR { get; private set; }
+    public int MaxStoreCount { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? ActivatedAtUtc { get; private set; }
 
@@ -26,6 +27,7 @@ public sealed class Seller : AggregateRoot<long>
             Status = SellerStatus.Pending,
             CommissionRateBasisPoints = commissionRateBasisPoints,
             MinimumCommissionIRR = minimumCommissionIrr,
+            MaxStoreCount = 1,
             CreatedAtUtc = DateTime.UtcNow
         };
     }
@@ -47,6 +49,12 @@ public sealed class Seller : AggregateRoot<long>
     {
         if (Status == SellerStatus.Active) throw new DomainException("Active seller cannot be rejected.");
         Status = SellerStatus.Rejected;
+    }
+
+    public void ConfigureStoreLimit(int maxStoreCount)
+    {
+        if (maxStoreCount <= 0) throw new DomainException("Store limit must be positive.");
+        MaxStoreCount = maxStoreCount;
     }
 
     public void ConfigureCommission(int rateBasisPoints, long minimumCommissionIrr)
