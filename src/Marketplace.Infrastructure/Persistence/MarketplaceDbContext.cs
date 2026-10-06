@@ -26,6 +26,7 @@ public sealed class MarketplaceDbContext(DbContextOptions<MarketplaceDbContext> 
     public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<UserSession> UserSessions => Set<UserSession>();
+    public DbSet<UserUserType> UserUserTypes => Set<UserUserType>();
     public DbSet<UserVerification> UserVerifications => Set<UserVerification>();
     public DbSet<UserLoginHistory> UserLoginHistories => Set<UserLoginHistory>();
     public DbSet<SellerPlan> SellerPlans => Set<SellerPlan>();
