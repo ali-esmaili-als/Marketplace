@@ -73,7 +73,7 @@ public sealed class EfCheckoutReader(MarketplaceDbContext db) : ICheckoutReader
         var warranties = warrantyIds.Length == 0 ? new Dictionary<long, (string Name, long Price)>() :
             await db.Warranties.AsNoTracking()
                 .Where(x => warrantyIds.Contains(x.Id))
-                .ToDictionaryAsync(x => x.Id, x => (x.Name, x.PriceIRR), cancellationToken);
+                .ToDictionaryAsync(x => x.Id, x => (Name: x.Name, Price: x.PriceIRR), cancellationToken);
 
         var items = new List<CheckoutCartItemSnapshot>(rows.Count);
         foreach (var row in rows)
