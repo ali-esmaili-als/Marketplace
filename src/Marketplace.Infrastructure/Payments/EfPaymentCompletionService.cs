@@ -14,7 +14,8 @@ public sealed class EfPaymentCompletionService(
     IIdGenerator ids,
     IClock clock,
     ISellerBalanceService sellerBalance,
-    ICouponReservationService coupons) : IPaymentCompletionService
+    ICouponReservationService coupons,
+    IInventoryReservationService inventory) : IPaymentCompletionService
 {
     public async Task CompleteAsync(
         long paymentAttemptId,
@@ -93,6 +94,7 @@ public sealed class EfPaymentCompletionService(
             }
 
             await coupons.MarkUsedAsync(order.Id, cancellationToken);
+            await inventory.ExtendForPaidOrderAsync(order.Id, clock.UtcNow.AddHours(24), cancellationToken);
 
             await sellerBalance.AddPendingAsync(
                 commission.SellerId,
