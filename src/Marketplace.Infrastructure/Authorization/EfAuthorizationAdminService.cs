@@ -1,4 +1,5 @@
 using Marketplace.Application.Authorization;
+using Marketplace.Application.Common.Abstractions;
 using Marketplace.Domain.Authorization;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
