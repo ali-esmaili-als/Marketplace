@@ -20,8 +20,11 @@ app.MapGet("/api/cart",async(long customerId,Marketplace.Application.Cart.CartSe
     var items=await service.GetItemsAsync(customerId,ct);
     return Results.Ok(items);
 });
+app.MapGet("/api/payments/providers",async(Marketplace.Application.Abstractions.IPaymentProviderSettings settings,CancellationToken ct)=>
+    Results.Ok(await settings.GetAvailableAsync(ct)));
+
 app.MapPost("/api/orders/checkout",async(CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
-    var result=await service.CheckoutAsync(request.CustomerId,ct);
+    var result=await service.CheckoutAsync(request.CustomerId,request.Provider,ct);
     return Results.Ok(result);
 });
 
@@ -54,7 +57,7 @@ app.MapPost("/api/orders/{orderId:long}/refund",async(long orderId,RefundRequest
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
-public sealed record CheckoutRequest(long CustomerId);
+public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider);
 public sealed record PaymentVerifyRequest(string Authority);
 public sealed record DeliveryConfirmRequest(string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
 public sealed record ComplaintRequest(long CustomerId,string Reason);
