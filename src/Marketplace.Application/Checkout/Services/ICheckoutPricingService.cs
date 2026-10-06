@@ -113,3 +113,44 @@ public sealed class CheckoutPricingService : ICheckoutPricingService
         return result;
     }
 }
+
+
+public interface ICheckoutPricingService
+{
+    Task<CheckoutPricingResult> CalculateAsync(
+        CheckoutCartSnapshot cart,
+        long couponDiscountIRR = 0,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record CheckoutPricingResult(
+    long SubTotalIRR,
+    long CampaignDiscountIRR,
+    long DirectDiscountIRR,
+    long CouponDiscountIRR,
+    long WarrantyAmountIRR,
+    long ShippingGrossIRR,
+    long ShippingBenefitIRR,
+    long ShippingAmountIRR,
+    long TotalAmountIRR,
+    IReadOnlyList<PricedCheckoutItem> Items);
+
+public sealed record PricedCheckoutItem(
+    long ProductId,
+    long ProductVariantId,
+    int Quantity,
+    long UnitPriceIRR,
+    string ProductNameSnapshot,
+    string? VariantKeySnapshot,
+    string? SkuSnapshot,
+    long? WarrantyId,
+    string? WarrantyNameSnapshot,
+    long WarrantyAmountIRR,
+    long LineSubtotalIRR,
+    long CampaignDiscountIRR,
+    long DirectDiscountIRR,
+    long CouponDiscountIRR,
+    long AllocatedShippingIRR,
+    long FinalLineTotalIRR,
+    long? CampaignId,
+    string? CampaignNameSnapshot);
