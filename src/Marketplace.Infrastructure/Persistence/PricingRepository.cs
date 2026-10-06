@@ -40,6 +40,10 @@ public sealed class PricingRepository(MarketplaceDbContext db) : IPricingReposit
     public void AddCouponProduct(CouponProduct scope)=>db.CouponProducts.Add(scope);
     public void AddCouponCategory(CouponCategory scope)=>db.CouponCategories.Add(scope);
     public void AddCouponUsage(CouponUsage usage)=>db.CouponUsages.Add(usage);
+    public Task<bool> ProductBelongsToStoreAsync(long productId,long storeId,CancellationToken ct=default)
+        => db.Products.AnyAsync(x=>x.Id==productId&&x.StoreId==storeId,ct);
+    public Task<bool> VariantBelongsToProductAsync(long variantId,long productId,CancellationToken ct=default)
+        => db.ProductVariants.AnyAsync(x=>x.Id==variantId&&x.ProductId==productId,ct);
     public Task<bool> HasOverlappingCampaignAsync(long storeId,DateTime startsAtUtc,DateTime endsAtUtc,long? exceptCampaignId=null,CancellationToken ct=default)
         => db.Campaigns.AnyAsync(x=>x.StoreId==storeId&&x.IsActive&&(!exceptCampaignId.HasValue||x.Id!=exceptCampaignId.Value)&&startsAtUtc<x.EndsAtUtc&&endsAtUtc>x.StartsAtUtc,ct);
 }
