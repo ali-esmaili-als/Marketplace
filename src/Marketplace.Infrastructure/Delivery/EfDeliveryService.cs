@@ -1,6 +1,7 @@
 using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Delivery.Ports;
 using Marketplace.Application.Finance.Ports;
+using Marketplace.Application.Checkout.Ports;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,7 +9,8 @@ namespace Marketplace.Infrastructure.Delivery;
 
 public sealed class EfDeliveryService(
     MarketplaceDbContext db,
-    ISellerBalanceService sellerBalance) : IDeliveryService
+    ISellerBalanceService sellerBalance,
+    IInventoryReservationService inventory) : IDeliveryService
 {
     public async Task ConfirmAsync(long orderId, string code, CancellationToken cancellationToken = default)
     {
@@ -29,6 +31,8 @@ public sealed class EfDeliveryService(
 
             delivery.MarkUsed();
             order.MarkDelivered();
+
+            await inventory.ConsumeAsync(orderId, cancellationToken);
 
             var commission = await db.Commissions.SingleOrDefaultAsync(x => x.OrderId == orderId, cancellationToken)
                 ?? throw new InvalidOperationException("Commission not found.");
