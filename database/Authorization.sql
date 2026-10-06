@@ -83,12 +83,12 @@ WHEN NOT MATCHED THEN INSERT(Id,Code,Name,IsActive) VALUES(s.Id,s.Code,s.Name,1)
 
 MERGE dbo.PermissionUserTypes AS t
 USING (VALUES
- (1001,3),(1002,2),(1002,3),(1003,3),(1004,3),
- (1005,3),(1006,2),(1007,2),(1007,3),(1008,2)
+ (1001,1),(1002,1),(1003,1),(1004,1),(1005,1),(1006,1),(1007,1),(1008,1),
+ (1001,3),(1002,2),(1002,3),(1003,3),(1004,3),(1005,3),(1006,2),(1007,2),(1007,3),(1008,2)
 ) AS s(PermissionId,UserTypeId)
 ON t.PermissionId=s.PermissionId AND t.UserTypeId=s.UserTypeId
 WHEN NOT MATCHED THEN
  INSERT(Id,PermissionId,UserTypeId)
- VALUES(ABS(CHECKSUM(NEWID())),s.PermissionId,s.UserTypeId);
+ VALUES((s.PermissionId * 10) + s.UserTypeId,s.PermissionId,s.UserTypeId);
 
 COMMIT TRANSACTION;
