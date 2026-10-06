@@ -9,6 +9,7 @@ public sealed class ProductVariant : Entity<long>
     public long ProductId { get; private set; }
     public string SKU { get; private set; } = null!;
     public string VariantKey { get; private set; } = null!;
+    public byte[] VariantKeyHash { get; private set; } = Array.Empty<byte>();
     public long? PriceIRR { get; private set; }
     public bool IsActive { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
