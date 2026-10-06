@@ -23,8 +23,16 @@ public sealed class SettlementController(
         if (!currentUser.IsAuthenticated)
             return Unauthorized();
 
+        var sellerId = request.SellerId ?? currentUser.UserId;
+        if (sellerId != currentUser.UserId)
+        {
+            var isAdmin = User.IsInRole(UserTypeId.Admin.ToString());
+            if (!isAdmin)
+                return Forbid();
+        }
+
         return Ok(await service.RequestAsync(
-            currentUser.UserId,
+            sellerId,
             request.BankAccountId,
             request.AmountIRR,
             ct));
