@@ -1,4 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>
-  <ItemGroup><ProjectReference Include="..\..\src\Marketplace.Application\Marketplace.Application.csproj" /></ItemGroup>
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Marketplace.Application\Marketplace.Application.csproj" />
+    <ProjectReference Include="..\..\src\Marketplace.Infrastructure\Marketplace.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Marketplace.Domain\Marketplace.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
 </Project>
