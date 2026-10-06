@@ -16,6 +16,9 @@ public static class DependencyInjection
             options.UseSqlServer(configuration.GetConnectionString("Marketplace"), sql => sql.EnableRetryOnFailure(5)));
         services.AddScoped<IUnitOfWork, InfrastructureUnitOfWork>();
         services.AddSingleton<IClock, SystemClock>();
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUser, HttpCurrentUser>();
+        services.AddScoped<IExchangeRateProvider, SqlExchangeRateProvider>();
         services.AddSingleton<IIdGenerator, MonotonicIdGenerator>();
         services.AddScoped<ICheckoutReader, EfCheckoutReader>();
         services.AddScoped<IOrderWriter, EfOrderWriter>();
