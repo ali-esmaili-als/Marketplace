@@ -22,10 +22,6 @@ public sealed class EfSettlementService(
                 x => x.Id == bankAccountId && x.SellerId == sellerId && x.IsActive, cancellationToken)
                 ?? throw new InvalidOperationException("Active seller bank account not found.");
 
-            var balance = await db.SellerBalances.SingleOrDefaultAsync(
-                x => x.SellerId == sellerId, cancellationToken)
-                ?? throw new InvalidOperationException("Seller balance not found.");
-
             // Reservation is handled by the balance service.
 
             var settlement = Settlement.Create(
