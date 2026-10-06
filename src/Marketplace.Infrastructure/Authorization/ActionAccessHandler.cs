@@ -29,7 +29,7 @@ public sealed class ActionAccessHandler(
 
         var permission = action.ControllerName + "." + action.ActionName;
 
-        if (await checker.HasPermissionAsync(userId, permission, context.CancellationToken))
+        if (await checker.HasPermissionAsync(userId, permission, httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None))
             context.Succeed(requirement);
     }
 }
