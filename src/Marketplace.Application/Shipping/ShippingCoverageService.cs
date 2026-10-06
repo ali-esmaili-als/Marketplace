@@ -8,13 +8,11 @@ public sealed class ShippingCoverageService
 {
     private readonly IShippingRepository _shipping;
     private readonly IUnitOfWork _uow;
-    private readonly IIdGenerator _ids;
 
-    public ShippingCoverageService(IShippingRepository shipping, IUnitOfWork uow, IIdGenerator ids)
+    public ShippingCoverageService(IShippingRepository shipping , IUnitOfWork uow)
     {
         _shipping = shipping;
         _uow = uow;
-        _ids = ids;
     }
 
     public Task<List<DeliveryCity>> GetCitiesAsync(CancellationToken ct = default)
