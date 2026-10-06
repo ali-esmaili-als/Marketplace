@@ -1,6 +1,7 @@
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Complaints;
 using Marketplace.Domain.Delivery;
+using DeliveryEntity = Marketplace.Domain.Delivery.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
@@ -18,7 +19,7 @@ public sealed class OrderFinancialLifecycle
         return SellerBalanceHold.Create(holdId,order.SellerId,order.Id,order.SellerAmountIRR,"Secure payment pending delivery and complaint window");
     }
 
-    public void OnDelivered(Order order, Delivery delivery, SellerBalance balance, DateTime now, DateTime complaintExpiresAtUtc)
+    public void OnDelivered(Order order, DeliveryEntity delivery, SellerBalance balance, DateTime now, DateTime complaintExpiresAtUtc)
     {
         if(delivery.Status!=DeliveryStatus.Delivered) throw new DomainException("Delivery must be confirmed.");
         order.MarkDelivered(now, complaintExpiresAtUtc);
@@ -26,7 +27,7 @@ public sealed class OrderFinancialLifecycle
         balance.Block(order.SellerAmountIRR);
     }
 
-    public void OnDeliveryExpired(Order order, Delivery delivery, SellerBalance balance)
+    public void OnDeliveryExpired(Order order, DeliveryEntity delivery, SellerBalance balance)
     {
         if(delivery.Status!=DeliveryStatus.Expired) throw new DomainException("Delivery must be expired.");
         order.MarkDeliveryExpired(DateTime.UtcNow);
