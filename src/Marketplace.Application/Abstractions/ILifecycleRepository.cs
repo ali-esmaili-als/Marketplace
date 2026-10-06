@@ -14,6 +14,7 @@ public interface ILifecycleRepository
     Task<Complaint?> GetComplaintAsync(long complaintId,CancellationToken ct=default);
     Task<Complaint?> GetOpenComplaintByOrderAsync(long orderId,CancellationToken ct=default);
     Task<Refund?> GetActiveRefundByOrderAsync(long orderId,CancellationToken ct=default);
+    Task<Refund?> GetRefundAsync(long refundId,CancellationToken ct=default);
     Task<SellerBalance?> GetSellerBalanceAsync(long sellerId,CancellationToken ct=default);
     Task<SellerBalanceHold?> GetActiveHoldByOrderAsync(long orderId,CancellationToken ct=default);
     Task<Commission?> GetCommissionByOrderAsync(long orderId,CancellationToken ct=default);
