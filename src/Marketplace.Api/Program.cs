@@ -20,6 +20,17 @@ app.MapGet("/api/cart",async(long customerId,Marketplace.Application.Cart.CartSe
     var items=await service.GetItemsAsync(customerId,ct);
     return Results.Ok(items);
 });
+app.MapGet("/api/shipping/cities",async(Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>
+    Results.Ok(await service.GetCitiesAsync(ct)));
+
+app.MapGet("/api/stores/{storeId:long}/shipping-cities",async(long storeId,Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>
+    Results.Ok(await service.GetStoreCitiesAsync(storeId,ct)));
+
+app.MapPut("/api/stores/{storeId:long}/shipping-cities",async(long storeId,StoreShippingCitiesRequest request,Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>{
+    await service.ConfigureStoreCitiesAsync(storeId,request.CityIds,ct);
+    return Results.NoContent();
+});
+
 app.MapGet("/api/payments/providers",async(Marketplace.Application.Abstractions.IPaymentProviderSettings settings,CancellationToken ct)=>
     Results.Ok(await settings.GetAvailableAsync(ct)));
 
@@ -40,7 +51,7 @@ app.MapPost("/api/settlements/{settlementId:long}/process",async(long settlement
 });
 
 app.MapPost("/api/orders/checkout",async(CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
-    var result=await service.CheckoutAsync(request.CustomerId,request.Provider,ct);
+    var result=await service.CheckoutAsync(request.CustomerId,request.Provider,request.DestinationCityId,ct);
     return Results.Ok(result);
 });
 
@@ -73,7 +84,8 @@ app.MapPost("/api/orders/{orderId:long}/refund",async(long orderId,RefundRequest
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
-public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider);
+public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId);
+public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long SellerId,long BankAccountId,long AmountIRR);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record PaymentVerifyRequest(string Authority);
