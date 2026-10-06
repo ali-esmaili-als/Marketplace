@@ -38,6 +38,15 @@ public sealed class SellerManagementService(
         return seller.Id;
     }
 
+    public async Task ConfigureStoreLimitAsync(long sellerId, int maxStoreCount, CancellationToken ct = default)
+    {
+        var seller = await repo.GetSellerAsync(sellerId, ct) ?? throw new DomainException("Seller not found.");
+        var currentCount = await repo.GetStoreCountAsync(sellerId, ct);
+        if (maxStoreCount < currentCount) throw new DomainException("Store limit cannot be lower than current store count.");
+        seller.ConfigureStoreLimit(maxStoreCount);
+        await uow.SaveChangesAsync(ct);
+    }
+
     public async Task ActivateAsync(long sellerId, CancellationToken ct = default)
     {
         var seller = await repo.GetSellerAsync(sellerId, ct) ?? throw new DomainException("Seller not found.");
