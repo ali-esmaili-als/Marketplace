@@ -14,6 +14,7 @@ public sealed class Refund : AggregateRoot<long>
     public string? Reason { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? CompletedAtUtc { get; private set; }
+    public string? GatewayRefundReference { get; private set; }
     public IReadOnlyCollection<RefundItem> Items => _items.AsReadOnly();
 
     public static Refund Create(long id, long orderId, long paymentId, long amount, string? reason)
@@ -38,10 +39,12 @@ public sealed class Refund : AggregateRoot<long>
         Status = RefundStatus.Processing;
     }
 
-    public void Complete()
+    public void Complete(string gatewayRefundReference)
     {
         if (Status != RefundStatus.Processing) throw new DomainException("Invalid refund state.");
+        if (string.IsNullOrWhiteSpace(gatewayRefundReference)) throw new DomainException("Gateway refund reference is required.");
         Status = RefundStatus.Completed;
+        GatewayRefundReference = gatewayRefundReference.Trim();
         CompletedAtUtc = DateTime.UtcNow;
     }
 
