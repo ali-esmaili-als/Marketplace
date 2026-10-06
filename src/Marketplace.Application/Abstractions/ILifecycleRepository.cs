@@ -5,6 +5,7 @@ using Marketplace.Domain.Inventory;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Pricing;
 using Marketplace.Domain.Refunds;
+using Marketplace.Domain.Sellers;
 
 namespace Marketplace.Application.Abstractions;
 
