@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<ISellerManagementRepository,SellerManagementRepository>();
         services.AddScoped<ICatalogManagementRepository,CatalogManagementRepository>();
         services.AddScoped<IOrderQueryRepository,OrderQueryRepository>();
+        services.AddScoped<IMaintenanceRepository,MaintenanceRepository>();
         services.AddScoped<IPricingRepository,PricingRepository>();
         services.AddScoped<IIdentityRepository, IdentityRepository>();
         services.AddScoped<ITokenService, Identity.JwtTokenService>();
