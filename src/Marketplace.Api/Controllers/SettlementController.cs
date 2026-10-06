@@ -30,5 +30,5 @@ public sealed class SettlementController(
             ct));
     }
 
-    public sealed record RequestSettlementRequest(long BankAccountId, long AmountIRR);
+    public sealed record RequestSettlementRequest(long BankAccountId, long AmountIRR, long? SellerId);
 }
