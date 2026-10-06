@@ -125,8 +125,10 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
         var storeId = await db.Orders.Where(x => x.Id == orderId)
             .Select(x => x.StoreId)
             .SingleAsync(cancellationToken);
-        var ownerUserId = await db.Stores.Where(x => x.Id == storeId)
-            .Select(x => x.Seller.UserId)
+        var ownerUserId = await (from s in db.Stores
+                                 join seller in db.Sellers on s.SellerId equals seller.Id
+                                 where s.Id == storeId
+                                 select seller.UserId)
             .SingleAsync(cancellationToken);
 
         if (ownerUserId != currentUser.UserId)
