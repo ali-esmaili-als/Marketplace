@@ -224,3 +224,11 @@ public sealed class NotificationRepository(MarketplaceDbContext db) : INotificat
  public Task<Notification?> GetForUserAsync(long userId,long id,CancellationToken ct=default)=>db.Notifications.SingleOrDefaultAsync(x=>x.UserId==userId&&x.Id==id,ct);
  public void Add(Notification notification)=>db.Notifications.Add(notification);
 }
+
+public sealed class CategoryRepository(MarketplaceDbContext db) : ICategoryRepository
+{
+ public Task<Category?> GetAsync(long id,CancellationToken ct=default)=>db.Categories.SingleOrDefaultAsync(x=>x.Id==id,ct);
+ public Task<bool> SlugExistsAsync(long? parentId,string slug,long? exceptId=null,CancellationToken ct=default)=>db.Categories.AnyAsync(x=>x.ParentCategoryId==parentId&&x.Slug==slug.Trim()&&(!exceptId.HasValue||x.Id!=exceptId.Value),ct);
+ public Task<List<Category>> GetChildrenAsync(long? parentId,CancellationToken ct=default)=>db.Categories.Where(x=>x.ParentCategoryId==parentId&&x.IsActive).OrderBy(x=>x.Name).ToListAsync(ct);
+ public void Add(Category category)=>db.Categories.Add(category);
+}
