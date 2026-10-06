@@ -27,11 +27,7 @@ public sealed class ActionAccessHandler(
         if (action is null)
             return;
 
-        var controllerName = action.ControllerName;
-        var permission = controllerName + "." + action.ActionName;
-
-        if (!string.Equals(permission, requirement.Permission, StringComparison.OrdinalIgnoreCase))
-            return;
+        var permission = action.ControllerName + "." + action.ActionName;
 
         if (await checker.HasPermissionAsync(userId, permission, context.CancellationToken))
             context.Succeed(requirement);
