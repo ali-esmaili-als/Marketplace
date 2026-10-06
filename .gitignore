@@ -1,0 +1,12 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/src/Marketplace.Api/obj
+/src/Marketplace.Api/Properties
+/src/Marketplace.Application/obj
+/src/Marketplace.Domain/obj
+/src/Marketplace.Infrastructure/obj
+/tests/Marketplace.Domain.Tests/bin/Debug/net8.0
+/tests/Marketplace.Domain.Tests/obj
