@@ -8,6 +8,7 @@ public sealed class StoreShippingCity : Entity<long>
 
     public long StoreId { get; private set; }
     public long CityId { get; private set; }
+    public DeliveryCity City { get; private set; } = null!;
     public DateTime CreatedAtUtc { get; private set; }
 
     public static StoreShippingCity Create(long id, long storeId, long cityId)
