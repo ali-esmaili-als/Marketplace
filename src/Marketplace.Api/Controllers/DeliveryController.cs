@@ -9,7 +9,7 @@ namespace Marketplace.Api.Controllers;
 [Route("api/orders/{orderId:long}/delivery")]
 public sealed class DeliveryController(IDeliveryService delivery) : ControllerBase
 {
-    [RequirePermission(PermissionCodes.DeliveryConfirm)]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:"+PermissionCodes.DeliveryConfirm)]
     [HttpPost("confirm")]
     public async Task<IActionResult> Confirm(long orderId, [FromBody] ConfirmDeliveryRequest request, CancellationToken cancellationToken)
     {
