@@ -9,13 +9,13 @@ public sealed record PaymentVerificationResult(bool Paid, string? Reference, str
 public sealed class PaymentVerificationService
 {
     private readonly IPaymentRepository _payments;
-    private readonly IPaymentGateway _gateway;
+    private readonly IPaymentGatewayFactory _gatewayFactory;
     private readonly IUnitOfWork _uow;
     private readonly OrderLifecycleService _lifecycle;
 
-    public PaymentVerificationService(IPaymentRepository payments,IPaymentGateway gateway,IUnitOfWork uow,OrderLifecycleService lifecycle)
+    public PaymentVerificationService(IPaymentRepository payments,IPaymentGatewayFactory gatewayFactory,IUnitOfWork uow,OrderLifecycleService lifecycle)
     {
-        _payments=payments; _gateway=gateway; _uow=uow; _lifecycle=lifecycle;
+        _payments=payments; _gatewayFactory=gatewayFactory; _uow=uow; _lifecycle=lifecycle;
     }
 
     public async Task<PaymentVerificationResult> VerifyAsync(long paymentId,string authority,CancellationToken ct=default)
@@ -32,7 +32,9 @@ public sealed class PaymentVerificationService
         if(payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled)
             return new PaymentVerificationResult(false,null,"Payment is no longer payable.");
 
-        var result=await _gateway.VerifyAsync(authority,payment.AmountIRR,ct);
+        var provider=Enum.TryParse<PaymentProviderCode>(payment.Provider,true,out var parsed) ? parsed : throw new DomainException("Invalid payment provider.");
+        var gateway=await _gatewayFactory.GetAsync(provider,ct);
+        var result=await gateway.VerifyAsync(authority,payment.AmountIRR,ct);
 
         if(!result.IsSuccessful)
         {
