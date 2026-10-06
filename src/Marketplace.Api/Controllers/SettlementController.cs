@@ -16,7 +16,7 @@ public sealed class SettlementController(
 {
     [ActionAccess(UserTypeId.Admin, UserTypeId.Seller)]
     [HttpPost]
-    public async Task<ActionResult<long>> Request(
+    public async Task<ActionResult<long>> Create(
         RequestSettlementRequest request,
         CancellationToken ct)
     {
