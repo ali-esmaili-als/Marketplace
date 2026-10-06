@@ -1,3 +1,4 @@
+using Marketplace.Infrastructure.Authorization;
 using Marketplace.Application.Authorization;
 using Marketplace.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
