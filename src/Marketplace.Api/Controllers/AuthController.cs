@@ -1,5 +1,7 @@
+using Marketplace.Application.Authorization;
 using Marketplace.Application.Identity.Models;
 using Marketplace.Application.Identity.Ports;
+using Marketplace.Domain.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,11 +13,17 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
 {
     [AllowAnonymous]
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResult>> Login(LoginRequest request, CancellationToken ct)
+    public async Task<ActionResult<AuthResult>> Login(
+        LoginRequest request,
+        CancellationToken ct)
     {
         try
         {
-            return Ok(await auth.LoginAsync(request.Mobile, request.Password, HttpContext.Connection.RemoteIpAddress?.ToString(), ct));
+            return Ok(await auth.LoginAsync(
+                request.Mobile,
+                request.Password,
+                HttpContext.Connection.RemoteIpAddress?.ToString(),
+                ct));
         }
         catch (UnauthorizedAccessException)
         {
@@ -25,11 +33,16 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
 
     [AllowAnonymous]
     [HttpPost("refresh")]
-    public async Task<ActionResult<AuthResult>> Refresh(RefreshRequest request, CancellationToken ct)
+    public async Task<ActionResult<AuthResult>> Refresh(
+        RefreshRequest request,
+        CancellationToken ct)
     {
         try
         {
-            return Ok(await auth.RefreshAsync(request.RefreshToken, HttpContext.Connection.RemoteIpAddress?.ToString(), ct));
+            return Ok(await auth.RefreshAsync(
+                request.RefreshToken,
+                HttpContext.Connection.RemoteIpAddress?.ToString(),
+                ct));
         }
         catch (UnauthorizedAccessException)
         {
@@ -38,10 +51,17 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
     }
 
     [Authorize]
+    [ActionAccess(UserTypeId.Admin, UserTypeId.Seller, UserTypeId.Customer)]
     [HttpPost("revoke")]
-    public async Task<IActionResult> Revoke(RefreshRequest request, CancellationToken ct)
+    public async Task<IActionResult> Revoke(
+        RefreshRequest request,
+        CancellationToken ct)
     {
-        await auth.RevokeRefreshTokenAsync(request.RefreshToken, HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+        await auth.RevokeRefreshTokenAsync(
+            request.RefreshToken,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            ct);
+
         return NoContent();
     }
 }
