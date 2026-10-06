@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Marketplace.Application.Abstractions;
 using Marketplace.Infrastructure.Payments;
 using Marketplace.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
 
 namespace Marketplace.Infrastructure;
 
