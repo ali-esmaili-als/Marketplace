@@ -24,12 +24,6 @@ public sealed class SettlementController(
             return Unauthorized();
 
         var sellerId = request.SellerId ?? currentUser.UserId;
-        if (sellerId != currentUser.UserId)
-        {
-            var isAdmin = User.IsInRole(UserTypeId.Admin.ToString());
-            if (!isAdmin)
-                return Forbid();
-        }
 
         return Ok(await service.RequestAsync(
             sellerId,
