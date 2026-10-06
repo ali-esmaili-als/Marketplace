@@ -15,6 +15,7 @@ public static class DependencyInjection
         services.AddScoped<PaymentVerificationService>();
         services.AddScoped<Settlements.SettlementService>();
         services.AddScoped<Payments.PaymentProviderSettingsService>();
+        services.AddScoped<Shipping.ShippingCoverageService>();
         return services;
     }
 }
