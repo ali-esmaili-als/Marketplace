@@ -212,3 +212,10 @@ public sealed class MaintenanceRepository(MarketplaceDbContext db) : IMaintenanc
  public Task<InventoryItem?> GetInventoryItemAsync(long variantId,CancellationToken ct=default)=>db.InventoryItems.SingleOrDefaultAsync(x=>x.ProductVariantId==variantId,ct);
  public Task<bool> HasOpenComplaintAsync(long orderId,CancellationToken ct=default)=>db.Complaints.AnyAsync(x=>x.OrderId==orderId&&x.Status!=ComplaintStatus.Closed&&x.Status!=ComplaintStatus.Cancelled,ct);
 }
+
+public sealed class NotificationRepository(MarketplaceDbContext db) : INotificationRepository
+{
+ public Task<List<Notification>> GetForUserAsync(long userId,int take,CancellationToken ct=default)=>db.Notifications.Where(x=>x.UserId==userId).OrderByDescending(x=>x.CreatedAtUtc).Take(take).ToListAsync(ct);
+ public Task<Notification?> GetForUserAsync(long userId,long id,CancellationToken ct=default)=>db.Notifications.SingleOrDefaultAsync(x=>x.UserId==userId&&x.Id==id,ct);
+ public void Add(Notification notification)=>db.Notifications.Add(notification);
+}
