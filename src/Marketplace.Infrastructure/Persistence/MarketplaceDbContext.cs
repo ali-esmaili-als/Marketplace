@@ -209,9 +209,9 @@ public sealed class MarketplaceDbContext : DbContext
         });
 
         b.Entity<Order>(e => { e.ToTable("Orders"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>();
-            e.Property(x => x.DestinationCityNameSnapshot).HasMaxLength(200);
+            e.Property(x => x.SubtotalAmountIRR).IsRequired(); e.Property(x => x.CouponCodeSnapshot).HasMaxLength(100); e.Property(x => x.DestinationCityNameSnapshot).HasMaxLength(200);
             e.Property(x => x.DestinationProvinceNameSnapshot).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.Status }); e.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc }); e.HasIndex(x => x.DestinationCityId); });
-        b.Entity<OrderItem>(e => { e.ToTable("OrderItems"); e.HasKey(x => x.Id); e.Property(x => x.ProductNameSnapshot).HasMaxLength(300).IsRequired(); e.Property(x => x.VariantSnapshot).HasMaxLength(1000); e.Property(x => x.WarrantySnapshot).HasMaxLength(500); e.HasIndex(x => x.OrderId); });
+        b.Entity<OrderItem>(e => { e.ToTable("OrderItems"); e.HasKey(x => x.Id); e.Property(x => x.ProductNameSnapshot).HasMaxLength(300).IsRequired(); e.Property(x => x.VariantSnapshot).HasMaxLength(1000); e.Property(x => x.WarrantySnapshot).HasMaxLength(500); e.Property(x => x.CampaignNameSnapshot).HasMaxLength(250); e.HasIndex(x => x.OrderId); });
         b.Entity<Payment>(e => { e.ToTable("Payments"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Provider).HasMaxLength(100); e.Property(x => x.Authority).HasMaxLength(200); e.Property(x => x.ReferenceNumber).HasMaxLength(200); e.HasIndex(x => x.OrderId).IsUnique(); e.HasIndex(x => x.Authority); });
         b.Entity<PaymentTransaction>(e => { e.ToTable("PaymentTransactions"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Provider).HasMaxLength(100).IsRequired(); e.Property(x => x.Authority).HasMaxLength(200); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.PaymentId, x.Status }); });
         b.Entity<Delivery>(e => { e.ToTable("Deliveries"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.ConfirmationReference).HasMaxLength(200); e.HasIndex(x => x.OrderId).IsUnique(); e.HasIndex(x => new { x.Status, x.ExpiresAtUtc }); });
