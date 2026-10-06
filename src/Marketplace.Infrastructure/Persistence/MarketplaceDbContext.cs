@@ -46,6 +46,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<BalanceTransaction> BalanceTransactions => Set<BalanceTransaction>();
     public DbSet<Commission> Commissions => Set<Commission>();
     public DbSet<CommissionReversal> CommissionReversals => Set<CommissionReversal>();
+    public DbSet<PaymentProviderSetting> PaymentProviderSettings => Set<PaymentProviderSetting>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -164,5 +165,14 @@ public sealed class MarketplaceDbContext : DbContext
         b.Entity<BalanceTransaction>(e => { e.ToTable("BalanceTransactions"); e.HasKey(x => x.Id); e.Property(x => x.Type).HasConversion<byte>(); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.CreatedAtUtc }); e.HasIndex(x => new { x.OrderId, x.Type }); });
         b.Entity<Commission>(e => { e.ToTable("Commissions"); e.HasKey(x => x.Id); e.Property(x => x.CommissionRate).HasPrecision(9,4); e.HasIndex(x => x.OrderId).IsUnique(); });
         b.Entity<CommissionReversal>(e => { e.ToTable("CommissionReversals"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.CommissionId, x.RefundId }).IsUnique(); });
+        b.Entity<PaymentProviderSetting>(e =>
+        {
+            e.ToTable("PaymentProviderSettings"); e.HasKey(x => x.Id);
+            e.Property(x => x.Provider).HasConversion<byte>();
+            e.Property(x => x.DisplayName).HasMaxLength(100).IsRequired();
+            e.Property(x => x.ConfigurationJson).HasColumnType("nvarchar(max)").IsRequired();
+            e.HasIndex(x => x.Provider).IsUnique();
+            e.HasIndex(x => new { x.IsEnabled, x.IsVisible, x.SortOrder });
+        });
     }
 }
