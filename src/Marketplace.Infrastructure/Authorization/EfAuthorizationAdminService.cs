@@ -136,6 +136,23 @@ public sealed class EfAuthorizationAdminService(
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<UserAuthorizationRulesDto> GetUserRulesAsync(
+        long userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await db.Users.AnyAsync(x => x.Id == userId, cancellationToken))
+            throw new KeyNotFoundException("User not found.");
+
+        var ruleIds = await db.UserRules
+            .AsNoTracking()
+            .Where(x => x.UserId == userId && x.IsActive)
+            .Select(x => x.RuleId)
+            .OrderBy(x => x)
+            .ToArrayAsync(cancellationToken);
+
+        return new UserAuthorizationRulesDto(userId, ruleIds);
+    }
+
     public async Task RemoveRuleAsync(
         long userId,
         long ruleId,
