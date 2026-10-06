@@ -76,17 +76,17 @@ app.MapPost("/api/auth/login",async(LoginRequest request,Marketplace.Application
     return Results.Ok(result);
 });
 
-app.MapGet("/api/cart/items",async(long customerId,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
-    var items=await service.GetItemsAsync(customerId,ct); return Results.Ok(items);
+app.MapGet("/api/cart/items",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
+    var items=await service.GetItemsAsync(CurrentUserId(user),ct); return Results.Ok(items);
 }).RequirePermission("Cart.Read");
 
-app.MapPost("/api/cart/items",async(CartItemRequest request,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
-    await service.AddItemAsync(request.CustomerId,request.SellerId,request.StoreId,request.ProductId,request.VariantId,request.Quantity,request.WarrantyId,ct);
+app.MapPost("/api/cart/items",async(System.Security.Claims.ClaimsPrincipal user,CartItemRequest request,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
+    await service.AddItemAsync(CurrentUserId(user),request.SellerId,request.StoreId,request.ProductId,request.VariantId,request.Quantity,request.WarrantyId,ct);
     return Results.Ok();
 }).RequirePermission("Cart.Read");
 
-app.MapDelete("/api/cart/items/{variantId:long}",async(long variantId,long customerId,long? warrantyId,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
-    await service.RemoveItemAsync(customerId,variantId,warrantyId,ct); return Results.Ok();
+app.MapDelete("/api/cart/items/{variantId:long}",async(System.Security.Claims.ClaimsPrincipal user,long variantId,long? warrantyId,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
+    await service.RemoveItemAsync(CurrentUserId(user),variantId,warrantyId,ct); return Results.Ok();
 }).RequirePermission("Cart.Read");
 
 app.MapGet("/api/shipping/cities",async(Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>
@@ -155,8 +155,8 @@ app.MapPost("/api/settlements/{settlementId:long}/process",async(long settlement
     return result.Status=="Completed" ? Results.Ok(result) : Results.BadRequest(result);
 }).RequirePermission("Admin.Settlement.Process");
 
-app.MapPost("/api/orders/checkout",async(CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
-    var result=await service.CheckoutAsync(request.CustomerId,request.Provider,request.DestinationCityId,ct); return Results.Ok(result);
+app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
+    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,ct); return Results.Ok(result);
 }).RequirePermission("Order.Create");
 
 app.MapPost("/api/payments/{paymentId:long}/verify",async(long paymentId,PaymentVerifyRequest request,Marketplace.Application.Orders.PaymentVerificationService service,CancellationToken ct)=>{
