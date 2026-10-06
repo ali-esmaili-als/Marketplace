@@ -9,6 +9,7 @@ public sealed class MaintenanceService
  public async Task RunOnceAsync(CancellationToken ct=default)
  {
   var now=DateTime.UtcNow;
+  foreach(var o in await _repo.GetOrdersPendingRefundAsync(ct)){try{await _refunds.ProcessAsync(o.Id,Marketplace.Domain.Refunds.RefundReason.DeliveryExpired,ct);}catch(DomainException){}}
   foreach(var d in await _repo.GetExpiredDeliveriesAsync(now,ct))
   {
    try{await _orders.ExpireDeliveryAsync(d.OrderId,now,ct);await _refunds.ProcessAsync(d.OrderId,Marketplace.Domain.Refunds.RefundReason.DeliveryExpired,ct);}catch(DomainException){}
