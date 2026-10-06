@@ -3,6 +3,7 @@ using Marketplace.Domain.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Inventory;
 using Marketplace.Domain.Orders;
+using Marketplace.Domain.Pricing;
 using Marketplace.Domain.Refunds;
 
 namespace Marketplace.Application.Abstractions;
@@ -30,4 +31,5 @@ public interface ILifecycleRepository
     void AddOrderItem(OrderItem item);
     void AddInventoryReservation(InventoryReservation reservation);
     void AddCommission(Commission commission);
+    void AddCouponUsage(CouponUsage usage);
 }
