@@ -10,6 +10,9 @@ public sealed class Order : AggregateRoot<long>
     public long StoreId { get; private set; }
     public long TotalAmountIRR { get; private set; }
     public long SellerAmountIRR { get; private set; }
+    public long? DestinationCityId { get; private set; }
+    public string? DestinationCityNameSnapshot { get; private set; }
+    public string? DestinationProvinceNameSnapshot { get; private set; }
     public OrderStatus Status { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? PaidAtUtc { get; private set; }
@@ -23,6 +26,15 @@ public sealed class Order : AggregateRoot<long>
         return new Order { Id=id,CustomerId=customerId,SellerId=sellerId,StoreId=storeId,TotalAmountIRR=totalAmountIrr,
             SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
     }
+    public void SetShippingDestination(long cityId, string cityName, string provinceName)
+    {
+        if (cityId <= 0 || string.IsNullOrWhiteSpace(cityName) || string.IsNullOrWhiteSpace(provinceName))
+            throw new DomainException("Invalid shipping destination.");
+        DestinationCityId = cityId;
+        DestinationCityNameSnapshot = cityName.Trim();
+        DestinationProvinceNameSnapshot = provinceName.Trim();
+    }
+
     public void SetSellerAmount(long amount){if(amount<0||amount>TotalAmountIRR)throw new DomainException("Invalid seller amount.");SellerAmountIRR=amount;}
     public void MarkPaid(DateTime? now=null){Require(OrderStatus.PendingPayment);PaidAtUtc=now??DateTime.UtcNow;Status=OrderStatus.Paid;}
     public void StartPreparing(){Require(OrderStatus.Paid);Status=OrderStatus.Preparing;}
