@@ -153,6 +153,7 @@ public sealed class ShippingRepository(MarketplaceDbContext db) : IShippingRepos
 
 public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRepository
 {
+    public Task<DeliveryCode?> GetDeliveryCodeByOrderAsync(long orderId,CancellationToken ct=default)=>db.DeliveryCodes.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);
     public Task<Delivery?> GetDeliveryByOrderAsync(long orderId,CancellationToken ct=default)=>db.Deliveries.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);
     public Task<Complaint?> GetComplaintAsync(long complaintId,CancellationToken ct=default)=>db.Complaints.SingleOrDefaultAsync(x=>x.Id==complaintId,ct);
     public Task<Complaint?> GetOpenComplaintByOrderAsync(long orderId,CancellationToken ct=default)=>db.Complaints.SingleOrDefaultAsync(x=>x.OrderId==orderId&&x.Status!=ComplaintStatus.Closed&&x.Status!=ComplaintStatus.Cancelled,ct);
@@ -169,6 +170,7 @@ public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRep
         => db.Settlements.SingleOrDefaultAsync(x=>x.Id==settlementId,ct);
     public void AddSettlement(Settlement settlement)=>db.Settlements.Add(settlement);
     public void AddDelivery(Delivery delivery)=>db.Deliveries.Add(delivery);
+    public void AddDeliveryCode(DeliveryCode code)=>db.DeliveryCodes.Add(code);
     public void AddComplaint(Complaint complaint)=>db.Complaints.Add(complaint);
     public void AddRefund(Refund refund)=>db.Refunds.Add(refund);
     public void AddBalanceHold(SellerBalanceHold hold)=>db.SellerBalanceHolds.Add(hold);
