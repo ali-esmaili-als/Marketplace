@@ -1,9 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 namespace Marketplace.Application.Authorization;
-public sealed class RequirePermissionAttribute(string permission) : AuthorizeAttribute
+public sealed class RequirePermissionAttribute : AuthorizeAttribute
 {
  public const string PolicyPrefix="Permission:";
- public RequirePermissionAttribute():this(""){}
- public string Permission=>Policy[PolicyPrefix.Length..];
- public RequirePermissionAttribute(string permission):base(){Policy=PolicyPrefix+permission;}
+ public RequirePermissionAttribute(string permission)=>Policy=PolicyPrefix+permission;
 }
