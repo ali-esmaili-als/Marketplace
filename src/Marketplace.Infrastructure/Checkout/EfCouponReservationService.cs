@@ -10,7 +10,7 @@ public sealed class EfCouponReservationService(MarketplaceDbContext db, IIdGener
     : ICouponReservationService
 {
     public async Task<CouponReservationResult?> ReserveAsync(
-        long customerId, long cartId, long orderId, string couponCode, long eligibleAmountIRR,
+        long customerId, long cartId, long orderId, string couponCode, long eligibleAmountIRR, bool hasCampaignDiscount,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(couponCode) || eligibleAmountIRR <= 0)
@@ -31,6 +31,9 @@ public sealed class EfCouponReservationService(MarketplaceDbContext db, IIdGener
         if (coupon is null || !coupon.IsActive ||
             (coupon.StartsAtUtc.HasValue && coupon.StartsAtUtc.Value > now) ||
             (coupon.ExpiresAtUtc.HasValue && coupon.ExpiresAtUtc.Value <= now))
+            return null;
+
+        if (hasCampaignDiscount && !coupon.AllowCampaignCombination)
             return null;
 
         if (coupon.MinimumCartAmountIRR.HasValue &&
