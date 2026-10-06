@@ -6,7 +6,7 @@ using Marketplace.Domain.Pricing;
 
 namespace Marketplace.Application.Pricing;
 
-public sealed record PricingLine(CartItem Item,CheckoutLineData Data,long BaseUnitIRR,long WarrantyIRR,long BaseLineIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long FinalLineIRR,long EffectiveUnitIRR);
+public sealed record PricingLine(CartItem Item,CheckoutLineData Data,long BaseUnitIRR,long WarrantyIRR,long BaseLineIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long FinalLineIRR,long EffectiveUnitIRR,Campaign? Campaign);
 public sealed record PricingResult(IReadOnlyList<PricingLine> Lines,long SubtotalIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long TotalIRR,Coupon? Coupon);
 
 public sealed class PricingService
@@ -35,7 +35,7 @@ public sealed class PricingService
             }
             var finalMerchandise=merchandiseLine-campaignDiscount;
             var finalLine=checked(finalMerchandise+checked(warranty*x.Item.Quantity));
-            lines.Add(new PricingLine(x.Item,x.Data,baseUnit,warranty,merchandiseLine,campaignDiscount,0,finalLine,finalMerchandise/x.Item.Quantity));
+            lines.Add(new PricingLine(x.Item,x.Data,baseUnit,warranty,merchandiseLine,campaignDiscount,0,finalLine,finalMerchandise/x.Item.Quantity,campaign));
         }
         if(!string.IsNullOrWhiteSpace(couponCode))
         {
