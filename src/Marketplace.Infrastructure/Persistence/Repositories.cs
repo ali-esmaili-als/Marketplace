@@ -76,6 +76,34 @@ public sealed class CatalogRepository(MarketplaceDbContext db) : ICatalogReposit
 }
 
 
+public sealed class SellerManagementRepository(MarketplaceDbContext db) : ISellerManagementRepository
+{
+    public Task<Seller?> GetSellerByUserIdAsync(long userId, CancellationToken ct=default)
+        => db.Sellers.SingleOrDefaultAsync(x=>x.UserId==userId,ct);
+    public Task<Seller?> GetSellerAsync(long sellerId, CancellationToken ct=default)
+        => db.Sellers.SingleOrDefaultAsync(x=>x.Id==sellerId,ct);
+    public Task<int> GetStoreCountAsync(long sellerId, CancellationToken ct=default)
+        => db.Stores.CountAsync(x=>x.SellerId==sellerId && x.Status!=StoreStatus.Closed,ct);
+    public Task<Store?> GetStoreAsync(long storeId, CancellationToken ct=default)
+        => db.Stores.SingleOrDefaultAsync(x=>x.Id==storeId,ct);
+    public Task<List<Store>> GetStoresAsync(long sellerId, CancellationToken ct=default)
+        => db.Stores.Where(x=>x.SellerId==sellerId).OrderBy(x=>x.Id).ToListAsync(ct);
+    public Task<Store?> GetStoreForSellerAsync(long storeId,long sellerId,CancellationToken ct=default)
+        => db.Stores.SingleOrDefaultAsync(x=>x.Id==storeId && x.SellerId==sellerId,ct);
+    public Task<SellerBankAccount?> GetBankAccountAsync(long sellerId,long accountId,CancellationToken ct=default)
+        => db.SellerBankAccounts.SingleOrDefaultAsync(x=>x.Id==accountId && x.SellerId==sellerId,ct);
+    public Task<List<SellerBankAccount>> GetBankAccountsAsync(long sellerId,CancellationToken ct=default)
+        => db.SellerBankAccounts.Where(x=>x.SellerId==sellerId).OrderByDescending(x=>x.IsDefault).ThenBy(x=>x.Id).ToListAsync(ct);
+    public Task<SellerBalance?> GetBalanceAsync(long sellerId,CancellationToken ct=default)
+        => db.SellerBalances.SingleOrDefaultAsync(x=>x.SellerId==sellerId,ct);
+    public Task<bool> StoreSlugExistsAsync(long sellerId,string slug,long? exceptStoreId=null,CancellationToken ct=default)
+        => db.Stores.AnyAsync(x=>x.SellerId==sellerId && x.Slug==slug.Trim() && (!exceptStoreId.HasValue || x.Id!=exceptStoreId.Value),ct);
+    public void AddSeller(Seller seller)=>db.Sellers.Add(seller);
+    public void AddStore(Store store)=>db.Stores.Add(store);
+    public void AddBankAccount(SellerBankAccount account)=>db.SellerBankAccounts.Add(account);
+    public void AddBalance(SellerBalance balance)=>db.SellerBalances.Add(balance);
+}
+
 public sealed class ShippingRepository(MarketplaceDbContext db) : IShippingRepository
 {
     public Task<DeliveryCity?> GetCityAsync(long cityId, CancellationToken ct=default)
