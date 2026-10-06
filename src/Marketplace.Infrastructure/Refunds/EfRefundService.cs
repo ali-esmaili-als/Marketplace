@@ -60,7 +60,7 @@ public sealed class EfRefundService(
 
                 var previouslyRefundedQuantity = await db.RefundItems
                     .Where(x => x.OrderItemId == orderItem.Id &&
-                                x.Refund.Status == RefundStatus.Completed)
+                                db.Refunds.Any(r => r.Id == x.RefundId && r.Status == RefundStatus.Completed))
                     .SumAsync(x => (int?)x.Quantity, cancellationToken) ?? 0;
 
                 if (previouslyRefundedQuantity + line.Quantity > orderItem.Quantity)
