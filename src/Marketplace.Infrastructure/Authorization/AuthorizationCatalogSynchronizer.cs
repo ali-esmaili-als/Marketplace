@@ -92,9 +92,12 @@ public sealed class AuthorizationCatalogSynchronizer(
                 var access = method.GetCustomAttribute<ActionAccessAttribute>();
                 var allowAnonymous = method.GetCustomAttribute<AllowAnonymousAttribute>() is not null;
 
+                var actionRequiresAuthorization =
+                    method.GetCustomAttribute<AuthorizeAttribute>() is not null;
+
                 if (access is null)
                 {
-                    if (controllerRequiresAuthorization && !allowAnonymous)
+                    if ((controllerRequiresAuthorization || actionRequiresAuthorization) && !allowAnonymous)
                     {
                         throw new InvalidOperationException(
                             $"Controller action {controllerName}.{method.Name} is protected but has no ActionAccessAttribute.");
