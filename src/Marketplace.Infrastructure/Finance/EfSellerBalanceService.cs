@@ -55,6 +55,9 @@ public sealed class EfSellerBalanceService(MarketplaceDbContext db, IIdGenerator
             reference,
             balance => balance.Block(amount));
 
+    public Task ConsumeBlockAsync(long sellerId, long orderId, long amount, string reference, CancellationToken ct = default)
+        => Change(sellerId, orderId, amount, BalanceTransactionType.Refund, BalanceBucket.Blocked, reference, b => b.ConsumeBlock(amount));
+
     public Task ReleaseBlockAsync(
         long sellerId,
         long orderId,
