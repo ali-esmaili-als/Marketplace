@@ -1,4 +1,8 @@
 using Marketplace.Application.Delivery.Ports;
+using Marketplace.Application.Common.Abstractions;
+using Marketplace.Application.Checkout.Ports;
+using Marketplace.Domain.Delivery;
+using Marketplace.Domain.Identity;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
