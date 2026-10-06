@@ -50,7 +50,7 @@ public sealed class OrderLifecycleService
 
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.Sale,
-            o.SellerAmountIRR,b.PendingIRR-o.SellerAmountIRR,b.PendingIRR,"PAYMENT"));
+            o.SellerAmountIRR,b.PendingIRR-o.SellerAmountIRR,b.PendingIRR,"PAYMENT",BalanceBucket.Pending));
 
         await _uow.SaveChangesAsync(token);
         return 0;
@@ -87,11 +87,11 @@ public sealed class OrderLifecycleService
 
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.PendingReleased,
-            o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY"));
+            o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY",BalanceBucket.Pending));
 
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHold,
-            o.SellerAmountIRR,b.BlockedIRR-o.SellerAmountIRR,b.BlockedIRR,"COMPLAINT_WINDOW"));
+            o.SellerAmountIRR,b.BlockedIRR-o.SellerAmountIRR,b.BlockedIRR,"COMPLAINT_WINDOW",BalanceBucket.Blocked));
 
         await _uow.SaveChangesAsync(token);
         return 0;
@@ -116,7 +116,7 @@ public sealed class OrderLifecycleService
 
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.PendingRemoved,
-            o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY_EXPIRED"));
+            o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY_EXPIRED",BalanceBucket.Pending));
 
         await _uow.SaveChangesAsync(token);
         return 0;
@@ -154,7 +154,7 @@ public sealed class OrderLifecycleService
             _domain.OnSellerWon(c,o,b,h);
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
-                o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_SELLER_WON"));
+                o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_SELLER_WON",BalanceBucket.Blocked));
         }
 
         await _uow.SaveChangesAsync(token);
@@ -174,7 +174,7 @@ public sealed class OrderLifecycleService
 
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
-            o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_WINDOW_CLOSED"));
+            o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_WINDOW_CLOSED",BalanceBucket.Blocked));
 
         await _uow.SaveChangesAsync(token);
         return 0;
