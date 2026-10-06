@@ -89,7 +89,7 @@ internal static class MarketplaceModelConfiguration
 
         modelBuilder.Entity<Category>().Property<string>("Path").HasMaxLength(850).IsUnicode(false);
         modelBuilder.Entity<ProductVariant>().Property<string>("VariantKey").HasMaxLength(1000).IsUnicode(false);
-        modelBuilder.Entity<ProductVariant>().Property<byte[]>("VariantKeyHash").HasColumnType("binary(32)");
+        modelBuilder.Entity<ProductVariant>().Property<byte[]>("VariantKeyHash").HasColumnType("binary(32)").HasComputedColumnSql("CONVERT(binary(32), HASHBYTES('SHA2_256', [VariantKey]))", stored: true);
         modelBuilder.Entity<Store>().Property<decimal>("CommissionRate").HasPrecision(5, 2);
         modelBuilder.Entity<Commission>().Property<decimal>("CommissionRate").HasPrecision(5, 2);
         modelBuilder.Entity<PaymentAttempt>().Property<decimal>("FxRateToIRR").HasPrecision(28, 10);
