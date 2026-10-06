@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Marketplace.Application.Abstractions;
+using Marketplace.Infrastructure.Payments;
 using Marketplace.Infrastructure.Persistence;
 
 namespace Marketplace.Infrastructure;
@@ -17,6 +18,7 @@ public static class DependencyInjection
         services.AddScoped<IOrderRepository,OrderRepository>();
         services.AddScoped<IPaymentRepository,PaymentRepository>();
         services.AddScoped<ILifecycleRepository,LifecycleRepository>();
+        services.AddScoped<IPaymentGateway,NotConfiguredPaymentGateway>();
         return services;
     }
 }
