@@ -16,13 +16,8 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
         var order = await db.Orders.SingleAsync(x => x.Id == orderId, cancellationToken);
         order.StartPreparing();
         await db.SaveChangesAsync(cancellationToken);
-        private Task<bool> IsAdminAsync(CancellationToken cancellationToken)
-        => db.UserUserTypes.AnyAsync(
-            x => x.UserId == currentUser.UserId &&
-                 x.UserTypeId == Marketplace.Domain.Identity.UserTypeId.Admin,
-            cancellationToken);
+    }
 
-}
 
 
     public async Task<DeliveryCodeResult> MarkReadyAsync(long orderId, CancellationToken cancellationToken = default)
@@ -102,4 +97,9 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
         order.Complete();
         await db.SaveChangesAsync(cancellationToken);
     }
+    private Task<bool> IsAdminAsync(CancellationToken cancellationToken)
+        => db.UserUserTypes.AnyAsync(
+            x => x.UserId == currentUser.UserId &&
+                 x.UserTypeId == Marketplace.Domain.Identity.UserTypeId.Admin,
+            cancellationToken);
 }
