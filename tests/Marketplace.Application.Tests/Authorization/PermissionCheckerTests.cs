@@ -16,6 +16,7 @@ public sealed class PermissionCheckerTests
         user.AddUserType(UserTypeId.Customer);
 
         db.Users.Add(user);
+        db.UserUserTypes.Add(UserUserType.Create(1, UserTypeId.Customer));
         db.Permissions.Add(Permission.Create(100, "Checkout.Pay", "Checkout / Pay"));
         db.PermissionUserTypes.Add(
             PermissionUserType.Create(1000, 100, UserTypeId.Customer));
@@ -75,6 +76,7 @@ public sealed class PermissionCheckerTests
         permission.Disable();
 
         db.Users.Add(user);
+        db.UserUserTypes.Add(UserUserType.Create(1, UserTypeId.Customer));
         db.Permissions.Add(permission);
         db.PermissionUserTypes.Add(
             PermissionUserType.Create(1000, 100, UserTypeId.Customer));
