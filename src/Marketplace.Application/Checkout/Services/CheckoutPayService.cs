@@ -12,57 +12,132 @@ public sealed class CheckoutPayService(
     IExchangeRateProvider exchangeRates,
     IOrderWriter orders,
     IInventoryReservationService inventory,
+    ICouponReservationService coupons,
     IPaymentAttemptFactory payments,
+    IIdGenerator ids,
     IUnitOfWork unitOfWork)
 {
-    public async Task<CheckoutPayResult> ExecuteAsync(CheckoutPayCommand command, CancellationToken cancellationToken = default)
+    public async Task<CheckoutPayResult> ExecuteAsync(
+        CheckoutPayCommand command,
+        CancellationToken cancellationToken = default)
     {
-        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException();
-        if (string.IsNullOrWhiteSpace(command.CurrencyCode)) throw new ArgumentException("Currency is required.", nameof(command));
+        if (!currentUser.IsAuthenticated)
+            throw new UnauthorizedAccessException();
 
-        var cart = await reader.GetCartAsync(command.CartId, currentUser.UserId, cancellationToken)
+        if (string.IsNullOrWhiteSpace(command.CurrencyCode))
+            throw new ArgumentException("Currency is required.", nameof(command));
+
+        var cart = await reader.GetCartAsync(
+            command.CartId, currentUser.UserId, cancellationToken)
             ?? throw new InvalidOperationException("Cart not found.");
-        if (cart.Items.Count == 0) throw new InvalidOperationException("Cart is empty.");
 
-        // Coupon reservation requires a real OrderId. Therefore coupon reservation is
-        // intentionally deferred until the Order exists; a follow-up reconciliation
-        // step must bind the reservation to that Order inside the same transaction.
+        if (cart.Items.Count == 0)
+            throw new InvalidOperationException("Cart is empty.");
+
         var basePricing = await pricing.CalculateAsync(cart, 0, cancellationToken);
-        var rate = await exchangeRates.GetLatestAsync(command.CurrencyCode.Trim().ToUpperInvariant(), cancellationToken);
+        var rate = await exchangeRates.GetLatestAsync(
+            command.CurrencyCode.Trim().ToUpperInvariant(), cancellationToken);
 
         await unitOfWork.BeginTransactionAsync(cancellationToken);
+
+        long orderId = 0;
         try
         {
-            var finalPricing = basePricing;
+            orderId = ids.NewId();
+
+            CouponReservationResult? coupon = null;
+            if (!string.IsNullOrWhiteSpace(command.CouponCode))
+            {
+                var eligibleAmount = Math.Max(
+                    0,
+                    basePricing.SubTotalIRR -
+                    basePricing.CampaignDiscountIRR -
+                    basePricing.DirectDiscountIRR);
+
+                coupon = await coupons.ReserveAsync(
+                    cart.CustomerId,
+                    cart.CartId,
+                    orderId,
+                    command.CouponCode,
+                    eligibleAmount,
+                    basePricing.CampaignDiscountIRR > 0,
+                    cancellationToken);
+
+                if (coupon is null)
+                    throw new InvalidOperationException("Coupon is invalid, expired, unavailable, or not applicable.");
+            }
+
+            var finalPricing = await pricing.CalculateAsync(
+                cart,
+                coupon?.DiscountIRR ?? 0,
+                cancellationToken);
+
             var orderItems = finalPricing.Items.Select(x => new CreateOrderItemRequest(
-                x.ProductId, x.ProductVariantId, x.ProductNameSnapshot, x.VariantKeySnapshot,
-                x.SkuSnapshot, x.UnitPriceIRR, x.Quantity, x.LineSubtotalIRR,
-                x.CampaignDiscountIRR, x.DirectDiscountIRR, x.CouponDiscountIRR,
-                x.WarrantyId, x.WarrantyNameSnapshot, x.WarrantyAmountIRR,
-                x.AllocatedShippingIRR, x.FinalLineTotalIRR, x.CampaignId,
+                x.ProductId,
+                x.ProductVariantId,
+                x.ProductNameSnapshot,
+                x.VariantKeySnapshot,
+                x.SkuSnapshot,
+                x.UnitPriceIRR,
+                x.Quantity,
+                x.LineSubtotalIRR,
+                x.CampaignDiscountIRR,
+                x.DirectDiscountIRR,
+                x.CouponDiscountIRR,
+                x.WarrantyId,
+                x.WarrantyNameSnapshot,
+                x.WarrantyAmountIRR,
+                x.AllocatedShippingIRR,
+                x.FinalLineTotalIRR,
+                x.CampaignId,
                 x.CampaignNameSnapshot)).ToArray();
 
-            var orderId = await orders.CreateAsync(new CreateOrderRequest(
-                cart.CustomerId, cart.StoreId, cart.CartId,
-                finalPricing.SubTotalIRR, finalPricing.CampaignDiscountIRR,
-                finalPricing.DirectDiscountIRR, finalPricing.CouponDiscountIRR,
-                finalPricing.WarrantyAmountIRR, finalPricing.ShippingGrossIRR,
-                finalPricing.ShippingBenefitIRR, finalPricing.ShippingAmountIRR,
-                finalPricing.TotalAmountIRR, null, null, orderItems), cancellationToken);
+            await orders.CreateAsync(
+                new CreateOrderRequest(
+                    orderId,
+                    cart.CustomerId,
+                    cart.StoreId,
+                    cart.CartId,
+                    finalPricing.SubTotalIRR,
+                    finalPricing.CampaignDiscountIRR,
+                    finalPricing.DirectDiscountIRR,
+                    finalPricing.CouponDiscountIRR,
+                    finalPricing.WarrantyAmountIRR,
+                    finalPricing.ShippingGrossIRR,
+                    finalPricing.ShippingBenefitIRR,
+                    finalPricing.ShippingAmountIRR,
+                    finalPricing.TotalAmountIRR,
+                    coupon?.CouponId,
+                    coupon?.CouponCode,
+                    orderItems),
+                cancellationToken);
 
-            if (!string.IsNullOrWhiteSpace(command.CouponCode))
-                throw new InvalidOperationException("Coupon checkout binding is not enabled yet.");
-
-            await inventory.ReserveAsync(orderId,
+            await inventory.ReserveAsync(
+                orderId,
                 cart.Items.Select(x => new InventoryReservationRequest(
-                    x.ProductId, x.ProductVariantId, x.Quantity)).ToArray(), cancellationToken);
+                    x.ProductId,
+                    x.ProductVariantId,
+                    x.Quantity)).ToArray(),
+                cancellationToken);
 
             var paymentAttemptId = await payments.CreateAsync(
-                new PaymentAttemptRequest(orderId, cart.CustomerId, finalPricing.TotalAmountIRR,
-                    rate.CurrencyCode, rate.RateToIRR, "PendingGateway"), cancellationToken);
+                new PaymentAttemptRequest(
+                    orderId,
+                    cart.CustomerId,
+                    finalPricing.TotalAmountIRR,
+                    rate.CurrencyCode,
+                    rate.RateToIRR,
+                    "PendingGateway"),
+                cancellationToken);
 
             await unitOfWork.CommitTransactionAsync(cancellationToken);
-            return new CheckoutPayResult(orderId, paymentAttemptId, finalPricing.TotalAmountIRR, rate.CurrencyCode, rate.RateToIRR);
+
+            return new CheckoutPayResult(
+                orderId,
+                paymentAttemptId,
+                finalPricing.TotalAmountIRR,
+                rate.CurrencyCode,
+                rate.RateToIRR);
         }
         catch
         {
