@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddScoped<ICartRepository,CartRepository>();
         services.AddScoped<ICatalogRepository,CatalogRepository>();
         services.AddScoped<IPaymentGateway,NotConfiguredPaymentGateway>();
+        services.AddScoped<IPaymentProviderSettings,PaymentProviderSettingsRepository>();
         return services;
     }
 }
