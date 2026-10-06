@@ -8,7 +8,7 @@ namespace Marketplace.Api.Controllers;
 
 [ApiController]
 [Route("api/payments")]
-public sealed class PaymentController(IPaymentCompletionService completion, IPaymentLifecycleService lifecycle) : ControllerBase
+public sealed class PaymentController(IPaymentCompletionService completion, IPaymentLifecycleService lifecycle, IPaymentWebhookValidator webhookValidator) : ControllerBase
 {
     [AllowAnonymous]
     [HttpPost("{paymentAttemptId:long}/complete")]
@@ -17,6 +17,9 @@ public sealed class PaymentController(IPaymentCompletionService completion, IPay
         [FromBody] CompletePaymentRequest request,
         CancellationToken cancellationToken)
     {
+        if (!webhookValidator.IsValid(paymentAttemptId, request.GatewayTransactionId, Request.Headers["X-Gateway-Signature"].FirstOrDefault()))
+            return Unauthorized();
+
         await completion.CompleteAsync(paymentAttemptId, request.GatewayTransactionId, cancellationToken);
         return NoContent();
     }
