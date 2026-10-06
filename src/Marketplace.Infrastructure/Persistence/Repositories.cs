@@ -188,12 +188,16 @@ public sealed class CatalogManagementRepository(MarketplaceDbContext db) : ICata
  public Task<bool> ProductBelongsToStoreAsync(long productId,long storeId,CancellationToken ct=default)=>db.Products.AnyAsync(x=>x.Id==productId&&x.StoreId==storeId,ct);
  public Task<bool> VariantBelongsToStoreAsync(long variantId,long storeId,CancellationToken ct=default)=>db.ProductVariants.AnyAsync(x=>x.Id==variantId&&db.Products.Any(p=>p.Id==x.ProductId&&p.StoreId==storeId),ct);
  public Task<bool> CategoryIsActiveAsync(long categoryId,CancellationToken ct=default)=>db.Categories.AnyAsync(x=>x.Id==categoryId&&x.IsActive,ct);
+ public Task<ProductAttribute?> GetAttributeAsync(long id,CancellationToken ct=default)=>db.ProductAttributes.SingleOrDefaultAsync(x=>x.Id==id,ct);
+ public Task<ProductAttributeValue?> GetAttributeValueAsync(long id,CancellationToken ct=default)=>db.ProductAttributeValues.SingleOrDefaultAsync(x=>x.Id==id,ct);
+ public Task<bool> AttributeBelongsToStoreAsync(long attributeId,long storeId,CancellationToken ct=default)=>db.ProductAttributes.AnyAsync(x=>x.Id==attributeId&&x.StoreId==storeId,ct);
+ public Task<bool> AttributeValueBelongsToStoreAsync(long valueId,long storeId,CancellationToken ct=default)=>db.ProductAttributeValues.AnyAsync(x=>x.Id==valueId&&db.ProductAttributes.Any(a=>a.Id==x.ProductAttributeId&&a.StoreId==storeId),ct);
  public Task<bool> WarrantyBelongsToStoreAsync(long warrantyId,long storeId,CancellationToken ct=default)=>db.Warranties.AnyAsync(x=>x.Id==warrantyId&&x.StoreId==storeId&&x.IsActive,ct);
  public Task<InventoryItem?> GetInventoryAsync(long variantId,CancellationToken ct=default)=>db.InventoryItems.SingleOrDefaultAsync(x=>x.ProductVariantId==variantId,ct);
  public Task<List<Product>> GetProductsAsync(long storeId,CancellationToken ct=default)=>db.Products.Where(x=>x.StoreId==storeId).OrderByDescending(x=>x.Id).ToListAsync(ct);
  public Task<List<ProductVariant>> GetVariantsAsync(long productId,CancellationToken ct=default)=>db.ProductVariants.Where(x=>x.ProductId==productId).OrderBy(x=>x.Id).ToListAsync(ct);
  public Task<List<Warranty>> GetWarrantiesAsync(long storeId,CancellationToken ct=default)=>db.Warranties.Where(x=>x.StoreId==storeId).OrderBy(x=>x.Id).ToListAsync(ct);
- public void AddProduct(Product x)=>db.Products.Add(x); public void AddVariant(ProductVariant x)=>db.ProductVariants.Add(x); public void AddInventory(InventoryItem x)=>db.InventoryItems.Add(x); public void AddWarranty(Warranty x)=>db.Warranties.Add(x); public void AddProductWarranty(ProductWarranty x)=>db.ProductWarranties.Add(x);
+ public void AddProduct(Product x)=>db.Products.Add(x); public void AddAttribute(ProductAttribute x)=>db.ProductAttributes.Add(x); public void AddAttributeValue(ProductAttributeValue x)=>db.ProductAttributeValues.Add(x); public void AddProductAttributeAssignment(ProductAttributeAssignment x)=>db.ProductAttributeAssignments.Add(x); public void AddVariantAttributeValue(VariantAttributeValue x)=>db.VariantAttributeValues.Add(x); public void AddVariant(ProductVariant x)=>db.ProductVariants.Add(x); public void AddInventory(InventoryItem x)=>db.InventoryItems.Add(x); public void AddWarranty(Warranty x)=>db.Warranties.Add(x); public void AddProductWarranty(ProductWarranty x)=>db.ProductWarranties.Add(x);
 }
 
 public sealed class OrderQueryRepository(MarketplaceDbContext db) : IOrderQueryRepository
