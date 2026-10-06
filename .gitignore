@@ -10,3 +10,4 @@
 /src/Marketplace.Infrastructure/obj
 /tests/Marketplace.Domain.Tests/bin/Debug/net8.0
 /tests/Marketplace.Domain.Tests/obj
+/src/Marketplace.Domain/bin/Debug/net8.0
