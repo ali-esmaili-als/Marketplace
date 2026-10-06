@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<ICouponReservationService, EfCouponReservationService>();
         services.AddScoped<IDeliveryService, EfDeliveryService>();
         services.AddScoped<IFinanceService, EfFinanceService>();
+        services.AddScoped<ISellerBalanceService, EfSellerBalanceService>();
         services.AddScoped<IPaymentCompletionService, EfPaymentCompletionService>();
         services.AddScoped<ISettlementService, EfSettlementService>();
         services.AddScoped<IRefundService, EfRefundService>();
