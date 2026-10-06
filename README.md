@@ -14,3 +14,12 @@ The API exposes:
 - `POST /api/auth/revoke`
 
 Refresh tokens are stored only as SHA-256 hashes and are rotated on refresh.
+
+## Payment webhook configuration
+
+Set the gateway callback secret outside source control:
+
+- Environment variable: `PaymentGateway__WebhookSecret`
+- The anonymous payment completion endpoint requires `X-Gateway-Signature`.
+- Signature payload: `{paymentAttemptId}:{gatewayTransactionId}`
+- Algorithm: HMAC-SHA256, uppercase hexadecimal.
