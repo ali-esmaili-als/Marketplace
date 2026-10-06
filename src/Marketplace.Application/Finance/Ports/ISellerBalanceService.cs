@@ -25,6 +25,8 @@ public interface ISellerBalanceService
         string reference,
         CancellationToken cancellationToken = default);
 
+    Task ConsumeBlockAsync(long sellerId, long orderId, long amountIRR, string reference, CancellationToken cancellationToken = default);
+
     Task ReleaseBlockAsync(
         long sellerId,
         long orderId,
