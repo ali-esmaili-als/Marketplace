@@ -22,7 +22,7 @@ public sealed class PricingRepository(MarketplaceDbContext db) : IPricingReposit
     public Task<bool> HasCustomerUsedCouponAsync(long couponId,long customerId,CancellationToken ct=default)
         => db.CouponUsages.AnyAsync(x=>x.CouponId==couponId&&x.CustomerId==customerId,ct);
     public Task<bool> IsNewCustomerAsync(long customerId,CancellationToken ct=default)
-        => db.Orders.AllAsync(x=>x.CustomerId!=customerId||x.Status==OrderStatus.Cancelled,ct);
+        => db.Orders.AllAsync(x=>x.CustomerId!=customerId||x.Status is OrderStatus.PendingPayment or OrderStatus.Cancelled,ct);
     public Task<bool> CouponHasCategoryScopeAsync(long couponId,long categoryId,CancellationToken ct=default)
         => db.CouponCategories.AnyAsync(x=>x.CouponId==couponId&&x.CategoryId==categoryId,ct);
     public Task<bool> CouponHasProductScopeAsync(long couponId,long productId,CancellationToken ct=default)
