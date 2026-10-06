@@ -26,18 +26,18 @@ public sealed class SettlementService
         if (seller.Status != SellerStatus.Active) throw new DomainException("Seller is not active.");
         return await _uow.ExecuteInTransactionAsync(async token =>
         {
-            var balance=await _life.GetSellerBalanceAsync(sellerId,token)??throw new DomainException("Seller balance not found.");
-            var account=await _life.GetSellerBankAccountAsync(sellerId,bankAccountId,token)??throw new DomainException("Bank account not found.");
+            var balance=await _life.GetSellerBalanceAsync(seller.Id,token)??throw new DomainException("Seller balance not found.");
+            var account=await _life.GetSellerBankAccountAsync(seller.Id,bankAccountId,token)??throw new DomainException("Bank account not found.");
             if(!account.IsVerified) throw new DomainException("Seller bank account is not verified.");
             if(amountIRR<=0 || amountIRR>balance.WithdrawableIRR) throw new DomainException("Settlement amount exceeds withdrawable balance.");
 
             balance.ReserveForSettlement(amountIRR);
-            var settlement=Settlement.Create(await _ids.NextAsync(token),sellerId,amountIRR,account.Id,account.BankName,account.Iban,account.AccountHolderName);
+            var settlement=Settlement.Create(await _ids.NextAsync(token),seller.Id,amountIRR,account.Id,account.BankName,account.Iban,account.AccountHolderName);
             _life.AddSettlement(settlement);
 
             var before=balance.WithdrawableIRR+amountIRR;
             _life.AddBalanceTransaction(BalanceTransaction.Create(
-                await _ids.NextAsync(token),sellerId,null,settlement.Id,
+                await _ids.NextAsync(token),seller.Id,null,settlement.Id,
                 BalanceTransactionType.Settlement,amountIRR,before,balance.WithdrawableIRR,"SETTLEMENT_REQUESTED"));
 
             await _uow.SaveChangesAsync(token);
