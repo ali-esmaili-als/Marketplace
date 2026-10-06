@@ -5,5 +5,6 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2"><PrivateAssets>all</PrivateAssets></PackageReference>
     <ProjectReference Include="..\..\src\Marketplace.Domain\Marketplace.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Marketplace.Application\Marketplace.Application.csproj" />
   </ItemGroup>
 </Project>
