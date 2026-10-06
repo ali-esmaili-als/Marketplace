@@ -23,25 +23,26 @@ public sealed class PricingService
         {
             var baseUnit=x.Data.Variant.PriceIRR??x.Data.Product.BasePriceIRR;
             var warranty=x.Data.Warranty?.PriceIRR??0;
-            var baseLine=checked((baseUnit+warranty)*x.Item.Quantity);
+            var merchandiseLine=checked(baseUnit*x.Item.Quantity);
             var campaign=await _pricing.GetRunningCampaignAsync(storeId,x.Data.Product.Id,x.Data.Variant.Id,nowUtc,ct);
             var campaignDiscount=0L;
             if(campaign is not null)
             {
-                if(campaign.DiscountType==DiscountType.Percentage)
-                    campaignDiscount=checked((long)Math.Floor(baseLine*campaign.DiscountValue/100m));
-                else campaignDiscount=Math.Min(baseLine,checked((long)campaign.DiscountValue));
-                if(campaignDiscount>0) firstCampaign ??=campaign;
+                campaignDiscount=campaign.DiscountType==DiscountType.Percentage
+                    ? checked((long)Math.Floor(merchandiseLine*campaign.DiscountValue/100m))
+                    : Math.Min(merchandiseLine,checked((long)campaign.DiscountValue));
+                if(campaignDiscount>0) firstCampaign ??= campaign;
             }
-            var effective=baseLine-campaignDiscount;
-            lines.Add(new PricingLine(x.Item,x.Data,baseUnit,warranty,baseLine,campaignDiscount,0,effective,Math.Max(0,effective/x.Item.Quantity-warranty)));
+            var finalMerchandise=merchandiseLine-campaignDiscount;
+            var finalLine=checked(finalMerchandise+checked(warranty*x.Item.Quantity));
+            lines.Add(new PricingLine(x.Item,x.Data,baseUnit,warranty,merchandiseLine,campaignDiscount,0,finalLine,finalMerchandise/x.Item.Quantity));
         }
         if(!string.IsNullOrWhiteSpace(couponCode))
         {
             if(firstCampaign is not null) throw new DomainException("Coupon cannot be combined with a campaign.");
             var coupon=await _pricing.GetCouponAsync(storeId,couponCode.Trim(),ct)??throw new DomainException("Coupon not found.");
             if(!coupon.IsRunning(nowUtc)) throw new DomainException("Coupon is not active.");
-            var subtotal=lines.Sum(x=>x.BaseLineIRR);
+            var subtotal=checked(lines.Sum(x=>x.BaseLineIRR+x.WarrantyIRR*x.Item.Quantity));
             if(coupon.MinimumPurchaseIRR.HasValue&&subtotal<coupon.MinimumPurchaseIRR.Value) throw new DomainException("Minimum purchase for this coupon is not met.");
             if(coupon.NewCustomerOnly&&!await _pricing.IsNewCustomerAsync(customerId,ct)) throw new DomainException("Coupon is only for new customers.");
             if(coupon.MaxUses.HasValue&&await _pricing.GetCouponUsageCountAsync(coupon.Id,ct)>=coupon.MaxUses.Value) throw new DomainException("Coupon usage limit has been reached.");
@@ -50,16 +51,11 @@ public sealed class PricingService
             var eligible=0L;
             foreach(var l in lines)
             {
-                var ok=!hasScope;
-                if(hasScope)
-                    ok=await _pricing.CouponHasProductScopeAsync(coupon.Id,l.Data.Product.Id,ct)
-                       || await _pricing.CouponHasCategoryScopeAsync(coupon.Id,l.Data.Product.CategoryId,ct);
+                var ok=!hasScope || await _pricing.CouponHasProductScopeAsync(coupon.Id,l.Data.Product.Id,ct) || await _pricing.CouponHasCategoryScopeAsync(coupon.Id,l.Data.Product.CategoryId,ct);
                 if(ok) eligible=checked(eligible+l.BaseLineIRR);
             }
             if(eligible<=0) throw new DomainException("Coupon does not apply to cart items.");
-            var discount=coupon.DiscountType==DiscountType.Percentage
-                ? checked((long)Math.Floor(eligible*coupon.DiscountValue/100m))
-                : Math.Min(eligible,checked((long)coupon.DiscountValue));
+            var discount=coupon.DiscountType==DiscountType.Percentage ? checked((long)Math.Floor(eligible*coupon.DiscountValue/100m)) : Math.Min(eligible,checked((long)coupon.DiscountValue));
             if(coupon.MaxDiscountAmountIRR.HasValue) discount=Math.Min(discount,coupon.MaxDiscountAmountIRR.Value);
             discount=Math.Min(discount,eligible);
             var remaining=discount;
@@ -69,12 +65,12 @@ public sealed class PricingService
                 var ok=!hasScope || await _pricing.CouponHasProductScopeAsync(coupon.Id,l.Data.Product.Id,ct) || await _pricing.CouponHasCategoryScopeAsync(coupon.Id,l.Data.Product.CategoryId,ct);
                 if(!ok) continue;
                 var d=Math.Min(l.BaseLineIRR,remaining);
-                lines[i]=l with { CouponDiscountIRR=d,FinalLineIRR=l.FinalLineIRR-d,EffectiveUnitIRR=Math.Max(0,(l.FinalLineIRR-d)/l.Item.Quantity-l.WarrantyIRR) };
+                var finalMerchandise=l.BaseLineIRR-d;
+                lines[i]=l with { CouponDiscountIRR=d,FinalLineIRR=checked(finalMerchandise+l.WarrantyIRR*l.Item.Quantity),EffectiveUnitIRR=finalMerchandise/l.Item.Quantity };
                 remaining-=d;
             }
-            var total=checked(lines.Sum(x=>x.FinalLineIRR));
-            return new PricingResult(lines,subtotal,0,discount,total,coupon);
+            return new PricingResult(lines,subtotal,0,discount,checked(lines.Sum(x=>x.FinalLineIRR)),coupon);
         }
-        return new PricingResult(lines,lines.Sum(x=>x.BaseLineIRR),lines.Sum(x=>x.CampaignDiscountIRR),0,lines.Sum(x=>x.FinalLineIRR),null);
+        return new PricingResult(lines,checked(lines.Sum(x=>x.BaseLineIRR+x.WarrantyIRR*x.Item.Quantity)),lines.Sum(x=>x.CampaignDiscountIRR),0,checked(lines.Sum(x=>x.FinalLineIRR)),null);
     }
 }
