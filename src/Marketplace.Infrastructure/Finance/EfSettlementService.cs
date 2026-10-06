@@ -9,7 +9,7 @@ namespace Marketplace.Infrastructure.Finance;
 public sealed class EfSettlementService(
     MarketplaceDbContext db,
     IIdGenerator ids,
-    Marketplace.Application.Common.Abstractions.IResourceAccess resourceAccess) : ISettlementService
+    Marketplace.Application.Common.Abstractions.IResourceAccess resourceAccess, ISellerBalanceService sellerBalance) : ISettlementService
 {
     public async Task<long> RequestAsync(long sellerId, long bankAccountId, long amountIRR, CancellationToken cancellationToken = default)
     {
@@ -26,7 +26,7 @@ public sealed class EfSettlementService(
                 x => x.SellerId == sellerId, cancellationToken)
                 ?? throw new InvalidOperationException("Seller balance not found.");
 
-            balance.ReserveForSettlement(amountIRR);
+            // Reservation is handled by the balance service.
 
             var settlement = Settlement.Create(
                 ids.NewId(), sellerId, amountIRR, account.Id,
@@ -34,13 +34,7 @@ public sealed class EfSettlementService(
 
             db.Settlements.Add(settlement);
 
-            var before = checked(balance.AvailableIRR + balance.PendingIRR);
-            var after = checked(balance.AvailableIRR + balance.PendingIRR);
-
-            db.BalanceTransactions.Add(BalanceTransaction.Create(
-                ids.NewId(), sellerId, null, settlement.Id,
-                BalanceTransactionType.Settlement, amountIRR,
-                before, after, $"SETTLEMENT:{settlement.Id}"));
+            await sellerBalance.ReserveForSettlementAsync(sellerId, settlement.Id, amountIRR, $"SETTLEMENT:{settlement.Id}", cancellationToken);
 
             await db.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
