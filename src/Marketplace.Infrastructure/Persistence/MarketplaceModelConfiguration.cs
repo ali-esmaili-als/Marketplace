@@ -1,4 +1,5 @@
 using Marketplace.Domain.Catalog;
+using Marketplace.Domain.Authorization;
 using Marketplace.Domain.Carts;
 using Marketplace.Domain.Coupons;
 using Marketplace.Domain.Delivery;
@@ -18,6 +19,16 @@ internal static class MarketplaceModelConfiguration
     {
         modelBuilder.HasDefaultSchema("dbo");
         modelBuilder.Entity<User>().ToTable("Users").HasKey(x => x.Id);
+        modelBuilder.Entity<Permission>().ToTable("Permissions").HasKey(x => x.Id);
+        modelBuilder.Entity<Rule>().ToTable("Rules").HasKey(x => x.Id);
+        modelBuilder.Entity<UserRule>().ToTable("UserRules").HasKey(x => x.Id);
+        modelBuilder.Entity<RulePermission>().ToTable("RulePermissions").HasKey(x => x.Id);
+        modelBuilder.Entity<PermissionUserType>().ToTable("PermissionUserTypes").HasKey(x => x.Id);
+        modelBuilder.Entity<Permission>().HasIndex(x => x.Code).IsUnique();
+        modelBuilder.Entity<Rule>().HasIndex(x => x.Code).IsUnique();
+        modelBuilder.Entity<UserRule>().HasIndex(x => new { x.UserId, x.RuleId }).IsUnique();
+        modelBuilder.Entity<RulePermission>().HasIndex(x => new { x.RuleId, x.PermissionId }).IsUnique();
+        modelBuilder.Entity<PermissionUserType>().HasIndex(x => new { x.PermissionId, x.UserTypeId }).IsUnique();
         modelBuilder.Entity<UserCredential>().ToTable("UserCredentials").HasKey(x => x.Id);
         modelBuilder.Entity<RefreshToken>().ToTable("RefreshTokens").HasKey(x => x.Id);
         modelBuilder.Entity<UserSession>().ToTable("UserSessions").HasKey(x => x.Id);
