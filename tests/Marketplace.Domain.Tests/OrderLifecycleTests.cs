@@ -53,7 +53,7 @@ public sealed class OrderLifecycleTests
         var payment=Payment.Create(2,1,10,1_000_000);payment.Succeed("REF");
         var balance=SellerBalance.Create(3,20);var lifecycle=new OrderFinancialLifecycle();
         var hold=lifecycle.OnPaymentSucceeded(order,payment,balance,4);
-        var delivery=Delivery.Create(5,1,20,DateTime.UtcNow.AddHours(1));delivery.MarkReady();
+        var delivery=DeliveryEntity.Create(5,1,20,DateTime.UtcNow.AddHours(1));delivery.MarkReady();
         var delivered=DateTime.UtcNow.AddDays(-2);delivery.ConfirmDelivered("DEL",delivered);
         lifecycle.OnDelivered(order,delivery,balance,delivered,DateTime.UtcNow.AddDays(-1));
         var complaint=Complaint.Create(6,1,10,20,"Damaged");
