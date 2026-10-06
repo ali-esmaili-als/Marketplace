@@ -40,6 +40,8 @@ public interface ISellerBalanceService
         string reference,
         CancellationToken cancellationToken = default);
 
+    Task ReserveForSettlementAsync(long sellerId, long settlementId, long amountIRR, string reference, CancellationToken cancellationToken = default);
+
     Task AddLiabilityAsync(
         long sellerId,
         long orderId,
