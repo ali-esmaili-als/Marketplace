@@ -17,6 +17,7 @@ public interface ILifecycleRepository
     Task<SellerBalanceHold?> GetActiveHoldByOrderAsync(long orderId,CancellationToken ct=default);
     Task<Commission?> GetCommissionByOrderAsync(long orderId,CancellationToken ct=default);
     Task<List<InventoryReservation>> GetReservationsByOrderAsync(long orderId,CancellationToken ct=default);
+    Task<InventoryItem?> GetInventoryItemAsync(long productVariantId,CancellationToken ct=default);
     void AddDelivery(Delivery delivery);
     void AddComplaint(Complaint complaint);
     void AddRefund(Refund refund);
