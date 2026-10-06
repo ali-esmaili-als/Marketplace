@@ -3,6 +3,7 @@ using Marketplace.Application.Common.Abstractions;
 using Marketplace.Domain.Authorization;
 using Marketplace.Domain.Identity;
 using Marketplace.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
@@ -83,11 +84,24 @@ public sealed class AuthorizationCatalogSynchronizer(
                 ? controller.Name[..^"Controller".Length]
                 : controller.Name;
 
+            var controllerRequiresAuthorization =
+                controller.GetCustomAttribute<AuthorizeAttribute>() is not null;
+
             foreach (var method in controller.GetMethods(BindingFlags.Instance | BindingFlags.Public))
             {
                 var access = method.GetCustomAttribute<ActionAccessAttribute>();
+                var allowAnonymous = method.GetCustomAttribute<AllowAnonymousAttribute>() is not null;
+
                 if (access is null)
+                {
+                    if (controllerRequiresAuthorization && !allowAnonymous)
+                    {
+                        throw new InvalidOperationException(
+                            $"Controller action {controllerName}.{method.Name} is protected but has no ActionAccessAttribute.");
+                    }
+
                     continue;
+                }
 
                 var code = controllerName + "." + method.Name;
                 var displayName = controllerName + " / " + method.Name;
