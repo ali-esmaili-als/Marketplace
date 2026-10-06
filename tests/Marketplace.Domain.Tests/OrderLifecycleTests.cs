@@ -13,7 +13,7 @@ public sealed class OrderLifecycleTests
     [Fact]
     public void SuccessfulPayment_MovesSellerMoneyToPendingAndCreatesHold()
     {
-        var order=Order.Create(1,10,20,30,1_000_000);
+        var order=Order.Create(1,10,20,30,1_000_000,1_000_000);
         var payment=Payment.Create(2,1,10,1_000_000);
         payment.Succeed("REF-1");
         var balance=SellerBalance.Create(3,20);
@@ -30,7 +30,7 @@ public sealed class OrderLifecycleTests
     [Fact]
     public void DeliveredOrder_BlocksSellerShareUntilComplaintWindowEnds()
     {
-        var order=Order.Create(1,10,20,30,1_000_000);
+        var order=Order.Create(1,10,20,30,1_000_000,1_000_000);
         var payment=Payment.Create(2,1,10,1_000_000);payment.Succeed("REF");
         var balance=SellerBalance.Create(3,20);
         var lifecycle=new OrderFinancialLifecycle();
@@ -48,7 +48,7 @@ public sealed class OrderLifecycleTests
     [Fact]
     public void SellerWonComplaint_ReleasesSellerHold()
     {
-        var order=Order.Create(1,10,20,30,1_000_000);
+        var order=Order.Create(1,10,20,30,1_000_000,1_000_000);
         var payment=Payment.Create(2,1,10,1_000_000);payment.Succeed("REF");
         var balance=SellerBalance.Create(3,20);var lifecycle=new OrderFinancialLifecycle();
         var hold=lifecycle.OnPaymentSucceeded(order,payment,balance,4);
