@@ -75,6 +75,8 @@ internal static class MarketplaceModelConfiguration
         modelBuilder.Entity<DeliveryCode>().ToTable("DeliveryCodes").HasKey(x => x.Id);
         modelBuilder.Entity<Commission>().ToTable("Commissions").HasKey(x => x.Id);
         modelBuilder.Entity<BalanceTransaction>().ToTable("BalanceTransactions").HasKey(x => x.Id);
+        modelBuilder.Entity<BalanceTransaction>().Property(x => x.Bucket).HasColumnType("tinyint");
+        modelBuilder.Entity<BalanceTransaction>().HasIndex(x => new { x.SellerId, x.CreatedAtUtc });
         modelBuilder.Entity<SellerBalance>().ToTable("SellerBalances").HasKey(x => x.Id);
         modelBuilder.Entity<SellerBalanceHold>().ToTable("SellerBalanceHolds").HasKey(x => x.Id);
         modelBuilder.Entity<Settlement>().ToTable("Settlements").HasKey(x => x.Id);
