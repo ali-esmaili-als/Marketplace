@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOTNET_NOLOGO: true
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,10 +21,10 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore Marketplace.sln
+        run: dotnet restore src/Marketplace.Api/Marketplace.Api.csproj
 
       - name: Build
-        run: dotnet build Marketplace.sln --configuration Release --no-restore
+        run: dotnet build src/Marketplace.Api/Marketplace.Api.csproj --configuration Release --no-restore
 
       - name: Application tests
-        run: dotnet test tests/Marketplace.Application.Tests/Marketplace.Application.Tests.csproj --configuration Release --no-build --verbosity normal
+        run: dotnet test tests/Marketplace.Application.Tests/Marketplace.Application.Tests.csproj --configuration Release --verbosity normal
