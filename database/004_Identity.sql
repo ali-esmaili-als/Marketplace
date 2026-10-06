@@ -86,7 +86,8 @@ USING (VALUES
  (3002,N'Admin.PaymentProviders.Configure',N'Configure payment providers',3),
  (3003,N'Admin.Settlement.Process',N'Process seller settlements',3),
  (4001,N'Order.Delivery.Confirm',N'Confirm delivery',4),
- (4002,N'Complaint.Resolve',N'Resolve complaint',4)
+ (4002,N'Complaint.Resolve',N'Resolve complaint',4),
+ (3004,N'Admin.Identity.Manage',N'Manage users roles and permissions',3)
 ) AS source(Id,Code,Name,ActionType)
 ON target.Id=source.Id
 WHEN MATCHED THEN UPDATE SET Code=source.Code,Name=source.Name,ActionType=source.ActionType,IsActive=1
