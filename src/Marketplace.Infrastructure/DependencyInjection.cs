@@ -1,0 +1,41 @@
+using Marketplace.Application.Common.Abstractions;
+using Marketplace.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Marketplace.Infrastructure;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddMarketplaceInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddDbContext<MarketplaceDbContext>(options =>
+            options.UseSqlServer(configuration.GetConnectionString("Marketplace"), sql => sql.EnableRetryOnFailure(5)));
+        services.AddScoped<IUnitOfWork, InfrastructureUnitOfWork>();
+        services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IIdGenerator, MonotonicIdGenerator>();
+        return services;
+    }
+
+    private sealed class SystemClock : IClock
+    {
+        public DateTime UtcNow => DateTime.UtcNow;
+    }
+
+    private sealed class MonotonicIdGenerator : IIdGenerator
+    {
+        private static long _last;
+        public long NewId()
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            while (true)
+            {
+                var current = Interlocked.Read(ref _last);
+                var next = Math.Max(now, current + 1);
+                if (Interlocked.CompareExchange(ref _last, next, current) == current)
+                    return next;
+            }
+        }
+    }
+}
