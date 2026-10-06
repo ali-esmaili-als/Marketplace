@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Marketplace.Domain.Cart;
+using Marketplace.Domain.Catalog;
 using Marketplace.Domain.Complaints;
 using Marketplace.Domain.Delivery;
 using Marketplace.Domain.Finance;
@@ -10,41 +12,157 @@ using Marketplace.Domain.Sellers;
 
 namespace Marketplace.Infrastructure.Persistence;
 
-public sealed class MarketplaceDbContext:DbContext
+public sealed class MarketplaceDbContext : DbContext
 {
-    public MarketplaceDbContext(DbContextOptions<MarketplaceDbContext> options):base(options){}
-    public DbSet<Order> Orders=>Set<Order>();
-    public DbSet<OrderItem> OrderItems=>Set<OrderItem>();
-    public DbSet<Payment> Payments=>Set<Payment>();
-    public DbSet<PaymentTransaction> PaymentTransactions=>Set<PaymentTransaction>();
-    public DbSet<Delivery> Deliveries=>Set<Delivery>();
-    public DbSet<Refund> Refunds=>Set<Refund>();
-    public DbSet<Complaint> Complaints=>Set<Complaint>();
-    public DbSet<InventoryItem> InventoryItems=>Set<InventoryItem>();
-    public DbSet<InventoryReservation> InventoryReservations=>Set<InventoryReservation>();
-    public DbSet<SellerBalance> SellerBalances=>Set<SellerBalance>();
-    public DbSet<SellerBalanceHold> SellerBalanceHolds=>Set<SellerBalanceHold>();
-    public DbSet<BalanceTransaction> BalanceTransactions=>Set<BalanceTransaction>();
-    public DbSet<Commission> Commissions=>Set<Commission>();
-    public DbSet<CommissionReversal> CommissionReversals=>Set<CommissionReversal>();
-    public DbSet<Seller> Sellers=>Set<Seller>();
+    public MarketplaceDbContext(DbContextOptions<MarketplaceDbContext> options) : base(options) { }
+
+    public DbSet<Seller> Sellers => Set<Seller>();
+    public DbSet<Store> Stores => Set<Store>();
+    public DbSet<SellerBankAccount> SellerBankAccounts => Set<SellerBankAccount>();
+    public DbSet<Category> Categories => Set<Category>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+    public DbSet<ProductAttribute> ProductAttributes => Set<ProductAttribute>();
+    public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
+    public DbSet<ProductAttributeAssignment> ProductAttributeAssignments => Set<ProductAttributeAssignment>();
+    public DbSet<VariantAttributeValue> VariantAttributeValues => Set<VariantAttributeValue>();
+    public DbSet<Warranty> Warranties => Set<Warranty>();
+    public DbSet<ProductWarranty> ProductWarranties => Set<ProductWarranty>();
+
+    public DbSet<Cart> Carts => Set<Cart>();
+    public DbSet<CartItem> CartItems => Set<CartItem>();
+
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Delivery> Deliveries => Set<Delivery>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<Complaint> Complaints => Set<Complaint>();
+    public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+    public DbSet<InventoryReservation> InventoryReservations => Set<InventoryReservation>();
+    public DbSet<SellerBalance> SellerBalances => Set<SellerBalance>();
+    public DbSet<SellerBalanceHold> SellerBalanceHolds => Set<SellerBalanceHold>();
+    public DbSet<BalanceTransaction> BalanceTransactions => Set<BalanceTransaction>();
+    public DbSet<Commission> Commissions => Set<Commission>();
+    public DbSet<CommissionReversal> CommissionReversals => Set<CommissionReversal>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
-        b.Entity<Order>(e=>{e.ToTable("Orders");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.HasIndex(x=>new{x.SellerId,x.Status});e.HasIndex(x=>new{x.CustomerId,x.CreatedAtUtc});});
-        b.Entity<OrderItem>(e=>{e.ToTable("OrderItems");e.HasKey(x=>x.Id);e.Property(x=>x.ProductNameSnapshot).HasMaxLength(300).IsRequired();e.Property(x=>x.VariantSnapshot).HasMaxLength(1000);e.Property(x=>x.WarrantySnapshot).HasMaxLength(500);e.HasIndex(x=>x.OrderId);});
-        b.Entity<Payment>(e=>{e.ToTable("Payments");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.Property(x=>x.Provider).HasMaxLength(100);e.Property(x=>x.Authority).HasMaxLength(200);e.Property(x=>x.ReferenceNumber).HasMaxLength(200);e.HasIndex(x=>x.OrderId).IsUnique();e.HasIndex(x=>x.Authority);});
-        b.Entity<PaymentTransaction>(e=>{e.ToTable("PaymentTransactions");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.Property(x=>x.Provider).HasMaxLength(100).IsRequired();e.Property(x=>x.Authority).HasMaxLength(200);e.Property(x=>x.Reference).HasMaxLength(200);e.HasIndex(x=>new{x.PaymentId,x.Status});});
-        b.Entity<Delivery>(e=>{e.ToTable("Deliveries");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.Property(x=>x.ConfirmationReference).HasMaxLength(200);e.HasIndex(x=>x.OrderId).IsUnique();e.HasIndex(x=>new{x.Status,x.ExpiresAtUtc});});
-        b.Entity<Refund>(e=>{e.ToTable("Refunds");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.Property(x=>x.Reason).HasConversion<byte>();e.Property(x=>x.ProviderReference).HasMaxLength(200);e.Property(x=>x.FailureReason).HasMaxLength(1000);e.HasIndex(x=>new{x.OrderId,x.Status});});
-        b.Entity<Complaint>(e=>{e.ToTable("Complaints");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.Property(x=>x.Reason).HasMaxLength(2000).IsRequired();e.Property(x=>x.ResolutionNote).HasMaxLength(4000);e.HasIndex(x=>new{x.OrderId,x.Status});});
-        b.Entity<InventoryItem>(e=>{e.ToTable("InventoryItems");e.HasKey(x=>x.Id);e.HasIndex(x=>x.ProductVariantId).IsUnique();});
-        b.Entity<InventoryReservation>(e=>{e.ToTable("InventoryReservations");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.HasIndex(x=>new{x.OrderId,x.Status});e.HasIndex(x=>new{x.Status,x.ExpiresAtUtc});});
-        b.Entity<SellerBalance>(e=>{e.ToTable("SellerBalances");e.HasKey(x=>x.Id);e.HasIndex(x=>x.SellerId).IsUnique();});
-        b.Entity<SellerBalanceHold>(e=>{e.ToTable("SellerBalanceHolds");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.Property(x=>x.Reason).HasMaxLength(500).IsRequired();e.HasIndex(x=>new{x.OrderId,x.Status});});
-        b.Entity<BalanceTransaction>(e=>{e.ToTable("BalanceTransactions");e.HasKey(x=>x.Id);e.Property(x=>x.Type).HasConversion<byte>();e.Property(x=>x.Reference).HasMaxLength(200);e.HasIndex(x=>new{x.SellerId,x.CreatedAtUtc});e.HasIndex(x=>new{x.OrderId,x.Type});});
-        b.Entity<Commission>(e=>{e.ToTable("Commissions");e.HasKey(x=>x.Id);e.Property(x=>x.CommissionRate).HasPrecision(9,4);e.HasIndex(x=>x.OrderId).IsUnique();});
-        b.Entity<CommissionReversal>(e=>{e.ToTable("CommissionReversals");e.HasKey(x=>x.Id);e.HasIndex(x=>new{x.CommissionId,x.RefundId}).IsUnique();});
-        b.Entity<Seller>(e=>{e.ToTable("Sellers");e.HasKey(x=>x.Id);e.Property(x=>x.Status).HasConversion<byte>();e.HasIndex(x=>x.UserId).IsUnique();});
+        b.Entity<Seller>(e =>
+        {
+            e.ToTable("Sellers"); e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasConversion<byte>();
+            e.HasIndex(x => x.UserId).IsUnique();
+        });
+        b.Entity<Store>(e =>
+        {
+            e.ToTable("Stores"); e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Slug).HasMaxLength(250).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(2000);
+            e.HasIndex(x => new { x.SellerId, x.Slug }).IsUnique();
+            e.HasIndex(x => x.SellerId);
+        });
+        b.Entity<SellerBankAccount>(e =>
+        {
+            e.ToTable("SellerBankAccounts"); e.HasKey(x => x.Id);
+            e.Property(x => x.BankName).HasMaxLength(150).IsRequired();
+            e.Property(x => x.Iban).HasMaxLength(34).IsRequired();
+            e.Property(x => x.AccountHolderName).HasMaxLength(250).IsRequired();
+            e.HasIndex(x => new { x.SellerId, x.Iban }).IsUnique();
+            e.HasIndex(x => new { x.SellerId, x.IsDefault });
+        });
+
+        b.Entity<Category>(e =>
+        {
+            e.ToTable("Categories"); e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Slug).HasMaxLength(250).IsRequired();
+            e.Property(x => x.Path).HasMaxLength(450).IsRequired();
+            e.HasIndex(x => new { x.ParentCategoryId, x.Slug }).IsUnique();
+            e.HasIndex(x => x.Path);
+        });
+        b.Entity<Product>(e =>
+        {
+            e.ToTable("Products"); e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.Name).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Slug).HasMaxLength(350).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(5000);
+            e.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
+            e.HasIndex(x => new { x.StoreId, x.Status });
+        });
+        b.Entity<ProductVariant>(e =>
+        {
+            e.ToTable("ProductVariants"); e.HasKey(x => x.Id);
+            e.Property(x => x.SKU).HasMaxLength(150).IsRequired();
+            e.Property(x => x.VariantKey).HasMaxLength(450).IsRequired();
+            e.HasIndex(x => new { x.ProductId, x.SKU }).IsUnique();
+            e.HasIndex(x => new { x.ProductId, x.VariantKey }).IsUnique();
+        });
+        b.Entity<ProductAttribute>(e =>
+        {
+            e.ToTable("ProductAttributes"); e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            e.Property(x => x.Slug).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
+        });
+        b.Entity<ProductAttributeValue>(e =>
+        {
+            e.ToTable("ProductAttributeValues"); e.HasKey(x => x.Id);
+            e.Property(x => x.Value).HasMaxLength(150).IsRequired();
+            e.Property(x => x.Slug).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => new { x.ProductAttributeId, x.Slug }).IsUnique();
+        });
+        b.Entity<ProductAttributeAssignment>(e =>
+        {
+            e.ToTable("ProductAttributeAssignments"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ProductId, x.ProductAttributeId }).IsUnique();
+        });
+        b.Entity<VariantAttributeValue>(e =>
+        {
+            e.ToTable("VariantAttributeValues"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ProductVariantId, x.ProductAttributeValueId }).IsUnique();
+        });
+        b.Entity<Warranty>(e =>
+        {
+            e.ToTable("Warranties"); e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(250).IsRequired();
+            e.HasIndex(x => new { x.StoreId, x.Name }).IsUnique();
+        });
+        b.Entity<ProductWarranty>(e =>
+        {
+            e.ToTable("ProductWarranties"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ProductId, x.WarrantyId }).IsUnique();
+        });
+
+        b.Entity<Cart>(e =>
+        {
+            e.ToTable("Carts"); e.HasKey(x => x.Id);
+            e.HasIndex(x => x.CustomerId).IsUnique();
+            e.HasIndex(x => new { x.StoreId, x.CustomerId });
+        });
+        b.Entity<CartItem>(e =>
+        {
+            e.ToTable("CartItems"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.CartId, x.ProductVariantId, x.WarrantyId }).IsUnique();
+        });
+
+        b.Entity<Order>(e => { e.ToTable("Orders"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.HasIndex(x => new { x.SellerId, x.Status }); e.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc }); });
+        b.Entity<OrderItem>(e => { e.ToTable("OrderItems"); e.HasKey(x => x.Id); e.Property(x => x.ProductNameSnapshot).HasMaxLength(300).IsRequired(); e.Property(x => x.VariantSnapshot).HasMaxLength(1000); e.Property(x => x.WarrantySnapshot).HasMaxLength(500); e.HasIndex(x => x.OrderId); });
+        b.Entity<Payment>(e => { e.ToTable("Payments"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Provider).HasMaxLength(100); e.Property(x => x.Authority).HasMaxLength(200); e.Property(x => x.ReferenceNumber).HasMaxLength(200); e.HasIndex(x => x.OrderId).IsUnique(); e.HasIndex(x => x.Authority); });
+        b.Entity<PaymentTransaction>(e => { e.ToTable("PaymentTransactions"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Provider).HasMaxLength(100).IsRequired(); e.Property(x => x.Authority).HasMaxLength(200); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.PaymentId, x.Status }); });
+        b.Entity<Delivery>(e => { e.ToTable("Deliveries"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.ConfirmationReference).HasMaxLength(200); e.HasIndex(x => x.OrderId).IsUnique(); e.HasIndex(x => new { x.Status, x.ExpiresAtUtc }); });
+        b.Entity<Refund>(e => { e.ToTable("Refunds"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasConversion<byte>(); e.Property(x => x.ProviderReference).HasMaxLength(200); e.Property(x => x.FailureReason).HasMaxLength(1000); e.HasIndex(x => new { x.OrderId, x.Status }); });
+        b.Entity<Complaint>(e => { e.ToTable("Complaints"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasMaxLength(2000).IsRequired(); e.Property(x => x.ResolutionNote).HasMaxLength(4000); e.HasIndex(x => new { x.OrderId, x.Status }); });
+        b.Entity<InventoryItem>(e => { e.ToTable("InventoryItems"); e.HasKey(x => x.Id); e.HasIndex(x => x.ProductVariantId).IsUnique(); });
+        b.Entity<InventoryReservation>(e => { e.ToTable("InventoryReservations"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.HasIndex(x => new { x.OrderId, x.Status }); e.HasIndex(x => new { x.Status, x.ExpiresAtUtc }); });
+        b.Entity<SellerBalance>(e => { e.ToTable("SellerBalances"); e.HasKey(x => x.Id); e.HasIndex(x => x.SellerId).IsUnique(); });
+        b.Entity<SellerBalanceHold>(e => { e.ToTable("SellerBalanceHolds"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasMaxLength(500).IsRequired(); e.HasIndex(x => new { x.OrderId, x.Status }); });
+        b.Entity<BalanceTransaction>(e => { e.ToTable("BalanceTransactions"); e.HasKey(x => x.Id); e.Property(x => x.Type).HasConversion<byte>(); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.CreatedAtUtc }); e.HasIndex(x => new { x.OrderId, x.Type }); });
+        b.Entity<Commission>(e => { e.ToTable("Commissions"); e.HasKey(x => x.Id); e.Property(x => x.CommissionRate).HasPrecision(9,4); e.HasIndex(x => x.OrderId).IsUnique(); });
+        b.Entity<CommissionReversal>(e => { e.ToTable("CommissionReversals"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.CommissionId, x.RefundId }).IsUnique(); });
     }
 }
