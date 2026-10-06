@@ -1,1 +1,2 @@
-namespace Marketplace.Application.Checkout.Ports; public interface IInventoryReservationService{Task ReserveAsync(long orderId,IReadOnlyList<InventoryReservationRequest> items,CancellationToken cancellationToken=default);} public sealed record InventoryReservationRequest(long ProductId,long ProductVariantId,int Quantity);
+namespace Marketplace.Application.Checkout.Ports; public interface IInventoryReservationService{Task ReserveAsync(long orderId,IReadOnlyList<InventoryReservationRequest> items,CancellationToken cancellationToken=default);
+    Task ConsumeAsync(long orderId,CancellationToken cancellationToken=default);} public sealed record InventoryReservationRequest(long ProductId,long ProductVariantId,int Quantity);
