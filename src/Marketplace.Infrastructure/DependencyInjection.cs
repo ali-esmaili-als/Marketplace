@@ -8,6 +8,10 @@ using Marketplace.Infrastructure.Delivery;
 using Marketplace.Infrastructure.Finance;
 using Marketplace.Application.Payments.Ports;
 using Marketplace.Infrastructure.Payments;
+using Marketplace.Application.Refunds.Ports;
+using Marketplace.Infrastructure.Refunds;
+using Marketplace.Application.Complaints.Ports;
+using Marketplace.Infrastructure.Complaints;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,6 +38,9 @@ public static class DependencyInjection
         services.AddScoped<IDeliveryService, EfDeliveryService>();
         services.AddScoped<IFinanceService, EfFinanceService>();
         services.AddScoped<IPaymentCompletionService, EfPaymentCompletionService>();
+        services.AddScoped<ISettlementService, EfSettlementService>();
+        services.AddScoped<IRefundService, EfRefundService>();
+        services.AddScoped<IComplaintService, EfComplaintService>();
         return services;
     }
 
