@@ -84,15 +84,17 @@ public sealed class RefundService
             var balance=await _life.GetSellerBalanceAsync(order.SellerId,token)??throw new DomainException("Seller balance not found.");
             var hold=await _life.GetActiveHoldByOrderAsync(order.Id,token)??throw new DomainException("Seller hold not found.");
 
-            var beforeBlocked=balance.BlockedIRR;
-            var beforePending=balance.PendingIRR;
-
+            var bucket=BalanceBucket.Blocked;
+            var bucketBefore=balance.BlockedIRR;
             if(balance.BlockedIRR>=order.SellerAmountIRR)
                 balance.ConsumeBlock(order.SellerAmountIRR);
             else if(balance.PendingIRR>=order.SellerAmountIRR)
+            {
+                bucket=BalanceBucket.Pending;
+                bucketBefore=balance.PendingIRR;
                 balance.RemovePending(order.SellerAmountIRR);
-            else
-                throw new DomainException("Seller balance does not contain the refundable seller amount.");
+            }
+            else throw new DomainException("Seller balance does not contain the refundable seller amount.");
 
             hold.Consume();
             payment.MarkRefunded();
@@ -101,8 +103,8 @@ public sealed class RefundService
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),order.SellerId,order.Id,null,
                 BalanceTransactionType.Refund,order.SellerAmountIRR,
-                Math.Max(beforeBlocked, beforePending)-order.SellerAmountIRR,
-                Math.Max(balance.BlockedIRR,balance.PendingIRR),"REFUND"));
+                bucketBefore,
+                bucket==BalanceBucket.Blocked?balance.BlockedIRR:balance.PendingIRR,"REFUND",bucket));
 
             var commission=await _life.GetCommissionByOrderAsync(order.Id,token);
             if(commission is not null)
