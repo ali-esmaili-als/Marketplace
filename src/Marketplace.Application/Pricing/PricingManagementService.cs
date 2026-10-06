@@ -15,6 +15,7 @@ public sealed class PricingManagementService
         var seller=await _sellers.GetSellerAsync(sellerId,ct)??throw new DomainException("Seller not found.");
         if(seller.Status!=SellerStatus.Active) throw new DomainException("Seller is not active.");
         if(!await _sellers.StoreBelongsToSellerAsync(storeId,sellerId,ct)) throw new DomainException("Store does not belong to seller.");
+        if(targets.Count==0) throw new DomainException("Campaign must have at least one target.");
         if(await _repo.HasOverlappingCampaignAsync(storeId,startsAtUtc,endsAtUtc,null,ct)) throw new DomainException("Campaign dates overlap another campaign for this store.");
 
         return await _uow.ExecuteInSerializableTransactionAsync(async token =>
