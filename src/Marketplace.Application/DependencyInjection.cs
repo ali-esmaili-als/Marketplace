@@ -28,6 +28,7 @@ public static class DependencyInjection
         services.AddScoped<OrderActorService>();
         services.AddScoped<Maintenance.MaintenanceService>();
         services.AddScoped<Notifications.NotificationService>();
+        services.AddScoped<Catalog.CategoryManagementService>();
         return services;
     }
 }
