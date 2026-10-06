@@ -111,6 +111,8 @@ GO
 UPDATE dbo.Orders SET SubtotalAmountIRR=TotalAmountIRR WHERE SubtotalAmountIRR=0 AND TotalAmountIRR>0;
 UPDATE dbo.OrderItems SET BaseUnitPriceIRR=UnitPriceIRR WHERE BaseUnitPriceIRR=0 AND UnitPriceIRR>0;
 GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_CouponUsages_Users')
+    ALTER TABLE dbo.CouponUsages ADD CONSTRAINT FK_CouponUsages_Users FOREIGN KEY(CustomerId) REFERENCES dbo.Users(Id);
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_Campaigns_Stores')
     ALTER TABLE dbo.Campaigns ADD CONSTRAINT FK_Campaigns_Stores FOREIGN KEY(StoreId) REFERENCES dbo.Stores(Id);
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_Coupons_Sellers')
