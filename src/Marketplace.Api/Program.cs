@@ -229,6 +229,7 @@ app.MapPost("/api/sellers/me/stores/{storeId:long}/products",async(System.Securi
  return Results.Ok(new{id});
 }).RequirePermission("Seller.Catalog.Manage");
 
+app.MapPut("/api/sellers/me/products/{productId:long}",async(System.Security.Claims.ClaimsPrincipal user,long productId,CatalogProductUpdateRequest request,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();await service.UpdateProductAsync(seller.Id,productId,request.Name,request.Slug,request.Description,request.BasePriceIRR,ct);return Results.NoContent();}).RequirePermission("Seller.Catalog.Manage");
 app.MapPost("/api/sellers/me/products/{productId:long}/activate",async(System.Security.Claims.ClaimsPrincipal user,long productId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
  var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.ActivateProductAsync(seller.Id,productId,ct); return Results.NoContent();
 }).RequirePermission("Seller.Catalog.Manage");
@@ -279,6 +280,7 @@ public sealed record ComplaintRequest(long CustomerId,string Reason);
 public sealed record ComplaintResolveRequest(bool CustomerWon,string Note);
 public sealed record RefundRequest(Marketplace.Domain.Refunds.RefundReason Reason);
 public sealed record CatalogProductRequest(long CategoryId,string Name,string Slug,string? Description,long BasePriceIRR,bool HasVariants);
+public sealed record CatalogProductUpdateRequest(string Name,string Slug,string? Description,long BasePriceIRR);
 public sealed record CatalogVariantRequest(string SKU,string VariantKey,long? PriceIRR,bool IsActive=true);
 public sealed record StockRequest(long Quantity);
 public sealed record WarrantyRequest(string Name,long PriceIRR);
