@@ -21,6 +21,8 @@ public static class DependencyInjection
         services.AddScoped<Identity.PermissionService>();
         services.AddScoped<Identity.IdentityAdminService>();
         services.AddScoped<Sellers.SellerManagementService>();
+        services.AddScoped<Pricing.PricingService>();
+        services.AddScoped<Pricing.PricingManagementService>();
         return services;
     }
 }
