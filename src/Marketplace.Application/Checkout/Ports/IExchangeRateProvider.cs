@@ -1,0 +1,1 @@
+namespace Marketplace.Application.Checkout.Ports; public interface IExchangeRateProvider{Task<ExchangeRateSnapshot> GetLatestAsync(string currencyCode,CancellationToken cancellationToken=default);} public sealed record ExchangeRateSnapshot(string CurrencyCode,decimal RateToIRR);
