@@ -32,3 +32,34 @@ public sealed class EfInventoryReservationService(MarketplaceDbContext db, IIdGe
         await db.SaveChangesAsync(cancellationToken);
     }
 }
+
+    public async Task ConsumeAsync(long orderId, CancellationToken cancellationToken = default)
+    {
+        var reservations = await db.InventoryReservations
+            .Where(x => x.OrderId == orderId && x.Status == InventoryReservationStatus.Reserved)
+            .OrderBy(x => x.ProductVariantId)
+            .ToListAsync(cancellationToken);
+
+        if (reservations.Count == 0)
+            throw new InvalidOperationException("No active inventory reservations found for order.");
+
+        foreach (var reservation in reservations)
+        {
+            var affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE dbo.ProductVariants
+                SET ReservedQuantity = ReservedQuantity - {reservation.Quantity},
+                    StockQuantity = StockQuantity - {reservation.Quantity}
+                WHERE Id = {reservation.ProductVariantId}
+                  AND ReservedQuantity >= {reservation.Quantity}
+                  AND StockQuantity >= {reservation.Quantity}
+                """, cancellationToken);
+
+            if (affected != 1)
+                throw new InvalidOperationException(
+                    $"Inventory consumption failed for variant {reservation.ProductVariantId}.");
+
+            reservation.Consume();
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
