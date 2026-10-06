@@ -13,6 +13,7 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
 {
     public async Task StartPreparingAsync(long orderId, CancellationToken cancellationToken = default)
     {
+        await EnsureSellerOrAdminAsync(orderId, cancellationToken);
         var order = await db.Orders.SingleAsync(x => x.Id == orderId, cancellationToken);
         order.StartPreparing();
         await db.SaveChangesAsync(cancellationToken);
@@ -22,6 +23,7 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
 
     public async Task<DeliveryCodeResult> MarkReadyAsync(long orderId, CancellationToken cancellationToken = default)
     {
+        await EnsureSellerOrAdminAsync(orderId, cancellationToken);
         var order = await db.Orders.SingleAsync(x => x.Id == orderId, cancellationToken);
         order.MarkReadyForDelivery();
 
@@ -86,13 +88,29 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
 
     public async Task ExpireAsync(long orderId, CancellationToken cancellationToken = default)
     {
-        var order = await db.Orders.SingleAsync(x => x.Id == orderId, cancellationToken);
-        order.MarkDeliveryExpired();
-        await db.SaveChangesAsync(cancellationToken);
+        await EnsureSellerOrAdminAsync(orderId, cancellationToken);
+        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var order = await db.Orders.SingleAsync(x => x.Id == orderId, cancellationToken);
+            order.MarkDeliveryExpired();
+            var code = await db.DeliveryCodes.SingleAsync(x => x.OrderId == orderId, cancellationToken);
+            code.Expire();
+            await inventory.ReleaseAsync(orderId, true, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task CompleteAsync(long orderId, CancellationToken cancellationToken = default)
     {
+        if (!currentUser.IsAuthenticated || (await db.Orders.Where(x => x.Id == orderId).Select(x => (long?)x.CustomerId).SingleOrDefaultAsync(cancellationToken) != currentUser.UserId && !await IsAdminAsync(cancellationToken)))
+            throw new UnauthorizedAccessException("Only the customer or admin can complete the order.");
         var order = await db.Orders.SingleAsync(x => x.Id == orderId, cancellationToken);
         order.Complete();
         await db.SaveChangesAsync(cancellationToken);
@@ -103,3 +121,12 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
                  x.UserTypeId == Marketplace.Domain.Identity.UserTypeId.Admin,
             cancellationToken);
 }
+    private async Task EnsureSellerOrAdminAsync(long orderId, CancellationToken cancellationToken)
+    {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required.");
+        if (await IsAdminAsync(cancellationToken)) return;
+        var sellerId = await db.Stores.Where(x => x.Id == db.Orders.Where(o => o.Id == orderId).Select(o => o.StoreId).Single()).Select(x => x.SellerId).SingleAsync(cancellationToken);
+        var ownerUserId = await db.Sellers.Where(x => x.Id == sellerId).Select(x => x.UserId).SingleAsync(cancellationToken);
+        if (ownerUserId != currentUser.UserId) throw new UnauthorizedAccessException("Only the store seller or admin can change the order.");
+    }
+    private Task<bool> IsAdminAsync(CancellationToken cancellationToken) => db.UserUserTypes.AnyAsync(x => x.UserId == currentUser.UserId && x.UserTypeId == UserTypeId.Admin, cancellationToken);
