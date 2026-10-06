@@ -104,6 +104,11 @@ app.MapDelete("/api/cart/items/{variantId:long}",async(System.Security.Claims.Cl
     await service.RemoveItemAsync(CurrentUserId(user),variantId,warrantyId,ct); return Results.Ok();
 }).RequirePermission("Cart.Read");
 
+
+app.MapPost("/api/sellers/me/stores/{storeId:long}/attributes",async(System.Security.Claims.ClaimsPrincipal user,long storeId,AttributeRequest request,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();var id=await service.CreateAttributeAsync(seller.Id,storeId,request.Name,request.Slug,ct);return Results.Ok(new{id});}).RequirePermission("Seller.Catalog.Manage");
+app.MapPost("/api/sellers/me/attributes/{attributeId:long}/values",async(System.Security.Claims.ClaimsPrincipal user,long attributeId,AttributeValueRequest request,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();var id=await service.CreateAttributeValueAsync(seller.Id,attributeId,request.Value,request.Slug,ct);return Results.Ok(new{id});}).RequirePermission("Seller.Catalog.Manage");
+app.MapPost("/api/sellers/me/products/{productId:long}/attributes/{attributeId:long}",async(System.Security.Claims.ClaimsPrincipal user,long productId,long attributeId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();await service.AssignAttributeAsync(seller.Id,productId,attributeId,ct);return Results.NoContent();}).RequirePermission("Seller.Catalog.Manage");
+app.MapPost("/api/sellers/me/variants/{variantId:long}/attribute-values/{attributeValueId:long}",async(System.Security.Claims.ClaimsPrincipal user,long variantId,long attributeValueId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();await service.AssignVariantValueAsync(seller.Id,variantId,attributeValueId,ct);return Results.NoContent();}).RequirePermission("Seller.Catalog.Manage");
 app.MapGet("/api/shipping/cities",async(Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>
     Results.Ok(await service.GetCitiesAsync(ct)));
 
@@ -274,6 +279,8 @@ public sealed record CatalogVariantRequest(string SKU,string VariantKey,long? Pr
 public sealed record StockRequest(long Quantity);
 public sealed record WarrantyRequest(string Name,long PriceIRR);
 public sealed record LinkWarrantyRequest(bool IsDefault);
+public sealed record AttributeRequest(string Name,string Slug);
+public sealed record AttributeValueRequest(string Value,string Slug);
 public sealed record CommissionConfigRequest(int RateBasisPoints,long MinimumCommissionIRR);
 
 public sealed class MarketplaceMaintenanceHostedService(IServiceScopeFactory scopes,ILogger<MarketplaceMaintenanceHostedService> logger):BackgroundService
