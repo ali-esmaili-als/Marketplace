@@ -174,8 +174,8 @@ app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal 
     var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,ct); return Results.Ok(result);
 }).RequirePermission("Order.Create");
 
-app.MapPost("/api/payments/{paymentId:long}/verify",async(long paymentId,PaymentVerifyRequest request,Marketplace.Application.Orders.PaymentVerificationService service,CancellationToken ct)=>{
-    var result=await service.VerifyAsync(paymentId,request.Authority,ct);
+app.MapPost("/api/payments/{paymentId:long}/verify",async(System.Security.Claims.ClaimsPrincipal user,long paymentId,PaymentVerifyRequest request,Marketplace.Application.Orders.PaymentVerificationService service,CancellationToken ct)=>{
+    var result=await service.VerifyAsync(CurrentUserId(user),paymentId,request.Authority,ct);
     return result.Paid ? Results.Ok(result) : Results.BadRequest(result);
 }).RequirePermission("Order.Create");
 
