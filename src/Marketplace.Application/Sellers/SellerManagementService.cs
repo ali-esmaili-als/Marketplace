@@ -47,6 +47,9 @@ public sealed class SellerManagementService(
         await uow.SaveChangesAsync(ct);
     }
 
+    public async Task SuspendAsync(long sellerId,CancellationToken ct=default){var seller=await repo.GetSellerAsync(sellerId,ct)??throw new DomainException("Seller not found.");seller.Suspend();await uow.SaveChangesAsync(ct);}
+    public async Task RejectAsync(long sellerId,CancellationToken ct=default){var seller=await repo.GetSellerAsync(sellerId,ct)??throw new DomainException("Seller not found.");seller.Reject();await uow.SaveChangesAsync(ct);}
+    public async Task ConfigureCommissionAsync(long sellerId,int rateBasisPoints,long minimumCommissionIrr,CancellationToken ct=default){var seller=await repo.GetSellerAsync(sellerId,ct)??throw new DomainException("Seller not found.");seller.ConfigureCommission(rateBasisPoints,minimumCommissionIrr);await uow.SaveChangesAsync(ct);}
     public async Task ActivateAsync(long sellerId, CancellationToken ct = default)
     {
         var seller = await repo.GetSellerAsync(sellerId, ct) ?? throw new DomainException("Seller not found.");
