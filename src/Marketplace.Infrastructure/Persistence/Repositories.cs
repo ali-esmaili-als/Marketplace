@@ -86,6 +86,11 @@ public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRep
     public Task<Commission?> GetCommissionByOrderAsync(long orderId,CancellationToken ct=default)=>db.Commissions.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);
     public Task<List<InventoryReservation>> GetReservationsByOrderAsync(long orderId,CancellationToken ct=default)=>db.InventoryReservations.Where(x=>x.OrderId==orderId).ToListAsync(ct);
     public Task<InventoryItem?> GetInventoryItemAsync(long productVariantId,CancellationToken ct=default)=>db.InventoryItems.SingleOrDefaultAsync(x=>x.ProductVariantId==productVariantId,ct);
+    public Task<SellerBankAccount?> GetSellerBankAccountAsync(long sellerId,long bankAccountId,CancellationToken ct=default)
+        => db.SellerBankAccounts.SingleOrDefaultAsync(x=>x.Id==bankAccountId&&x.SellerId==sellerId,ct);
+    public Task<Settlement?> GetSettlementAsync(long settlementId,CancellationToken ct=default)
+        => db.Settlements.SingleOrDefaultAsync(x=>x.Id==settlementId,ct);
+    public void AddSettlement(Settlement settlement)=>db.Settlements.Add(settlement);
     public void AddDelivery(Delivery delivery)=>db.Deliveries.Add(delivery);
     public void AddComplaint(Complaint complaint)=>db.Complaints.Add(complaint);
     public void AddRefund(Refund refund)=>db.Refunds.Add(refund);
