@@ -95,7 +95,7 @@ public sealed class OrderCreationService
                 p.Data.Inventory.Reserve(p.Item.Quantity);
                 var reservation=InventoryReservation.Create(
                     await _ids.NextAsync(token),p.Data.Variant.Id,orderId,p.Item.Quantity,
-                    DateTime.UtcNow.AddMinutes(15));
+                    DateTime.UtcNow.AddHours(24));
                 _life.AddInventoryReservation(reservation);
             }
 
