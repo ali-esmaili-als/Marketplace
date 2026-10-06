@@ -24,7 +24,8 @@ public sealed class IdentityRepository(MarketplaceDbContext db) : IIdentityRepos
         => db.Roles.SingleOrDefaultAsync(x => x.Name == name && x.IsActive, ct);
 
     public Task<bool> HasPermissionAsync(long userId, string ruleCode, CancellationToken ct = default)
-        => db.UserRules.AnyAsync(x => x.UserId == userId && x.Rule.IsActive && x.Rule.Code == ruleCode, ct);
+        => db.UserRules.Join(db.Rules,x=>x.RuleId,r=>r.Id,(ur,r)=>new { ur.UserId, r.IsActive, r.Code })
+            .AnyAsync(x => x.UserId == userId && x.IsActive && x.Code == ruleCode, ct);
 
     public void AddUser(User user) => db.Users.Add(user);
     public void AddRule(Rule rule) => db.Rules.Add(rule);
