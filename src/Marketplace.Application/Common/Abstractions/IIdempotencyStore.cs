@@ -1,0 +1,1 @@
+namespace Marketplace.Application.Common.Abstractions; public interface IIdempotencyStore{Task<bool> TryBeginAsync(string key,CancellationToken cancellationToken=default);Task CompleteAsync(string key,CancellationToken cancellationToken=default);}
