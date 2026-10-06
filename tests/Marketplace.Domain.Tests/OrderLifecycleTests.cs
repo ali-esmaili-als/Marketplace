@@ -1,5 +1,6 @@
+using System;
 using Marketplace.Domain.Complaints;
-using Marketplace.Domain.Delivery;
+using DeliveryEntity = Marketplace.Domain.Delivery.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Lifecycle;
 using Marketplace.Domain.Orders;
@@ -35,7 +36,7 @@ public sealed class OrderLifecycleTests
         var balance=SellerBalance.Create(3,20);
         var lifecycle=new OrderFinancialLifecycle();
         lifecycle.OnPaymentSucceeded(order,payment,balance,4);
-        var delivery=Delivery.Create(5,1,20,DateTime.UtcNow.AddHours(1));delivery.MarkReady();
+        var delivery=DeliveryEntity.Create(5,1,20,DateTime.UtcNow.AddHours(1));delivery.MarkReady();
         var delivered=DateTime.UtcNow;
         delivery.ConfirmDelivered("DEL-1",delivered);
         lifecycle.OnDelivered(order,delivery,balance,delivered,delivered.AddDays(2));
