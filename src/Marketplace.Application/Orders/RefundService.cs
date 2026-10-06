@@ -66,7 +66,7 @@ public sealed class RefundService
         {
             var order=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
             var payment=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
-            var refund=await dbRefundAsync(refundId,token);
+            var refund=await _life.GetRefundAsync(refundId,token)??throw new DomainException("Refund not found.");
 
             if(refund.Status==RefundStatus.Completed) return 0;
 
@@ -112,15 +112,5 @@ public sealed class RefundService
             await _uow.SaveChangesAsync(token);
             return 0;
         },ct);
-    }
-
-    private async Task<Refund> dbRefundAsync(long id,CancellationToken ct)
-    {
-        var order=await _orders.GetAsync(0,ct); // forces repository scope to remain unchanged; actual refund lookup is below.
-        _ = order;
-        // ILifecycleRepository already exposes the active refund by order, but a refund can be
-        // re-read by its id only through the EF-backed repository. To keep the application layer
-        // independent, use the order relation for the current refund.
-        throw new DomainException("Refund lookup by id is not configured.");
     }
 }
