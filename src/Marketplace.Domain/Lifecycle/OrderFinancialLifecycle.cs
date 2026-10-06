@@ -17,20 +17,20 @@ public sealed class OrderFinancialLifecycle
         balance.AddPending(order.SellerAmountIRR);
     }
 
-    public void OnDelivered(Order order, Delivery delivery, SellerBalance balance, SellerBalanceHold hold, DateTime now, DateTime complaintExpiresAtUtc)
+    public void OnDelivered(Order order, Delivery delivery, SellerBalance balance, DateTime now, DateTime complaintExpiresAtUtc)
     {
-        delivery.ConfirmDelivered(delivery.ConfirmationReference ?? "SYSTEM", now);
+        if(delivery.Status!=DeliveryStatus.Delivered) throw new DomainException("Delivery must be confirmed.");
         order.MarkDelivered(now, complaintExpiresAtUtc);
         balance.ReleasePending(order.SellerAmountIRR);
         balance.Block(order.SellerAmountIRR);
-        hold.Release(); // hold object is only a financial audit marker; actual amount is blocked on balance.
     }
 
-    public void OnDeliveryExpired(Order order, Delivery delivery)
+    public void OnDeliveryExpired(Order order, Delivery delivery, SellerBalance balance)
     {
-        delivery.Expire(DateTime.UtcNow);
+        if(delivery.Status!=DeliveryStatus.Expired) throw new DomainException("Delivery must be expired.");
         order.MarkDeliveryExpired(DateTime.UtcNow);
         order.RequestRefund();
+        balance.RemovePending(order.SellerAmountIRR);
     }
 
     public Refund OpenRefund(Order order, Payment payment, long refundId, RefundReason reason)
@@ -57,7 +57,10 @@ public sealed class OrderFinancialLifecycle
     {
         if(refund.Status!=RefundStatus.Completed) throw new DomainException("Refund is not completed.");
         payment.MarkRefunded();
-        if(balance.BlockedIRR>=order.SellerAmountIRR) balance.ConsumeBlock(order.SellerAmountIRR);
+        if(balance.BlockedIRR>=order.SellerAmountIRR)
+            balance.ConsumeBlock(order.SellerAmountIRR);
+        else if(balance.PendingIRR>=order.SellerAmountIRR)
+            balance.RemovePending(order.SellerAmountIRR);
         hold.Consume();
         order.MarkRefunded();
     }
