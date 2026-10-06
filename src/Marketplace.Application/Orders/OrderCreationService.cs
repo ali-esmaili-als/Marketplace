@@ -1,9 +1,12 @@
 using Marketplace.Application.Abstractions;
+using Marketplace.Domain.Cart;
+using Marketplace.Domain.Catalog;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Inventory;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
+using Marketplace.Domain.Sellers;
 
 namespace Marketplace.Application.Orders;
 
@@ -20,10 +23,13 @@ public sealed class OrderCreationService
     private readonly IIdGenerator _ids;
     private readonly IPaymentGateway _gateway;
 
-    public OrderCreationService(ICartRepository carts, ICatalogRepository catalog, IOrderRepository orders,
-        IPaymentRepository payments, ILifecycleRepository life, IUnitOfWork uow, IIdGenerator ids, IPaymentGateway gateway)
+    public OrderCreationService(
+        ICartRepository carts, ICatalogRepository catalog, IOrderRepository orders,
+        IPaymentRepository payments, ILifecycleRepository life, IUnitOfWork uow,
+        IIdGenerator ids, IPaymentGateway gateway)
     {
-        _carts=carts; _catalog=catalog; _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _gateway=gateway;
+        _carts=carts; _catalog=catalog; _orders=orders; _payments=payments;
+        _life=life; _uow=uow; _ids=ids; _gateway=gateway;
     }
 
     public async Task<CheckoutResult> CheckoutAsync(long customerId, CancellationToken ct=default)
@@ -37,17 +43,18 @@ public sealed class OrderCreationService
             if(items.Count==0) throw new DomainException("Cart is empty.");
 
             var store=await _catalog.GetStoreAsync(cart.StoreId,token)??throw new DomainException("Store not found.");
-            if(store.SellerId!=cart.SellerId || store.Status!=Marketplace.Domain.Sellers.StoreStatus.Active)
+            if(store.SellerId!=cart.SellerId || store.Status!=StoreStatus.Active)
                 throw new DomainException("Store is not available.");
 
-            var priced = new List<(Marketplace.Domain.Cart.CartItem Item, CheckoutLineData Data, long Unit, long Warranty, long Line)>();
+            var priced = new List<(CartItem Item, CheckoutLineData Data, long Unit, long Warranty, long Line)>();
             foreach(var item in items)
             {
                 var data=await _catalog.GetCheckoutLineAsync(item.ProductVariantId,item.WarrantyId,token)
                     ??throw new DomainException("A cart product is no longer available.");
+
                 if(data.Product.StoreId!=cart.StoreId || data.Product.Id!=item.ProductId)
                     throw new DomainException("Cart item is invalid.");
-                if(data.Product.Status!=Marketplace.Domain.Catalog.ProductStatus.Active || !data.Variant.IsActive)
+                if(data.Product.Status!=ProductStatus.Active || !data.Variant.IsActive)
                     throw new DomainException($"Product {data.Product.Name} is no longer available.");
                 if(item.Quantity>data.Inventory.AvailableQuantity)
                     throw new DomainException($"Insufficient stock for {data.Product.Name}.");
@@ -65,34 +72,45 @@ public sealed class OrderCreationService
 
             orderId=await _ids.NextAsync(token);
             paymentId=await _ids.NextAsync(token);
+
             var commissionRate=store.CommissionRateBasisPoints/100m;
-            var commission=Commission.Create(await _ids.NextAsync(token),orderId,store.Id,store.SellerId,total,commissionRate,store.MinimumCommissionIRR);
+            var commission=Commission.Create(
+                await _ids.NextAsync(token), orderId, store.Id, store.SellerId,
+                total, commissionRate, store.MinimumCommissionIRR);
+
             var order=Order.Create(orderId,customerId,store.SellerId,store.Id,total);
             order.SetSellerAmount(commission.SellerAmountIRR);
             _orders.Add(order);
-            _life.GetType(); // keep lifecycle repository in this transaction boundary
+            _life.AddCommission(commission);
 
             foreach(var p in priced)
             {
-                var variantSnapshot=p.Data.Variant.SKU + " | " + p.Data.Variant.VariantKey;
-                _ = p.Item;
-                var oi=OrderItem.Create(await _ids.NextAsync(token),orderId,p.Data.Product.Id,p.Data.Variant.Id,p.Data.Product.Name,variantSnapshot,p.Unit,p.Item.Quantity,p.Data.Warranty?.Id??0,p.Data.Warranty?.Name,p.Warranty);
-                // OrderItems are attached through the DbContext by repository implementation below.
-                if(_orders is not null) { }
+                var variantSnapshot=$"{p.Data.Variant.SKU} | {p.Data.Variant.VariantKey}";
+                var orderItem=OrderItem.Create(
+                    await _ids.NextAsync(token),orderId,p.Data.Product.Id,p.Data.Variant.Id,
+                    p.Data.Product.Name,variantSnapshot,p.Unit,p.Item.Quantity,
+                    p.Data.Warranty?.Id??0,p.Data.Warranty?.Name,p.Warranty);
+                _life.AddOrderItem(orderItem);
+
                 p.Data.Inventory.Reserve(p.Item.Quantity);
-                _life.GetType();
-                var reservation=InventoryReservation.Create(await _ids.NextAsync(token),p.Data.Variant.Id,orderId,p.Item.Quantity,DateTime.UtcNow.AddMinutes(15));
-                _ = reservation;
+                var reservation=InventoryReservation.Create(
+                    await _ids.NextAsync(token),p.Data.Variant.Id,orderId,p.Item.Quantity,
+                    DateTime.UtcNow.AddMinutes(15));
+                _life.AddInventoryReservation(reservation);
             }
 
             var payment=Payment.Create(paymentId,orderId,customerId,total);
             _payments.Add(payment);
 
-            // Commission and inventory reservations/order items are persisted by the catalog/order repository implementation.
+            // The cart is consumed only after the order, inventory reservations and payment
+            // snapshot are all persisted in the same DB transaction.
+            foreach(var item in items) _carts.RemoveItem(item);
+
             await _uow.SaveChangesAsync(token);
             return 0;
         },ct);
 
+        // Never hold a SQL transaction open while calling the external payment gateway.
         var redirect=await _gateway.CreatePaymentAsync(paymentId,orderId,total,ct);
 
         await _uow.ExecuteInTransactionAsync(async token =>
