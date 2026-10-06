@@ -1,4 +1,5 @@
 using System.Text;
+using Marketplace.Application;
 using Marketplace.Infrastructure;
 using Marketplace.Infrastructure.Authorization;
 using Marketplace.Infrastructure.Identity;
