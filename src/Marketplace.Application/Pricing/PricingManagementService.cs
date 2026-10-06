@@ -20,6 +20,11 @@ public sealed class PricingManagementService
         return await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             if(await _repo.HasOverlappingCampaignAsync(storeId,startsAtUtc,endsAtUtc,null,token)) throw new DomainException("Campaign dates overlap another campaign for this store.");
+            foreach(var t in targets.Distinct())
+        {
+            if(!await _repo.ProductBelongsToStoreAsync(t.ProductId,storeId,token)) throw new DomainException("Campaign product does not belong to store.");
+            if(t.VariantId.HasValue&&!await _repo.VariantBelongsToProductAsync(t.VariantId.Value,t.ProductId,token)) throw new DomainException("Campaign variant does not belong to product.");
+        }
             var id=await _ids.NextAsync(token); _repo.AddCampaign(Campaign.Create(id,storeId,name,type,value,startsAtUtc,endsAtUtc));
             foreach(var t in targets.Distinct()) _repo.AddCampaignTarget(CampaignProduct.Create(await _ids.NextAsync(token),id,t.ProductId,t.VariantId));
             await _uow.SaveChangesAsync(token); return id;
@@ -31,6 +36,9 @@ public sealed class PricingManagementService
         var seller=await _sellers.GetSellerAsync(sellerId,ct)??throw new DomainException("Seller not found.");
         if(seller.Status!=SellerStatus.Active) throw new DomainException("Seller is not active.");
         if(!await _sellers.StoreBelongsToSellerAsync(storeId,sellerId,ct)) throw new DomainException("Store does not belong to seller.");
+
+        foreach(var productId in productIds.Distinct())
+            if(!await _repo.ProductBelongsToStoreAsync(productId,storeId,ct)) throw new DomainException("Coupon product does not belong to store.");
 
         var coupon=Coupon.Create(await _ids.NextAsync(ct),sellerId,storeId,code,type,value,maxDiscount,minimumPurchase,maxUses,newCustomerOnly,starts,ends);
         _repo.AddCoupon(coupon);
