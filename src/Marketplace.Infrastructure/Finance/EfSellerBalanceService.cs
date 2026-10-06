@@ -10,7 +10,7 @@ public sealed class EfSellerBalanceService(MarketplaceDbContext db, IIdGenerator
 {
     public Task AddPendingAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
         => Change(sellerId,orderId,amount,BalanceTransactionType.Sale,BalanceBucket.Pending,reference,
-            b=>b.AddPending(amount),()=>GetPending());
+            b=>b.AddPending(amount));
 
     public Task ReleasePendingAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
         => Transfer(sellerId,orderId,amount,BalanceTransactionType.ReleasePending,BalanceBucket.Pending,BalanceBucket.Available,reference,b=>b.ReleasePending(amount));
@@ -22,16 +22,16 @@ public sealed class EfSellerBalanceService(MarketplaceDbContext db, IIdGenerator
         => Transfer(sellerId,orderId,amount,BalanceTransactionType.Adjustment,BalanceBucket.Blocked,BalanceBucket.Available,reference,b=>b.ReleaseBlock(amount));
 
     public Task DebitAvailableAsync(long sellerId,long orderId,long amount,BalanceTransactionType type,string reference,CancellationToken ct=default)
-        => Change(sellerId,orderId,amount,type,BalanceBucket.Available,reference,b=>b.RemoveAvailable(amount),()=>GetAvailable());
+        => Change(sellerId,orderId,amount,type,BalanceBucket.Available,reference,b=>b.RemoveAvailable(amount));
 
     public Task AddLiabilityAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
-        => Change(sellerId,orderId,amount,BalanceTransactionType.Adjustment,BalanceBucket.Liability,reference,b=>b.AddLiability(amount),()=>GetLiability());
+        => Change(sellerId,orderId,amount,BalanceTransactionType.Adjustment,BalanceBucket.Liability,reference,b=>b.AddLiability(amount));
 
-    private async Task Change(long sellerId,long orderId,long amount,BalanceTransactionType type,BalanceBucket bucket,string reference,Action<SellerBalance> action,Func<long> beforeFactory)
+    private async Task Change(long sellerId,long orderId,long amount,BalanceTransactionType type,BalanceBucket bucket,string reference,Action<SellerBalance> action)
     {
         if(amount<=0) throw new ArgumentOutOfRangeException(nameof(amount));
         var b=await Get(sellerId);
-        var before=beforeFactory();
+        var before=Value(b,bucket);
         action(b);
         var after=bucket switch
         {
@@ -56,10 +56,6 @@ public sealed class EfSellerBalanceService(MarketplaceDbContext db, IIdGenerator
     private async Task<SellerBalance> Get(long sellerId)
         => await db.SellerBalances.SingleOrDefaultAsync(x=>x.SellerId==sellerId)
            ?? throw new InvalidOperationException("Seller balance not found.");
-
-    private long GetPending()=>0;
-    private long GetAvailable()=>0;
-    private long GetLiability()=>0;
 
     private static long Value(SellerBalance b,BalanceBucket x)=>x switch
     {
