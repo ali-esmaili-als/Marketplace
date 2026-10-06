@@ -194,3 +194,12 @@ public sealed class CatalogManagementRepository(MarketplaceDbContext db) : ICata
  public Task<List<Warranty>> GetWarrantiesAsync(long storeId,CancellationToken ct=default)=>db.Warranties.Where(x=>x.StoreId==storeId).OrderBy(x=>x.Id).ToListAsync(ct);
  public void AddProduct(Product x)=>db.Products.Add(x); public void AddVariant(ProductVariant x)=>db.ProductVariants.Add(x); public void AddInventory(InventoryItem x)=>db.InventoryItems.Add(x); public void AddWarranty(Warranty x)=>db.Warranties.Add(x); public void AddProductWarranty(ProductWarranty x)=>db.ProductWarranties.Add(x);
 }
+
+public sealed class OrderQueryRepository(MarketplaceDbContext db) : IOrderQueryRepository
+{
+ public Task<Order?> GetAsync(long orderId,CancellationToken ct=default)=>db.Orders.SingleOrDefaultAsync(x=>x.Id==orderId,ct);
+ public Task<List<Order>> GetCustomerOrdersAsync(long customerId,CancellationToken ct=default)=>db.Orders.Where(x=>x.CustomerId==customerId).OrderByDescending(x=>x.CreatedAtUtc).ToListAsync(ct);
+ public Task<List<Order>> GetSellerOrdersAsync(long sellerId,CancellationToken ct=default)=>db.Orders.Where(x=>x.SellerId==sellerId).OrderByDescending(x=>x.CreatedAtUtc).ToListAsync(ct);
+ public Task<List<OrderItem>> GetItemsAsync(long orderId,CancellationToken ct=default)=>db.OrderItems.Where(x=>x.OrderId==orderId).OrderBy(x=>x.Id).ToListAsync(ct);
+ public Task<Payment?> GetPaymentAsync(long orderId,CancellationToken ct=default)=>db.Payments.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);
+}
