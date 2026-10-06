@@ -81,6 +81,7 @@ internal static class MarketplaceModelConfiguration
         modelBuilder.Entity<SellerBalanceHold>().ToTable("SellerBalanceHolds").HasKey(x => x.Id);
         modelBuilder.Entity<Settlement>().ToTable("Settlements").HasKey(x => x.Id);
         modelBuilder.Entity<CommissionReversal>().ToTable("CommissionReversals").HasKey(x => x.Id);
+        modelBuilder.Entity<Refund>().Property(x => x.GatewayRefundReference).HasMaxLength(200);
 
         modelBuilder.Entity<User>().HasIndex("Mobile").IsUnique();
         modelBuilder.Entity<User>().HasIndex("Email").IsUnique().HasFilter("[Email] IS NOT NULL");
