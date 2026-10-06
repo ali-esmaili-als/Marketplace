@@ -10,11 +10,12 @@ namespace Marketplace.Domain.Lifecycle;
 
 public sealed class OrderFinancialLifecycle
 {
-    public void OnPaymentSucceeded(Order order, Payment payment, SellerBalance balance)
+    public SellerBalanceHold OnPaymentSucceeded(Order order, Payment payment, SellerBalance balance, long holdId)
     {
         if(payment.Status!=PaymentStatus.Succeeded) throw new DomainException("Payment must be successful.");
         order.MarkPaid();
         balance.AddPending(order.SellerAmountIRR);
+        return SellerBalanceHold.Create(holdId,order.SellerId,order.Id,order.SellerAmountIRR,"Secure payment pending delivery and complaint window");
     }
 
     public void OnDelivered(Order order, Delivery delivery, SellerBalance balance, DateTime now, DateTime complaintExpiresAtUtc)
