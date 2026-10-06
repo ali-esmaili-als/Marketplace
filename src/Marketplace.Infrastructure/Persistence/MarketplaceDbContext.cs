@@ -10,6 +10,7 @@ using Marketplace.Domain.Payments;
 using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Sellers;
 using Marketplace.Domain.Shipping;
+using Marketplace.Domain.Identity;
 
 namespace Marketplace.Infrastructure.Persistence;
 
@@ -51,9 +52,53 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<PaymentProviderSetting> PaymentProviderSettings => Set<PaymentProviderSetting>();
     public DbSet<DeliveryCity> DeliveryCities => Set<DeliveryCity>();
     public DbSet<StoreShippingCity> StoreShippingCities => Set<StoreShippingCity>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Role> Roles => Set<Role>();
+    public DbSet<Rule> Rules => Set<Rule>();
+    public DbSet<UserRule> UserRules => Set<UserRule>();
+    public DbSet<UserRoleAssignment> UserRoleAssignments => Set<UserRoleAssignment>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+        b.Entity<User>(e =>
+        {
+            e.ToTable("Users"); e.HasKey(x => x.Id);
+            e.Property(x => x.Mobile).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Email).HasMaxLength(320);
+            e.Property(x => x.PasswordHash).HasMaxLength(500).IsRequired();
+            e.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => x.Mobile).IsUnique();
+            e.HasIndex(x => x.Email).IsUnique().HasFilter("[Email] IS NOT NULL");
+        });
+        b.Entity<Role>(e =>
+        {
+            e.ToTable("Roles"); e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(50).IsRequired();
+            e.HasIndex(x => x.Name).IsUnique();
+        });
+        b.Entity<Rule>(e =>
+        {
+            e.ToTable("Rules"); e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(150).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(250).IsRequired();
+            e.Property(x => x.ActionType).HasConversion<byte>();
+            e.HasIndex(x => x.Code).IsUnique();
+        });
+        b.Entity<UserRule>(e =>
+        {
+            e.ToTable("UserRules"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.RuleId }).IsUnique();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Rule>().WithMany().HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<UserRoleAssignment>(e =>
+        {
+            e.ToTable("UserRoleAssignments"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         b.Entity<Seller>(e =>
         {
             e.ToTable("Sellers"); e.HasKey(x => x.Id);
