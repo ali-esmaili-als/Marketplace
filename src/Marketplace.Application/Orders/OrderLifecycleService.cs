@@ -39,7 +39,7 @@ public sealed class OrderLifecycleService
 
         if(await _life.GetDeliveryByOrderAsync(o.Id,token) is null)
         {
-            var expires=DateTime.UtcNow.AddDays(7);
+            var expires=DateTime.UtcNow.AddDays(3);
             var delivery=Delivery.Create(await _ids.NextAsync(token),o.Id,o.SellerId,expires);
             o.SetDeliveryExpiry(expires);
             _life.AddDelivery(delivery);
