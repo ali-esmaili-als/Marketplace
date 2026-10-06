@@ -1,3 +1,4 @@
+using Marketplace.Infrastructure.Authorization;
 using Marketplace.Application.Authorization;
 using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Finance.Ports;
