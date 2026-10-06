@@ -34,6 +34,8 @@ internal static class MarketplaceModelConfiguration
         modelBuilder.Entity<UserSession>().ToTable("UserSessions").HasKey(x => x.Id);
         modelBuilder.Entity<UserVerification>().ToTable("UserVerifications").HasKey(x => x.Id);
         modelBuilder.Entity<UserLoginHistory>().ToTable("UserLoginHistories").HasKey(x => x.Id);
+        modelBuilder.Entity<UserUserType>().ToTable("UserUserTypes").HasKey(x => x.Id);
+        modelBuilder.Entity<UserUserType>().HasIndex(x => new { x.UserId, x.UserTypeId }).IsUnique();
         modelBuilder.Entity<SellerPlan>().ToTable("SellerPlans").HasKey(x => x.Id);
         modelBuilder.Entity<Seller>().ToTable("Sellers").HasKey(x => x.Id);
         modelBuilder.Entity<Store>().ToTable("Stores").HasKey(x => x.Id);
