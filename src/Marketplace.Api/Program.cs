@@ -32,11 +32,28 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "Marketplace API", Version = "v1" });
+    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Name = "Authorization", Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT", In = Microsoft.OpenApi.Models.ParameterLocation.Header
+    });
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme { Reference = new Microsoft.OpenApi.Models.OpenApiReference { Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme, Id = "Bearer" } },
+            Array.Empty<string>()
+        }
+    });
+});
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
 
 builder.Services.AddHostedService<MarketplaceMaintenanceHostedService>();
 var app=builder.Build();
+if (app.Environment.IsDevelopment()) app.UseSwagger().UseSwaggerUI();
 app.UseExceptionHandler(errorApp=>errorApp.Run(async context=>{var feature=context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();var ex=feature?.Error;var status=ex is Marketplace.Domain.Common.DomainException?StatusCodes.Status400BadRequest:StatusCodes.Status500InternalServerError;context.Response.StatusCode=status;context.Response.ContentType="application/problem+json";await context.Response.WriteAsJsonAsync(new{title=status==400?"Validation error":"Server error",detail=status==400?ex?.Message:"An unexpected error occurred."});}));
 
 long CurrentUserId(System.Security.Claims.ClaimsPrincipal user)
@@ -47,6 +64,12 @@ app.UseAuthorization();
 app.MapGet("/api/notifications",async(System.Security.Claims.ClaimsPrincipal user,int? take,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>Results.Ok(await service.GetAsync(CurrentUserId(user),take??50,ct))).RequireAuthorization();
 app.MapPost("/api/notifications/{notificationId:long}/read",async(System.Security.Claims.ClaimsPrincipal user,long notificationId,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>{await service.MarkReadAsync(CurrentUserId(user),notificationId,ct);return Results.NoContent();}).RequireAuthorization();
 app.MapGet("/health",()=>Results.Ok(new{status="ok",utc=DateTime.UtcNow}));
+app.MapGet("/health/db",async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct) =>
+{
+    var canConnect = await db.Database.CanConnectAsync(ct);
+    return canConnect ? Results.Ok(new { status = "ok", database = "connected", utc = DateTime.UtcNow })
+                      : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+});
 
 app.MapPost("/api/auth/register/customer",async(RegisterCustomerRequest request,Marketplace.Application.Identity.RegistrationService service,CancellationToken ct)=>
 {
