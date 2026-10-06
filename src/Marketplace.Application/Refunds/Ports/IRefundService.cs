@@ -4,6 +4,10 @@ namespace Marketplace.Application.Refunds.Ports;
 
 public interface IRefundService
 {
+    Task<long> CreateComplaintCompensationAsync(long complaintId, CancellationToken cancellationToken = default);
+
+    Task CompleteAsync(long refundId, string gatewayRefundReference, CancellationToken cancellationToken = default);
+
     Task<long> CreateAsync(
         long orderId,
         long paymentId,
