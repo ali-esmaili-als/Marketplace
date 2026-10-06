@@ -1,6 +1,4 @@
 using Marketplace.Domain.Common;
-using Marketplace.Domain.Pricing;
-
 namespace Marketplace.Domain.Orders;
 
 public sealed class OrderItem : Entity<long>
