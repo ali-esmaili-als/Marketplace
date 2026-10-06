@@ -215,6 +215,7 @@ public sealed class MaintenanceRepository(MarketplaceDbContext db) : IMaintenanc
 {
  public Task<List<Delivery>> GetExpiredDeliveriesAsync(DateTime nowUtc,CancellationToken ct=default)=>db.Deliveries.Where(x=>x.Status==DeliveryStatus.Ready&&x.ExpiresAtUtc<=nowUtc).OrderBy(x=>x.ExpiresAtUtc).Take(100).ToListAsync(ct);
  public Task<List<InventoryReservation>> GetExpiredReservationsAsync(DateTime nowUtc,CancellationToken ct=default)=>db.InventoryReservations.Where(x=>x.Status==InventoryReservationStatus.Active&&x.ExpiresAtUtc<=nowUtc).OrderBy(x=>x.ExpiresAtUtc).Take(500).ToListAsync(ct);
+ public Task<List<Order>> GetOrdersPendingRefundAsync(CancellationToken ct=default)=>db.Orders.Where(x=>x.Status==OrderStatus.RefundRequested).OrderBy(x=>x.Id).Take(100).ToListAsync(ct);
  public Task<List<Order>> GetOrdersReadyToCompleteAsync(DateTime nowUtc,CancellationToken ct=default)=>db.Orders.Where(x=>x.Status==OrderStatus.Delivered&&x.ComplaintExpiresAtUtc!=null&&x.ComplaintExpiresAtUtc<=nowUtc).OrderBy(x=>x.ComplaintExpiresAtUtc).Take(100).ToListAsync(ct);
  public Task<InventoryItem?> GetInventoryItemAsync(long variantId,CancellationToken ct=default)=>db.InventoryItems.SingleOrDefaultAsync(x=>x.ProductVariantId==variantId,ct);
  public Task<bool> HasOpenComplaintAsync(long orderId,CancellationToken ct=default)=>db.Complaints.AnyAsync(x=>x.OrderId==orderId&&x.Status!=ComplaintStatus.Closed&&x.Status!=ComplaintStatus.Cancelled,ct);
