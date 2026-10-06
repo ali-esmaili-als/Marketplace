@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Marketplace.Infrastructure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Marketplace.Domain\Marketplace.Domain.csproj" />
+    <ProjectReference Include="..\Marketplace.Application\Marketplace.Application.csproj" />
+  </ItemGroup>
+</Project>
