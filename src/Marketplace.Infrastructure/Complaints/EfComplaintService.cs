@@ -2,6 +2,8 @@ using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Complaints.Ports;
 using Marketplace.Domain.Complaints;
 using Marketplace.Application.Finance.Ports;
+using Marketplace.Application.Refunds.Ports;
+using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Finance;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +12,7 @@ namespace Marketplace.Infrastructure.Complaints;
 
 public sealed class EfComplaintService(
     MarketplaceDbContext db,
-    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance) : IComplaintService
+    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance, IRefundService refunds) : IComplaintService
 {
     public async Task<long> OpenAsync(
         long orderId, long customerId, string subject, string description,
@@ -73,6 +75,10 @@ public sealed class EfComplaintService(
             }
 
             await db.SaveChangesAsync(cancellationToken);
+
+            if (complaint.Status == ComplaintStatus.ResolvedForCustomer)
+                await refunds.CreateComplaintCompensationAsync(complaint.Id, cancellationToken);
+
             await tx.CommitAsync(cancellationToken);
         }
         catch
@@ -124,7 +130,27 @@ public sealed class EfComplaintService(
             x => x.Id == complaintId, cancellationToken)
             ?? throw new InvalidOperationException("Complaint not found.");
 
-        if (!currentUser.IsAuthenticated || (complaint.CustomerId != currentUser.UserId && complaint.SellerId != currentUser.UserId)) throw new UnauthorizedAccessException("Only a complaint participant can close it.");
+        if (!currentUser.IsAuthenticated)
+            throw new UnauthorizedAccessException("Authentication is required.");
+
+        var isAdmin = await db.UserUserTypes.AnyAsync(
+            x => x.UserId == currentUser.UserId &&
+                 x.UserTypeId == Marketplace.Domain.Identity.UserTypeId.Admin,
+            cancellationToken);
+
+        if (!isAdmin && complaint.CustomerId != currentUser.UserId && complaint.SellerId != currentUser.UserId)
+            throw new UnauthorizedAccessException("Only a complaint participant or admin can close it.");
+
+        if (complaint.Status == ComplaintStatus.ResolvedForCustomer)
+        {
+            var compensation = await db.Refunds.SingleOrDefaultAsync(
+                x => x.OrderId == complaint.OrderId &&
+                     x.Reason == $"COMPLAINT:{complaint.Id}", cancellationToken);
+
+            if (compensation is null || compensation.Status != RefundStatus.Completed)
+                throw new InvalidOperationException("Complaint compensation refund must be completed before closing.");
+        }
+
         complaint.Close();
         await db.SaveChangesAsync(cancellationToken);
     }
