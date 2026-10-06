@@ -70,6 +70,14 @@ app.MapDelete("/api/admin/users/{userId:long}/roles",async(long userId,UserRoleR
     await service.RevokeRoleAsync(userId,request.RoleName,ct); return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
+app.MapPost("/api/admin/sellers/{sellerId:long}/activate",async(long sellerId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    await service.ActivateAsync(sellerId,ct); return Results.NoContent();
+}).RequirePermission("Admin.Seller.Manage");
+
+app.MapPut("/api/admin/sellers/{sellerId:long}/store-limit",async(long sellerId,int maxStoreCount,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
+    await service.ConfigureStoreLimitAsync(sellerId,maxStoreCount,ct); return Results.NoContent();
+}).RequirePermission("Admin.Seller.Manage");
+
 app.MapPost("/api/auth/login",async(LoginRequest request,Marketplace.Application.Identity.AuthenticationService service,CancellationToken ct)=>
 {
     var result=await service.LoginAsync(request.Mobile,request.Password,ct);
