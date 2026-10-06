@@ -29,9 +29,7 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         services.AddDbContext<MarketplaceDbContext>(options =>
-            options.UseSqlServer(
-                configuration.GetConnectionString("Marketplace"),
-                sql => sql.EnableRetryOnFailure(5)));
+            options.UseSqlServer(configuration.GetConnectionString("Marketplace")));
 
         services.AddScoped<IUnitOfWork, InfrastructureUnitOfWork>();
         services.AddSingleton<IClock, SystemClock>();
