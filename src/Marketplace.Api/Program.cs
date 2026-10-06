@@ -164,7 +164,7 @@ app.MapPost("/api/settlements/{settlementId:long}/process",async(long settlement
 }).RequirePermission("Admin.Settlement.Process");
 
 app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
-    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,ct); return Results.Ok(result);
+    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,ct); return Results.Ok(result);
 }).RequirePermission("Order.Create");
 
 app.MapPost("/api/payments/{paymentId:long}/verify",async(long paymentId,PaymentVerifyRequest request,Marketplace.Application.Orders.PaymentVerificationService service,CancellationToken ct)=>{
@@ -214,7 +214,7 @@ app.MapPost("/api/sellers/me/coupons",async(System.Security.Claims.ClaimsPrincip
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
-public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId);
+public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
