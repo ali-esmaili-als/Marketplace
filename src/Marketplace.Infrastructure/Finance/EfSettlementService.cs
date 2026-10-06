@@ -9,22 +9,11 @@ namespace Marketplace.Infrastructure.Finance;
 public sealed class EfSettlementService(
     MarketplaceDbContext db,
     IIdGenerator ids,
-    Marketplace.Application.Common.Abstractions.ICurrentUser currentUser) : ISettlementService
+    Marketplace.Application.Common.Abstractions.IResourceAccess resourceAccess) : ISettlementService
 {
     public async Task<long> RequestAsync(long sellerId, long bankAccountId, long amountIRR, CancellationToken cancellationToken = default)
     {
-        if (!currentUser.IsAuthenticated)
-            throw new UnauthorizedAccessException("Authentication is required.");
-
-        if (sellerId != currentUser.UserId)
-        {
-            var isAdmin = await db.UserUserTypes.AnyAsync(
-                x => x.UserId == currentUser.UserId &&
-                     x.UserTypeId == Marketplace.Domain.Identity.UserTypeId.Admin,
-                cancellationToken);
-            if (!isAdmin)
-                throw new UnauthorizedAccessException("You cannot request settlement for another seller.");
-        }
+        await resourceAccess.EnsureAdminOrOwnerAsync(sellerId, cancellationToken);
 
         await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
         try
