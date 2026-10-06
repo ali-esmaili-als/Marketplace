@@ -12,8 +12,8 @@ BEGIN
         CreatedAtUtc DATETIME2(7) NOT NULL,
         LastLoginAtUtc DATETIME2(7) NULL,
         CONSTRAINT UQ_Users_Mobile UNIQUE(Mobile),
-        CONSTRAINT UQ_Users_Email UNIQUE(Email)
     );
+    CREATE UNIQUE INDEX UX_Users_Email_NotNull ON dbo.Users(Email) WHERE Email IS NOT NULL;
 END;
 GO
 
