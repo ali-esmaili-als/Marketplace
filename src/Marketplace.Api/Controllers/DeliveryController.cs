@@ -1,9 +1,10 @@
 using Marketplace.Application.Delivery.Ports;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Marketplace.Api.Controllers;
 
-[ApiController]
+[ApiController,Authorize]
 [Route("api/orders/{orderId:long}/delivery")]
 public sealed class DeliveryController(IDeliveryService delivery) : ControllerBase
 {
