@@ -63,6 +63,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, EfAuthService>();
 
         services.AddScoped<IPermissionChecker, EfPermissionChecker>();
+        services.AddScoped<IAuthorizationCatalogReader, EfAuthorizationCatalogReader>();
         services.AddScoped<AuthorizationCatalogSynchronizer>();
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
         services.AddSingleton<IAuthorizationHandler, ActionAccessHandler>();
