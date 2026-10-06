@@ -117,6 +117,8 @@ public sealed class OrderCreationService
         {
             var payment=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
             payment.Redirect(redirect.Provider,redirect.Authority);
+            var transaction=PaymentTransaction.Create(await _ids.NextAsync(token),payment.Id,payment.AmountIRR,redirect.Provider,redirect.Authority);
+            _payments.AddTransaction(transaction);
             await _uow.SaveChangesAsync(token);
             return 0;
         },ct);
