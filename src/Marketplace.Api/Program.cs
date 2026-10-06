@@ -35,6 +35,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
 
+builder.Services.AddHostedService<MarketplaceMaintenanceHostedService>();
 var app=builder.Build();
 
 long CurrentUserId(System.Security.Claims.ClaimsPrincipal user)
@@ -272,3 +273,19 @@ public sealed record StockRequest(long Quantity);
 public sealed record WarrantyRequest(string Name,long PriceIRR);
 public sealed record LinkWarrantyRequest(bool IsDefault);
 public sealed record CommissionConfigRequest(int RateBasisPoints,long MinimumCommissionIRR);
+
+public sealed class MarketplaceMaintenanceHostedService(IServiceScopeFactory scopes,ILogger<MarketplaceMaintenanceHostedService> logger):BackgroundService
+{
+ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+ {
+  await Run(stoppingToken);
+  using var timer=new PeriodicTimer(TimeSpan.FromMinutes(1));
+  while(await timer.WaitForNextTickAsync(stoppingToken)) await Run(stoppingToken);
+ }
+ private async Task Run(CancellationToken ct)
+ {
+  try{using var scope=scopes.CreateScope();var service=scope.ServiceProvider.GetRequiredService<Marketplace.Application.Maintenance.MaintenanceService>();await service.RunOnceAsync(ct);}
+  catch(OperationCanceledException) when(ct.IsCancellationRequested){}
+  catch(Exception ex){logger.LogError(ex,"Marketplace maintenance cycle failed.");}
+ }
+}
