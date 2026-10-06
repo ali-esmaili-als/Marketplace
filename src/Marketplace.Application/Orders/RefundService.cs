@@ -13,12 +13,12 @@ public sealed class RefundService
     private readonly ILifecycleRepository _life;
     private readonly IUnitOfWork _uow;
     private readonly IIdGenerator _ids;
-    private readonly IPaymentGateway _gateway;
+    private readonly IPaymentGatewayFactory _gatewayFactory;
 
     public RefundService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,
-        IUnitOfWork uow,IIdGenerator ids,IPaymentGateway gateway)
+        IUnitOfWork uow,IIdGenerator ids,IPaymentGatewayFactory gatewayFactory)
     {
-        _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _gateway=gateway;
+        _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _gatewayFactory=gatewayFactory;
     }
 
     public async Task ProcessAsync(long orderId,RefundReason reason,CancellationToken ct=default)
@@ -59,7 +59,10 @@ public sealed class RefundService
         },ct);
 
         // The gateway call is intentionally outside the DB transaction.
-        var gatewayOk=await _gateway.RefundAsync(paymentReference,amount,ct);
+        var paymentForGateway=await _payments.GetAsync(paymentId,ct)??throw new DomainException("Payment not found.");
+        if(!Enum.TryParse<Marketplace.Domain.Payments.PaymentProviderCode>(paymentForGateway.Provider,true,out var provider)) throw new DomainException("Invalid payment provider.");
+        var gateway=await _gatewayFactory.GetAsync(provider,ct);
+        var gatewayOk=await gateway.RefundAsync(paymentReference,amount,ct);
 
         // Phase 2: finalize exactly once in a short DB transaction.
         await _uow.ExecuteInTransactionAsync(async token =>
