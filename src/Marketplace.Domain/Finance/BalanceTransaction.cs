@@ -1,1 +1,34 @@
-using Marketplace.Domain.Common; namespace Marketplace.Domain.Finance; public sealed class BalanceTransaction:Entity<long>{private BalanceTransaction(){}public long SellerId{get;private set;}public long? OrderId{get;private set;}public long? SettlementId{get;private set;}public BalanceTransactionType Type{get;private set;}public long AmountIRR{get;private set;}public long BalanceBeforeIRR{get;private set;}public long BalanceAfterIRR{get;private set;}public string? Reference{get;private set;}public DateTime CreatedAtUtc{get;private set;}public static BalanceTransaction Create(long id,long sellerId,long? orderId,long? settlementId,BalanceTransactionType type,long amount,long before,long after,string? reference){if(amount<0||before<0||after<0)throw new DomainException("Balance amounts cannot be negative.");return new(){Id=id,SellerId=sellerId,OrderId=orderId,SettlementId=settlementId,Type=type,AmountIRR=amount,BalanceBeforeIRR=before,BalanceAfterIRR=after,Reference=reference?.Trim(),CreatedAtUtc=DateTime.UtcNow};}}
+using Marketplace.Domain.Common;
+
+namespace Marketplace.Domain.Finance;
+
+public sealed class BalanceTransaction : Entity<long>
+{
+    private BalanceTransaction() { }
+
+    public long SellerId { get; private set; }
+    public long? OrderId { get; private set; }
+    public long? SettlementId { get; private set; }
+    public BalanceTransactionType Type { get; private set; }
+    public BalanceBucket Bucket { get; private set; }
+    public long AmountIRR { get; private set; }
+    public long BalanceBeforeIRR { get; private set; }
+    public long BalanceAfterIRR { get; private set; }
+    public string? Reference { get; private set; }
+    public DateTime CreatedAtUtc { get; private set; }
+
+    public static BalanceTransaction Create(long id, long sellerId, long? orderId, long? settlementId, BalanceTransactionType type, BalanceBucket bucket, long amount, long before, long after, string? reference)
+    {
+        if (amount <= 0) throw new DomainException("Transaction amount must be positive.");
+        if (before < 0 || after < 0) throw new DomainException("Balance amounts cannot be negative.");
+        if (before == after) throw new DomainException("Balance transaction must change its bucket.");
+
+        return new()
+        {
+            Id = id, SellerId = sellerId, OrderId = orderId, SettlementId = settlementId,
+            Type = type, Bucket = bucket, AmountIRR = amount,
+            BalanceBeforeIRR = before, BalanceAfterIRR = after,
+            Reference = reference?.Trim(), CreatedAtUtc = DateTime.UtcNow
+        };
+    }
+}
