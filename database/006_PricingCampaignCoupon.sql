@@ -106,3 +106,17 @@ IF COL_LENGTH(N'dbo.OrderItems',N'CouponDiscountIRR') IS NULL ALTER TABLE dbo.Or
 IF COL_LENGTH(N'dbo.OrderItems',N'CampaignId') IS NULL ALTER TABLE dbo.OrderItems ADD CampaignId BIGINT NULL;
 IF COL_LENGTH(N'dbo.OrderItems',N'CampaignNameSnapshot') IS NULL ALTER TABLE dbo.OrderItems ADD CampaignNameSnapshot NVARCHAR(250) NULL;
 GO
+
+GO
+UPDATE dbo.Orders SET SubtotalAmountIRR=TotalAmountIRR WHERE SubtotalAmountIRR=0 AND TotalAmountIRR>0;
+UPDATE dbo.OrderItems SET BaseUnitPriceIRR=UnitPriceIRR WHERE BaseUnitPriceIRR=0 AND UnitPriceIRR>0;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_Campaigns_Stores')
+    ALTER TABLE dbo.Campaigns ADD CONSTRAINT FK_Campaigns_Stores FOREIGN KEY(StoreId) REFERENCES dbo.Stores(Id);
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_Coupons_Sellers')
+    ALTER TABLE dbo.Coupons ADD CONSTRAINT FK_Coupons_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id);
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_Coupons_Stores')
+    ALTER TABLE dbo.Coupons ADD CONSTRAINT FK_Coupons_Stores FOREIGN KEY(StoreId) REFERENCES dbo.Stores(Id);
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name=N'FK_OrderItems_Campaigns')
+    ALTER TABLE dbo.OrderItems ADD CONSTRAINT FK_OrderItems_Campaigns FOREIGN KEY(CampaignId) REFERENCES dbo.Campaigns(Id);
+GO
