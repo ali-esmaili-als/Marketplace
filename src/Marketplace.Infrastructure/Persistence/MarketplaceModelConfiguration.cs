@@ -1,0 +1,98 @@
+using Marketplace.Domain.Catalog;
+using Marketplace.Domain.Carts;
+using Marketplace.Domain.Coupons;
+using Marketplace.Domain.Delivery;
+using Marketplace.Domain.Finance;
+using Marketplace.Domain.Identity;
+using Marketplace.Domain.Inventory;
+using Marketplace.Domain.Orders;
+using Marketplace.Domain.Payments;
+using Marketplace.Domain.Sellers;
+using Microsoft.EntityFrameworkCore;
+
+namespace Marketplace.Infrastructure.Persistence;
+
+internal static class MarketplaceModelConfiguration
+{
+    public static void Configure(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDefaultSchema("dbo");
+        modelBuilder.Entity<User>().ToTable("Users").HasKey(x => x.Id);
+        modelBuilder.Entity<UserCredential>().ToTable("UserCredentials").HasKey(x => x.Id);
+        modelBuilder.Entity<RefreshToken>().ToTable("RefreshTokens").HasKey(x => x.Id);
+        modelBuilder.Entity<UserSession>().ToTable("UserSessions").HasKey(x => x.Id);
+        modelBuilder.Entity<UserVerification>().ToTable("UserVerifications").HasKey(x => x.Id);
+        modelBuilder.Entity<UserLoginHistory>().ToTable("UserLoginHistories").HasKey(x => x.Id);
+        modelBuilder.Entity<SellerPlan>().ToTable("SellerPlans").HasKey(x => x.Id);
+        modelBuilder.Entity<Seller>().ToTable("Sellers").HasKey(x => x.Id);
+        modelBuilder.Entity<Store>().ToTable("Stores").HasKey(x => x.Id);
+        modelBuilder.Entity<SellerBankAccount>().ToTable("SellerBankAccounts").HasKey(x => x.Id);
+        modelBuilder.Entity<Category>().ToTable("Categories").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductType>().ToTable("ProductTypes").HasKey(x => x.Id);
+        modelBuilder.Entity<Marketplace.Domain.Catalog.Attribute>().ToTable("Attributes").HasKey(x => x.Id);
+        modelBuilder.Entity<AttributeValue>().ToTable("AttributeValues").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductTypeAttribute>().ToTable("ProductTypeAttributes").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductTypeAttributeValue>().ToTable("ProductTypeAttributeValues").HasKey(x => x.Id);
+        modelBuilder.Entity<Product>().ToTable("Products").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductVariant>().ToTable("ProductVariants").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductAttributeValue>().ToTable("ProductAttributeValues").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductVariantAttributeValue>().ToTable("ProductVariantAttributeValues").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductImage>().ToTable("ProductImages").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductDiscount>().ToTable("ProductDiscounts").HasKey(x => x.Id);
+        modelBuilder.Entity<VariantDiscount>().ToTable("VariantDiscounts").HasKey(x => x.Id);
+        modelBuilder.Entity<WarrantyCategory>().ToTable("WarrantyCategories").HasKey(x => x.Id);
+        modelBuilder.Entity<Warranty>().ToTable("Warranties").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductWarranty>().ToTable("ProductWarranties").HasKey(x => x.Id);
+        modelBuilder.Entity<ProductTypeWarrantyCategory>().ToTable("ProductTypeWarrantyCategories").HasKey(x => x.Id);
+        modelBuilder.Entity<ShippingBenefit>().ToTable("ShippingBenefits").HasKey(x => x.Id);
+        modelBuilder.Entity<Campaign>().ToTable("Campaigns").HasKey(x => x.Id);
+        modelBuilder.Entity<CampaignProduct>().ToTable("CampaignProducts").HasKey(x => x.Id);
+        modelBuilder.Entity<CampaignVariant>().ToTable("CampaignVariants").HasKey(x => x.Id);
+        modelBuilder.Entity<CampaignShippingBenefit>().ToTable("CampaignShippingBenefits").HasKey(x => x.Id);
+        modelBuilder.Entity<Cart>().ToTable("Carts").HasKey(x => x.Id);
+        modelBuilder.Entity<CartItem>().ToTable("CartItems").HasKey(x => x.Id);
+        modelBuilder.Entity<Order>().ToTable("Orders").HasKey(x => x.Id);
+        modelBuilder.Entity<OrderItem>().ToTable("OrderItems").HasKey(x => x.Id);
+        modelBuilder.Entity<PaymentAttempt>().ToTable("PaymentAttempts").HasKey(x => x.Id);
+        modelBuilder.Entity<Payment>().ToTable("Payments").HasKey(x => x.Id);
+        modelBuilder.Entity<InventoryItem>().ToTable("InventoryItems").HasKey(x => x.Id);
+        modelBuilder.Entity<InventoryReservation>().ToTable("InventoryReservations").HasKey(x => x.Id);
+        modelBuilder.Entity<Coupon>().ToTable("Coupons").HasKey(x => x.Id);
+        modelBuilder.Entity<CouponUsage>().ToTable("CouponUsages").HasKey(x => x.Id);
+        modelBuilder.Entity<DeliveryCode>().ToTable("DeliveryCodes").HasKey(x => x.Id);
+        modelBuilder.Entity<Commission>().ToTable("Commissions").HasKey(x => x.Id);
+        modelBuilder.Entity<BalanceTransaction>().ToTable("BalanceTransactions").HasKey(x => x.Id);
+        modelBuilder.Entity<SellerBalance>().ToTable("SellerBalances").HasKey(x => x.Id);
+        modelBuilder.Entity<SellerBalanceHold>().ToTable("SellerBalanceHolds").HasKey(x => x.Id);
+        modelBuilder.Entity<Settlement>().ToTable("Settlements").HasKey(x => x.Id);
+        modelBuilder.Entity<CommissionReversal>().ToTable("CommissionReversals").HasKey(x => x.Id);
+
+        modelBuilder.Entity<User>().HasIndex("Mobile").IsUnique();
+        modelBuilder.Entity<User>().HasIndex("Email").IsUnique().HasFilter("[Email] IS NOT NULL");
+        modelBuilder.Entity<Store>().HasIndex("Slug").IsUnique();
+        modelBuilder.Entity<Category>().HasIndex("Path");
+        modelBuilder.Entity<Product>().HasIndex("Slug").IsUnique();
+        modelBuilder.Entity<ProductVariant>().HasIndex("Sku").IsUnique().HasFilter("[Sku] IS NOT NULL");
+        modelBuilder.Entity<ProductVariant>().HasIndex("VariantKeyHash").IsUnique();
+        modelBuilder.Entity<Cart>().HasIndex("CustomerId");
+        modelBuilder.Entity<Order>().HasIndex("OrderNumber").IsUnique();
+        modelBuilder.Entity<Order>().HasIndex("CustomerId", "CreatedAtUtc");
+        modelBuilder.Entity<Order>().HasIndex("StoreId", "CreatedAtUtc");
+        modelBuilder.Entity<PaymentAttempt>().HasIndex("Gateway", "GatewayTransactionId").IsUnique().HasFilter("[GatewayTransactionId] IS NOT NULL");
+        modelBuilder.Entity<Payment>().HasIndex("PaymentAttemptId").IsUnique();
+        modelBuilder.Entity<InventoryItem>().HasIndex("ProductVariantId").IsUnique();
+        modelBuilder.Entity<Coupon>().HasIndex("StoreId", "Code").IsUnique();
+        modelBuilder.Entity<DeliveryCode>().HasIndex("OrderId").IsUnique();
+        modelBuilder.Entity<Commission>().HasIndex("OrderId").IsUnique();
+        modelBuilder.Entity<SellerBalance>().HasIndex("SellerId").IsUnique();
+        modelBuilder.Entity<CommissionReversal>().HasIndex("CommissionId").IsUnique();
+
+        modelBuilder.Entity<Category>().Property<string>("Path").HasMaxLength(850).IsUnicode(false);
+        modelBuilder.Entity<ProductVariant>().Property<string>("VariantKey").HasMaxLength(1000).IsUnicode(false);
+        modelBuilder.Entity<ProductVariant>().Property<byte[]>("VariantKeyHash").HasColumnType("binary(32)");
+        modelBuilder.Entity<Store>().Property<decimal>("CommissionRate").HasPrecision(5, 2);
+        modelBuilder.Entity<Commission>().Property<decimal>("CommissionRate").HasPrecision(5, 2);
+        modelBuilder.Entity<PaymentAttempt>().Property<decimal>("FxRateToIRR").HasPrecision(28, 10);
+        modelBuilder.Entity<Payment>().Property<decimal>("FxRateToIRR").HasPrecision(28, 10);
+    }
+}
