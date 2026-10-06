@@ -9,6 +9,7 @@ using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
 using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Sellers;
+using Marketplace.Domain.Shipping;
 
 namespace Marketplace.Infrastructure.Persistence;
 
@@ -48,6 +49,8 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<CommissionReversal> CommissionReversals => Set<CommissionReversal>();
     public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<PaymentProviderSetting> PaymentProviderSettings => Set<PaymentProviderSetting>();
+    public DbSet<DeliveryCity> DeliveryCities => Set<DeliveryCity>();
+    public DbSet<StoreShippingCity> StoreShippingCities => Set<StoreShippingCity>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -186,6 +189,24 @@ public sealed class MarketplaceDbContext : DbContext
             e.Property(x => x.ConfigurationJson).HasColumnType("nvarchar(max)").IsRequired();
             e.HasIndex(x => x.Provider).IsUnique();
             e.HasIndex(x => new { x.IsEnabled, x.IsVisible, x.SortOrder });
+        });
+        b.Entity<DeliveryCity>(e =>
+        {
+            e.ToTable("DeliveryCities"); e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.ProvinceName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Code).HasMaxLength(50).IsRequired();
+            e.HasIndex(x => x.Code).IsUnique();
+            e.HasIndex(x => new { x.IsActive, x.ProvinceName, x.Name });
+        });
+        b.Entity<StoreShippingCity>(e =>
+        {
+            e.ToTable("StoreShippingCities"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.StoreId, x.CityId }).IsUnique();
+            e.HasIndex(x => x.StoreId);
+            e.HasIndex(x => x.CityId);
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<DeliveryCity>().WithMany().HasForeignKey(x => x.CityId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
