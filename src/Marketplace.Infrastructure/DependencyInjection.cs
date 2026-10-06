@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.AddScoped<ISellerBalanceService, EfSellerBalanceService>();
         services.AddScoped<IPaymentCompletionService, EfPaymentCompletionService>();
         services.AddScoped<IPaymentLifecycleService, EfPaymentLifecycleService>();
+        services.AddScoped<IOrderLifecycleService, EfOrderLifecycleService>();
         services.AddSingleton<IPaymentWebhookValidator, HmacPaymentWebhookValidator>();
         services.AddScoped<ISettlementService, EfSettlementService>();
         services.AddScoped<IRefundService, EfRefundService>();
