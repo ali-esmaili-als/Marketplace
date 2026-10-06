@@ -22,7 +22,7 @@ public sealed class PricingRepository(MarketplaceDbContext db) : IPricingReposit
     public Task<bool> HasCustomerUsedCouponAsync(long couponId,long customerId,CancellationToken ct=default)
         => db.CouponUsages.AnyAsync(x=>x.CouponId==couponId&&x.CustomerId==customerId,ct);
     public Task<bool> IsNewCustomerAsync(long customerId,CancellationToken ct=default)
-        => db.Orders.AllAsync(x=>x.CustomerId!=customerId||x.Status is OrderStatus.PendingPayment or OrderStatus.Cancelled,ct);
+        => db.Orders.AllAsync(x=>x.CustomerId!=customerId||x.Status==OrderStatus.PendingPayment||x.Status==OrderStatus.Cancelled,ct);
     public async Task<bool> CouponHasCategoryScopeAsync(long couponId,long categoryId,CancellationToken ct=default)
     {
         var path=await db.Categories.Where(x=>x.Id==categoryId).Select(x=>x.Path).SingleOrDefaultAsync(ct);
@@ -32,8 +32,9 @@ public sealed class PricingRepository(MarketplaceDbContext db) : IPricingReposit
     }
     public Task<bool> CouponHasProductScopeAsync(long couponId,long productId,CancellationToken ct=default)
         => db.CouponProducts.AnyAsync(x=>x.CouponId==couponId&&x.ProductId==productId,ct);
-    public Task<bool> CouponHasAnyScopeAsync(long couponId,CancellationToken ct=default)
-        => db.CouponProducts.AnyAsync(x=>x.CouponId==couponId,ct)||db.CouponCategories.AnyAsync(x=>x.CouponId==couponId,ct);
+    public async Task<bool> CouponHasAnyScopeAsync(long couponId,CancellationToken ct=default)
+        => await db.CouponProducts.AnyAsync(x=>x.CouponId==couponId,ct)
+           || await db.CouponCategories.AnyAsync(x=>x.CouponId==couponId,ct);
     public void AddCampaign(Campaign campaign)=>db.Campaigns.Add(campaign);
     public void AddCampaignTarget(CampaignProduct target)=>db.CampaignProducts.Add(target);
     public void AddCoupon(Coupon coupon)=>db.Coupons.Add(coupon);
