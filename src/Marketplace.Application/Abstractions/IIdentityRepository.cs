@@ -14,4 +14,8 @@ public interface IIdentityRepository
     void AddRule(Rule rule);
     void AddUserRule(UserRule userRule);
     void AddUserRoleAssignment(UserRoleAssignment assignment);
+    Task<UserRule?> GetUserRuleAsync(long userId, long ruleId, CancellationToken ct = default);
+    Task<UserRoleAssignment?> GetUserRoleAssignmentAsync(long userId, long roleId, CancellationToken ct = default);
+    void RemoveUserRule(UserRule item);
+    void RemoveUserRoleAssignment(UserRoleAssignment item);
 }
