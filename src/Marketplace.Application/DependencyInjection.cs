@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<Identity.RegistrationService>();
         services.AddScoped<Identity.PermissionService>();
         services.AddScoped<Identity.IdentityAdminService>();
+        services.AddScoped<Sellers.SellerManagementService>();
         return services;
     }
 }
