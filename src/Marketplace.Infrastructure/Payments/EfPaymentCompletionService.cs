@@ -1,5 +1,6 @@
 using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Finance.Ports;
+using Marketplace.Application.Checkout.Ports;
 using Marketplace.Application.Payments.Ports;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Payments;
@@ -12,7 +13,8 @@ public sealed class EfPaymentCompletionService(
     MarketplaceDbContext db,
     IIdGenerator ids,
     IClock clock,
-    ISellerBalanceService sellerBalance) : IPaymentCompletionService
+    ISellerBalanceService sellerBalance,
+    ICouponReservationService coupons) : IPaymentCompletionService
 {
     public async Task CompleteAsync(
         long paymentAttemptId,
@@ -89,6 +91,8 @@ public sealed class EfPaymentCompletionService(
 
                 db.Commissions.Add(commission);
             }
+
+            await coupons.MarkUsedAsync(order.Id, cancellationToken);
 
             await sellerBalance.AddPendingAsync(
                 commission.SellerId,
