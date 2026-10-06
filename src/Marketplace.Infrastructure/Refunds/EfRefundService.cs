@@ -4,6 +4,7 @@ using Marketplace.Application.Checkout.Ports;
 using Marketplace.Application.Refunds.Ports;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Refunds;
+using Marketplace.Domain.Complaints;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -136,7 +137,7 @@ public sealed class EfRefundService(
             else
                 order.MarkPartiallyRefunded();
 
-            refund.Complete();
+            refund.Complete($"INTERNAL:{refund.Id}");
             db.Refunds.Add(refund);
 
             await db.SaveChangesAsync(cancellationToken);
@@ -149,4 +150,131 @@ public sealed class EfRefundService(
             throw;
         }
     }
+
+    public async Task<long> CreateComplaintCompensationAsync(long complaintId, CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required.");
+
+        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var complaint = await db.Complaints.SingleOrDefaultAsync(x => x.Id == complaintId, cancellationToken)
+                ?? throw new InvalidOperationException("Complaint not found.");
+
+            if (complaint.Status != ComplaintStatus.ResolvedForCustomer)
+                throw new InvalidOperationException("Complaint is not resolved for customer.");
+            if (complaint.CustomerId != currentUser.UserId)
+                throw new UnauthorizedAccessException("Only the complaint customer can request compensation.");
+
+            var payment = await db.Payments.Where(x => x.OrderId == complaint.OrderId)
+                .OrderByDescending(x => x.PaidAtUtc).FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Successful payment not found.");
+
+            var hold = await db.SellerBalanceHolds.SingleOrDefaultAsync(
+                x => x.OrderId == complaint.OrderId && x.SellerId == complaint.SellerId &&
+                     x.Status == SellerBalanceHoldStatus.Active, cancellationToken)
+                ?? throw new InvalidOperationException("Active seller compensation hold not found.");
+
+            var reason = $"COMPLAINT:{complaintId}";
+            var existing = await db.Refunds.SingleOrDefaultAsync(
+                x => x.OrderId == complaint.OrderId && x.PaymentId == payment.Id && x.Reason == reason,
+                cancellationToken);
+
+            if (existing is not null)
+            {
+                await tx.CommitAsync(cancellationToken);
+                return existing.Id;
+            }
+
+            var refund = Refund.Create(ids.NewId(), complaint.OrderId, payment.Id, hold.AmountIRR, reason);
+            db.Refunds.Add(refund);
+            await db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+            return refund.Id;
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task CompleteAsync(long refundId, string gatewayRefundReference, CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required.");
+        if (string.IsNullOrWhiteSpace(gatewayRefundReference))
+            throw new ArgumentException("Gateway refund reference is required.", nameof(gatewayRefundReference));
+
+        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var refund = await db.Refunds.SingleOrDefaultAsync(x => x.Id == refundId, cancellationToken)
+                ?? throw new InvalidOperationException("Refund not found.");
+
+            if (refund.Status == RefundStatus.Completed)
+            {
+                await tx.CommitAsync(cancellationToken);
+                return;
+            }
+
+            refund.StartProcessing();
+
+            var reason = refund.Reason;
+            if (reason?.StartsWith("COMPLAINT:", StringComparison.Ordinal) == true)
+            {
+                if (!long.TryParse(reason["COMPLAINT:".Length..], out var complaintId))
+                    throw new InvalidOperationException("Invalid complaint refund reference.");
+
+                var complaint = await db.Complaints.SingleOrDefaultAsync(x => x.Id == complaintId, cancellationToken)
+                    ?? throw new InvalidOperationException("Complaint not found.");
+
+                var hold = await db.SellerBalanceHolds.SingleOrDefaultAsync(
+                    x => x.OrderId == complaint.OrderId && x.SellerId == complaint.SellerId &&
+                         x.Status == SellerBalanceHoldStatus.Active, cancellationToken)
+                    ?? throw new InvalidOperationException("Active seller compensation hold not found.");
+
+                if (hold.AmountIRR != refund.AmountIRR)
+                    throw new InvalidOperationException("Refund amount does not match complaint hold.");
+
+                var commission = await db.Commissions.SingleAsync(x => x.OrderId == refund.OrderId, cancellationToken);
+                var previousReversal = await db.CommissionReversals.Where(x => x.CommissionId == commission.Id)
+                    .SumAsync(x => (long?)x.ReversedCommissionIRR, cancellationToken) ?? 0;
+
+                var reversed = Math.Min(
+                    Math.Max(0, commission.CommissionAmountIRR - previousReversal),
+                    (long)Math.Floor((decimal)commission.CommissionAmountIRR * refund.AmountIRR /
+                                     Math.Max(1, commission.OrderAmountIRR)));
+
+                db.CommissionReversals.Add(CommissionReversal.Create(
+                    ids.NewId(), commission.Id, refund.OrderId, refund.Id, refund.AmountIRR, reversed));
+
+                await sellerBalance.ConsumeBlockAsync(
+                    complaint.SellerId, complaint.OrderId, hold.AmountIRR,
+                    $"REFUND:{refund.Id}:COMPLAINT", cancellationToken);
+                hold.Consume();
+            }
+
+            refund.Complete(gatewayRefundReference);
+
+            var payment = await db.Payments.SingleAsync(x => x.Id == refund.PaymentId, cancellationToken);
+            var completedRefund = await db.Refunds
+                .Where(x => x.PaymentId == refund.PaymentId && x.Status == RefundStatus.Completed && x.Id != refund.Id)
+                .SumAsync(x => (long?)x.AmountIRR, cancellationToken) ?? 0;
+            var order = await db.Orders.SingleAsync(x => x.Id == refund.OrderId, cancellationToken);
+
+            if (completedRefund + refund.AmountIRR >= payment.AmountIRR)
+                order.MarkRefunded();
+            else
+                order.MarkPartiallyRefunded();
+
+            await db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
 }
