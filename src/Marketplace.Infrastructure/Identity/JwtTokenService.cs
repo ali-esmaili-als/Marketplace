@@ -38,5 +38,6 @@ public sealed class JwtTokenService(IConfiguration configuration, MarketplaceDbC
     }
 
     public async Task<IReadOnlyCollection<string>> GetRolesAsync(long userId, CancellationToken ct = default)
-        => await db.UserRoles.Where(x => x.UserId == userId).Join(db.Roles, x => x.RoleId, x => x.Id, (_, role) => role.Name).ToListAsync(ct);
+        => await db.UserRoleAssignments.Join(db.Roles,x=>x.RoleId,r=>r.Id,(ur,r)=>new { ur.UserId, r.Name })
+            .Where(x=>x.UserId==userId).Select(x=>x.Name).ToListAsync(ct);
 }
