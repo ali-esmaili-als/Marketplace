@@ -9,17 +9,18 @@ namespace Marketplace.Infrastructure.Complaints;
 
 public sealed class EfComplaintService(
     MarketplaceDbContext db,
-    IIdGenerator ids) : IComplaintService
+    IIdGenerator ids, ICurrentUser currentUser) : IComplaintService
 {
     public async Task<long> OpenAsync(
         long orderId, long customerId, string subject, string description,
         CancellationToken cancellationToken = default)
     {
+        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required.");
         var order = await db.Orders.AsNoTracking().SingleOrDefaultAsync(
             x => x.Id == orderId, cancellationToken)
             ?? throw new InvalidOperationException("Order not found.");
 
-        if (order.CustomerId != customerId)
+        if (customerId != currentUser.UserId || order.CustomerId != currentUser.UserId)
             throw new UnauthorizedAccessException("Order does not belong to customer.");
 
         var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(
@@ -45,6 +46,7 @@ public sealed class EfComplaintService(
                 x => x.Id == complaintId, cancellationToken)
                 ?? throw new InvalidOperationException("Complaint not found.");
 
+            if (!currentUser.IsAuthenticated || complaint.CustomerId != currentUser.UserId) throw new UnauthorizedAccessException("Only the complaint customer can resolve for customer.");
             complaint.ResolveForCustomer();
 
             var order = await db.Orders.SingleAsync(x => x.Id == complaint.OrderId, cancellationToken);
@@ -88,6 +90,7 @@ public sealed class EfComplaintService(
                 x => x.Id == complaintId, cancellationToken)
                 ?? throw new InvalidOperationException("Complaint not found.");
 
+            if (!currentUser.IsAuthenticated || complaint.SellerId != currentUser.UserId) throw new UnauthorizedAccessException("Only the complaint seller can resolve for seller.");
             complaint.ResolveForSeller();
 
             var hold = await db.SellerBalanceHolds.SingleOrDefaultAsync(
@@ -120,6 +123,7 @@ public sealed class EfComplaintService(
             x => x.Id == complaintId, cancellationToken)
             ?? throw new InvalidOperationException("Complaint not found.");
 
+        if (!currentUser.IsAuthenticated || (complaint.CustomerId != currentUser.UserId && complaint.SellerId != currentUser.UserId)) throw new UnauthorizedAccessException("Only a complaint participant can close it.");
         complaint.Close();
         await db.SaveChangesAsync(cancellationToken);
     }
