@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Marketplace.Infrastructure.Delivery;
 
-public sealed class EfOrderLifecycleService(MarketplaceDbContext db) : IOrderLifecycleService
+public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUser currentUser, IInventoryReservationService inventory, IClock clock, IIdGenerator ids) : IOrderLifecycleService
 {
     public async Task StartPreparingAsync(long orderId, CancellationToken cancellationToken = default)
     {
