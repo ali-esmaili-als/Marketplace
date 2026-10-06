@@ -96,6 +96,8 @@ public sealed class SellerManagementRepository(MarketplaceDbContext db) : ISelle
         => db.SellerBankAccounts.Where(x=>x.SellerId==sellerId).OrderByDescending(x=>x.IsDefault).ThenBy(x=>x.Id).ToListAsync(ct);
     public Task<SellerBalance?> GetBalanceAsync(long sellerId,CancellationToken ct=default)
         => db.SellerBalances.SingleOrDefaultAsync(x=>x.SellerId==sellerId,ct);
+    public Task<bool> StoreBelongsToSellerAsync(long storeId,long sellerId,CancellationToken ct=default)
+        => db.Stores.AnyAsync(x=>x.Id==storeId && x.SellerId==sellerId,ct);
     public Task<bool> StoreSlugExistsAsync(long sellerId,string slug,long? exceptStoreId=null,CancellationToken ct=default)
         => db.Stores.AnyAsync(x=>x.SellerId==sellerId && x.Slug==slug.Trim() && (!exceptStoreId.HasValue || x.Id!=exceptStoreId.Value),ct);
     public void AddSeller(Seller seller)=>db.Sellers.Add(seller);
