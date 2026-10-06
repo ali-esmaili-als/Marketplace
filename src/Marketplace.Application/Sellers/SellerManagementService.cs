@@ -26,7 +26,7 @@ public sealed class SellerManagementService(
             ?? throw new DomainException("Seller role is not configured.");
         identity.AddUserRoleAssignment(UserRoleAssignment.Create(await ids.NextAsync(ct), user.Id, role.Id));
 
-        foreach (var code in new[] { "Seller.Shipping.Configure", "Seller.Settlement.Request" })
+        foreach (var code in new[] { "Seller.Shipping.Configure", "Seller.Settlement.Request", "Seller.Campaign.Manage", "Seller.Coupon.Manage" })
         {
             var rule = await identity.GetRuleByCodeAsync(code, ct)
                 ?? throw new DomainException($"Rule {code} is not configured.");
