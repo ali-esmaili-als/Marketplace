@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Identity;
+using Marketplace.Infrastructure.Persistence;
 
 namespace Marketplace.Infrastructure.Identity;
 
