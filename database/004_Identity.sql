@@ -81,6 +81,8 @@ USING (VALUES
  (1002,N'Order.Create',N'Create order',1),
  (1003,N'Order.ReadOwn',N'View own orders',1),
  (2001,N'Seller.Shipping.Configure',N'Configure store shipping cities',2),
+ (2003,N'Seller.Campaign.Manage',N'Manage store campaigns',2),
+ (2004,N'Seller.Coupon.Manage',N'Manage store coupons',2),
  (2002,N'Seller.Settlement.Request',N'Request seller settlement',2),
  (3001,N'Admin.PaymentProviders.Read',N'View payment provider settings',3),
  (3002,N'Admin.PaymentProviders.Configure',N'Configure payment providers',3),
