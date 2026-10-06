@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddScoped<ILifecycleRepository,LifecycleRepository>();
         services.AddScoped<ICartRepository,CartRepository>();
         services.AddScoped<ICatalogRepository,CatalogRepository>();
+        services.AddScoped<IShippingRepository,ShippingRepository>();
         services.AddScoped<IPaymentGateway,NotConfiguredPaymentGateway>();
         services.AddScoped<IPaymentGatewayFactory,PaymentGatewayFactory>();
         services.AddScoped<IPaymentProviderSettings,PaymentProviderSettingsRepository>();
