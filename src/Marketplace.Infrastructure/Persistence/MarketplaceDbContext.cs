@@ -12,6 +12,7 @@ using Marketplace.Domain.Sellers;
 using Marketplace.Domain.Shipping;
 using Marketplace.Domain.Identity;
 using Marketplace.Domain.Pricing;
+using Marketplace.Domain.Notifications;
 
 namespace Marketplace.Infrastructure.Persistence;
 
@@ -64,6 +65,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<CouponProduct> CouponProducts => Set<CouponProduct>();
     public DbSet<CouponCategory> CouponCategories => Set<CouponCategory>();
     public DbSet<CouponUsage> CouponUsages => Set<CouponUsage>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -285,6 +287,8 @@ public sealed class MarketplaceDbContext : DbContext
             e.HasIndex(x=>new { x.CouponId,x.CustomerId }).IsUnique();
             e.HasIndex(x=>x.OrderId).IsUnique();
         });
+
+        b.Entity<Notification>(e => { e.ToTable("Notifications"); e.HasKey(x=>x.Id); e.Property(x=>x.Channel).HasConversion<byte>(); e.Property(x=>x.Status).HasConversion<byte>(); e.Property(x=>x.Title).HasMaxLength(250).IsRequired(); e.Property(x=>x.Body).HasMaxLength(4000).IsRequired(); e.Property(x=>x.ReferenceType).HasMaxLength(100); e.HasIndex(x=>new{x.UserId,x.Status,x.CreatedAtUtc}); });
 
         b.Entity<DeliveryCity>(e =>
         {
