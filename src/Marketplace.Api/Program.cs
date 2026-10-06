@@ -1,6 +1,6 @@
 using System.Text;
-using Marketplace.Application;
 using Marketplace.Infrastructure;
+using Marketplace.Infrastructure.Authorization;
 using Marketplace.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -14,6 +14,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>()
             ?? throw new InvalidOperationException("Jwt configuration is missing.");
+
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -27,6 +28,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier
         };
     });
+
 builder.Services.AddAuthorization();
 builder.Services.AddMarketplaceApplication();
 builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
@@ -40,6 +42,13 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var synchronizer = scope.ServiceProvider.GetRequiredService<AuthorizationCatalogSynchronizer>();
+    await synchronizer.SynchronizeAsync(typeof(Program).Assembly);
+}
+
 app.MapControllers();
 app.MapHealthChecks("/health");
 
