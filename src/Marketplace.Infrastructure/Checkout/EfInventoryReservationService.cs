@@ -78,6 +78,44 @@ public sealed class EfInventoryReservationService(
 
         await db.SaveChangesAsync(cancellationToken);
     }
+    public async Task ReleaseAsync(long orderId, bool expired, CancellationToken cancellationToken = default)
+    {
+        var reservations = await db.InventoryReservations
+            .Where(x => x.OrderId == orderId && x.Status == InventoryReservationStatus.Reserved)
+            .OrderBy(x => x.ProductVariantId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var reservation in reservations)
+        {
+            var affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE dbo.ProductVariants
+                SET ReservedQuantity = ReservedQuantity - {reservation.Quantity}
+                WHERE Id = {reservation.ProductVariantId}
+                  AND ReservedQuantity >= {reservation.Quantity}
+                """, cancellationToken);
+
+            if (affected != 1)
+                throw new InvalidOperationException($"Inventory release failed for variant {reservation.ProductVariantId}.");
+
+            if (expired) reservation.Expire();
+            else reservation.Release();
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task ExtendForPaidOrderAsync(long orderId, DateTime expiresAtUtc, CancellationToken cancellationToken = default)
+    {
+        if (expiresAtUtc <= clock.UtcNow)
+            throw new ArgumentOutOfRangeException(nameof(expiresAtUtc));
+
+        await db.InventoryReservations
+            .Where(x => x.OrderId == orderId && x.Status == InventoryReservationStatus.Reserved)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(x => x.ExpiresAtUtc, expiresAtUtc),
+                cancellationToken);
+    }
+
     public async Task ApplyRefundAsync(
         long orderId,
         IReadOnlyList<InventoryRefundRequest> items,
