@@ -17,6 +17,7 @@ using Marketplace.Infrastructure.Payments;
 using Marketplace.Infrastructure.Persistence;
 using Marketplace.Infrastructure.Refunds;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -34,7 +35,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, InfrastructureUnitOfWork>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddHttpContextAccessor();
-        services.AddScoped<ICurrentUser, HttpCurrentUser>();
+        services.AddScoped<ICurrentUser, Marketplace.Infrastructure.Identity.HttpCurrentUser>();
         services.AddSingleton<IIdGenerator, MonotonicIdGenerator>();
 
         services.AddScoped<IExchangeRateProvider, SqlExchangeRateProvider>();
