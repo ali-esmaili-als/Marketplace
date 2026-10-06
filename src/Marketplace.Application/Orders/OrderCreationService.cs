@@ -22,17 +22,18 @@ public sealed class OrderCreationService
     private readonly IUnitOfWork _uow;
     private readonly IIdGenerator _ids;
     private readonly IPaymentGatewayFactory _gatewayFactory;
+    private readonly IShippingRepository _shipping;
 
     public OrderCreationService(
         ICartRepository carts, ICatalogRepository catalog, IOrderRepository orders,
         IPaymentRepository payments, ILifecycleRepository life, IUnitOfWork uow,
-        IIdGenerator ids, IPaymentGatewayFactory gatewayFactory)
+        IIdGenerator ids, IPaymentGatewayFactory gatewayFactory, IShippingRepository shipping)
     {
         _carts=carts; _catalog=catalog; _orders=orders; _payments=payments;
-        _life=life; _uow=uow; _ids=ids; _gatewayFactory=gatewayFactory;
+        _life=life; _uow=uow; _ids=ids; _gatewayFactory=gatewayFactory; _shipping=shipping;
     }
 
-    public async Task<CheckoutResult> CheckoutAsync(long customerId,Marketplace.Domain.Payments.PaymentProviderCode provider,CancellationToken ct=default)
+    public async Task<CheckoutResult> CheckoutAsync(long customerId,Marketplace.Domain.Payments.PaymentProviderCode provider,long destinationCityId,CancellationToken ct=default)
     {
         long orderId=0, paymentId=0, total=0;
 
@@ -45,6 +46,13 @@ public sealed class OrderCreationService
             var store=await _catalog.GetStoreAsync(cart.StoreId,token)??throw new DomainException("Store not found.");
             if(store.SellerId!=cart.SellerId || store.Status!=StoreStatus.Active)
                 throw new DomainException("Store is not available.");
+
+            var destinationCity = await _shipping.GetCityAsync(destinationCityId, token)
+                ?? throw new DomainException("Destination city was not found.");
+            if (!destinationCity.IsActive)
+                throw new DomainException("Destination city is not active.");
+            if (!await _shipping.StoreShipsToCityAsync(store.Id, destinationCity.Id, token))
+                throw new DomainException($"This store does not ship to {destinationCity.Name}.");
 
             var priced = new List<(CartItem Item, CheckoutLineData Data, long Unit, long Warranty, long Line)>();
             foreach(var item in items)
