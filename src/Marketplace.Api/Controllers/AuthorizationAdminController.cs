@@ -41,6 +41,13 @@ public sealed class AuthorizationAdminController(
     }
 
     [ActionAccess(UserTypeId.Admin)]
+    [HttpGet("users/{userId:long}/rules")]
+    public async Task<ActionResult<UserAuthorizationRulesDto>> GetUserRules(
+        long userId,
+        CancellationToken ct)
+        => Ok(await service.GetUserRulesAsync(userId, ct));
+
+    [ActionAccess(UserTypeId.Admin)]
     [HttpPost("users/{userId:long}/rules")]
     public async Task<IActionResult> AssignRule(
         long userId,
