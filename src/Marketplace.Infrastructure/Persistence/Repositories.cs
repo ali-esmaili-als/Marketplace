@@ -11,6 +11,7 @@ using Marketplace.Domain.Payments;
 using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Sellers;
 using Marketplace.Domain.Shipping;
+using Marketplace.Domain.Pricing;
 
 namespace Marketplace.Infrastructure.Persistence;
 
@@ -175,4 +176,5 @@ public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRep
     public void AddOrderItem(OrderItem item)=>db.OrderItems.Add(item);
     public void AddInventoryReservation(InventoryReservation reservation)=>db.InventoryReservations.Add(reservation);
     public void AddCommission(Commission commission)=>db.Commissions.Add(commission);
+    public void AddCouponUsage(CouponUsage usage)=>db.CouponUsages.Add(usage);
 }
