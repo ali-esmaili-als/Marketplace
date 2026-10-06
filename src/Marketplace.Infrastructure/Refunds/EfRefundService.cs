@@ -1,5 +1,6 @@
 using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Finance.Ports;
+using Marketplace.Application.Checkout.Ports;
 using Marketplace.Application.Refunds.Ports;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Refunds;
@@ -10,7 +11,7 @@ namespace Marketplace.Infrastructure.Refunds;
 
 public sealed class EfRefundService(
     MarketplaceDbContext db,
-    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance) : IRefundService
+    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance, IInventoryReservationService inventory) : IRefundService
 {
     public async Task<long> CreateAsync(
         long orderId, long paymentId, long amountIRR, string? reason,
@@ -56,6 +57,14 @@ public sealed class EfRefundService(
 
                 if (line.Quantity <= 0 || line.Quantity > orderItem.Quantity)
                     throw new InvalidOperationException("Invalid refund quantity.");
+
+                var previouslyRefundedQuantity = await db.RefundItems
+                    .Where(x => x.OrderItemId == orderItem.Id &&
+                                x.Refund.Status == RefundStatus.Completed)
+                    .SumAsync(x => (int?)x.Quantity, cancellationToken) ?? 0;
+
+                if (previouslyRefundedQuantity + line.Quantity > orderItem.Quantity)
+                    throw new InvalidOperationException("Refund quantity exceeds the remaining refundable quantity.");
 
                 var amount = checked((long)Math.Round(
                     (decimal)orderItem.FinalLineTotalIRR * line.Quantity / orderItem.Quantity,
@@ -113,6 +122,14 @@ public sealed class EfRefundService(
                         $"REFUND:{refund.Id}:LIABILITY",
                         cancellationToken);
             }
+
+            await inventory.ApplyRefundAsync(
+                orderId,
+                refund.Items.Select(x => new InventoryRefundRequest(
+                    orderItems[x.OrderItemId].ProductVariantId,
+                    x.Quantity,
+                    x.InventoryDisposition)).ToArray(),
+                cancellationToken);
 
             if (completedRefund + amountIRR == payment.AmountIRR)
                 order.MarkRefunded();
