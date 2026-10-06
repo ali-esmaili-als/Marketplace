@@ -31,7 +31,7 @@ public sealed class PricingService
                 campaignDiscount=campaign.DiscountType==DiscountType.Percentage
                     ? checked((long)Math.Floor(merchandiseLine*campaign.DiscountValue/100m))
                     : Math.Min(merchandiseLine,checked((long)campaign.DiscountValue));
-                if(campaignDiscount>0) firstCampaign ??= campaign;
+                firstCampaign ??= campaign;
             }
             var finalMerchandise=merchandiseLine-campaignDiscount;
             var finalLine=checked(finalMerchandise+checked(warranty*x.Item.Quantity));
