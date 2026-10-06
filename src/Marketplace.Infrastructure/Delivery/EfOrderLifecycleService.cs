@@ -1,6 +1,7 @@
 using Marketplace.Application.Delivery.Ports;
 using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Checkout.Ports;
+using Marketplace.Application.Finance.Ports;
 using Marketplace.Domain.Delivery;
 using Marketplace.Domain.Identity;
 using Marketplace.Infrastructure.Persistence;
@@ -8,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Marketplace.Infrastructure.Delivery;
 
-public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUser currentUser, IInventoryReservationService inventory, IClock clock, IIdGenerator ids) : IOrderLifecycleService
+public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUser currentUser, IInventoryReservationService inventory, ISellerBalanceService sellerBalance, IClock clock, IIdGenerator ids) : IOrderLifecycleService
 {
     public async Task StartPreparingAsync(long orderId, CancellationToken cancellationToken = default)
     {
@@ -32,6 +33,53 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
 
         await db.SaveChangesAsync(cancellationToken);
         return new DeliveryCodeResult(orderId, rawCode, expiresAtUtc);
+    }
+
+    public async Task ConfirmAsync(long orderId, string code, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+            throw new ArgumentException("Delivery code is required.", nameof(code));
+
+        var order = await db.Orders.SingleAsync(x => x.Id == orderId, cancellationToken);
+        if (!currentUser.IsAuthenticated)
+            throw new UnauthorizedAccessException("Authentication is required.");
+        if (order.CustomerId != currentUser.UserId && !await IsAdminAsync(cancellationToken))
+            throw new UnauthorizedAccessException("Only the customer or admin can confirm delivery.");
+
+        await using var tx = await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+
+        try
+        {
+            var deliveryCode = await db.DeliveryCodes.SingleAsync(
+                x => x.OrderId == orderId, cancellationToken);
+
+            if (!deliveryCode.Matches(code))
+                throw new InvalidOperationException("Invalid or expired delivery code.");
+
+            order.MarkDelivered();
+            deliveryCode.MarkUsed();
+
+            await inventory.ConsumeAsync(orderId, cancellationToken);
+
+            var commission = await db.Commissions.SingleAsync(
+                x => x.OrderId == orderId, cancellationToken);
+
+            await sellerBalance.ReleasePendingAsync(
+                commission.SellerId,
+                orderId,
+                commission.SellerAmountIRR,
+                $"DELIVERY:{orderId}",
+                cancellationToken);
+
+            await db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task ExpireAsync(long orderId, CancellationToken cancellationToken = default)
