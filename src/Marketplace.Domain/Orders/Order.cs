@@ -8,6 +8,10 @@ public sealed class Order : AggregateRoot<long>
     public long CustomerId { get; private set; }
     public long SellerId { get; private set; }
     public long StoreId { get; private set; }
+    public long SubtotalAmountIRR { get; private set; }
+    public long CampaignDiscountIRR { get; private set; }
+    public long CouponDiscountIRR { get; private set; }
+    public string? CouponCodeSnapshot { get; private set; }
     public long TotalAmountIRR { get; private set; }
     public long SellerAmountIRR { get; private set; }
     public long? DestinationCityId { get; private set; }
@@ -20,21 +24,22 @@ public sealed class Order : AggregateRoot<long>
     public DateTime? DeliveryExpiresAtUtc { get; private set; }
     public DateTime? ComplaintExpiresAtUtc { get; private set; }
 
-    public static Order Create(long id,long customerId,long sellerId,long storeId,long totalAmountIrr)
+    public static Order Create(long id,long customerId,long sellerId,long storeId,long subtotalAmountIrr,long totalAmountIrr)
     {
-        if(id<=0||customerId<=0||sellerId<=0||storeId<=0||totalAmountIrr<=0) throw new DomainException("Invalid order.");
-        return new Order { Id=id,CustomerId=customerId,SellerId=sellerId,StoreId=storeId,TotalAmountIRR=totalAmountIrr,
-            SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
+        if(id<=0||customerId<=0||sellerId<=0||storeId<=0||subtotalAmountIrr<=0||totalAmountIrr<=0||totalAmountIrr>subtotalAmountIrr)
+            throw new DomainException("Invalid order.");
+        return new Order { Id=id,CustomerId=customerId,SellerId=sellerId,StoreId=storeId,SubtotalAmountIRR=subtotalAmountIrr,TotalAmountIRR=totalAmountIrr,SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
     }
-    public void SetShippingDestination(long cityId, string cityName, string provinceName)
+    public void SetDiscounts(long campaignDiscountIrr,long couponDiscountIrr,string? couponCode)
     {
-        if (cityId <= 0 || string.IsNullOrWhiteSpace(cityName) || string.IsNullOrWhiteSpace(provinceName))
-            throw new DomainException("Invalid shipping destination.");
-        DestinationCityId = cityId;
-        DestinationCityNameSnapshot = cityName.Trim();
-        DestinationProvinceNameSnapshot = provinceName.Trim();
+        if(campaignDiscountIrr<0||couponDiscountIrr<0||campaignDiscountIrr+couponDiscountIrr>SubtotalAmountIRR)
+            throw new DomainException("Invalid order discounts.");
+        if(campaignDiscountIrr>0&&couponDiscountIrr>0) throw new DomainException("Campaign and coupon cannot be combined.");
+        if(SubtotalAmountIRR-campaignDiscountIrr-couponDiscountIrr!=TotalAmountIRR)
+            throw new DomainException("Order total does not match discounts.");
+        CampaignDiscountIRR=campaignDiscountIrr; CouponDiscountIRR=couponDiscountIrr; CouponCodeSnapshot=string.IsNullOrWhiteSpace(couponCode)?null:couponCode.Trim().ToUpperInvariant();
     }
-
+    public void SetShippingDestination(long cityId,string cityName,string provinceName){if(cityId<=0||string.IsNullOrWhiteSpace(cityName)||string.IsNullOrWhiteSpace(provinceName))throw new DomainException("Invalid shipping destination.");DestinationCityId=cityId;DestinationCityNameSnapshot=cityName.Trim();DestinationProvinceNameSnapshot=provinceName.Trim();}
     public void SetSellerAmount(long amount){if(amount<0||amount>TotalAmountIRR)throw new DomainException("Invalid seller amount.");SellerAmountIRR=amount;}
     public void MarkPaid(DateTime? now=null){Require(OrderStatus.PendingPayment);PaidAtUtc=now??DateTime.UtcNow;Status=OrderStatus.Paid;}
     public void StartPreparing(){Require(OrderStatus.Paid);Status=OrderStatus.Preparing;}
