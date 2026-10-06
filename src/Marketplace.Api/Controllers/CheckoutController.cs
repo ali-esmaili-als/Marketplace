@@ -1,4 +1,5 @@
 using Marketplace.Application.Checkout.Commands;
+using Marketplace.Application.Authorization;
 using Marketplace.Application.Checkout.Results;
 using Marketplace.Application.Checkout.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +11,7 @@ namespace Marketplace.Api.Controllers;
 [Route("api/checkout")]
 public sealed class CheckoutController(CheckoutPayService checkout) : ControllerBase
 {
+    [RequirePermission(PermissionCodes.CheckoutPay)]
     [HttpPost("pay")]
     public async Task<ActionResult<CheckoutPayResult>> Pay(
         [FromBody] CheckoutPayCommand command,
