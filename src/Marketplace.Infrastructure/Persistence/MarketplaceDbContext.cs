@@ -67,7 +67,7 @@ public sealed class MarketplaceDbContext(DbContextOptions<MarketplaceDbContext> 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("dbo");
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(MarketplaceDbContext).Assembly);
+        MarketplaceModelConfiguration.Configure(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 }
