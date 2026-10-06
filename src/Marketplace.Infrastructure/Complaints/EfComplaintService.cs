@@ -2,9 +2,8 @@ using Marketplace.Application.Common.Abstractions;
 using Marketplace.Application.Complaints.Ports;
 using Marketplace.Domain.Complaints;
 using Marketplace.Application.Finance.Ports;
-using Marketplace.Application.Refunds.Ports;
-using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Finance;
+using Marketplace.Domain.Refunds;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,7 +11,7 @@ namespace Marketplace.Infrastructure.Complaints;
 
 public sealed class EfComplaintService(
     MarketplaceDbContext db,
-    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance, IRefundService refunds) : IComplaintService
+    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance) : IComplaintService
 {
     public async Task<long> OpenAsync(
         long orderId, long customerId, string subject, string description,
@@ -74,11 +73,41 @@ public sealed class EfComplaintService(
                 }
             }
 
-            await db.SaveChangesAsync(cancellationToken);
-
             if (complaint.Status == ComplaintStatus.ResolvedForCustomer)
-                await refunds.CreateComplaintCompensationAsync(complaint.Id, cancellationToken);
+            {
+                var payment = await db.Payments
+                    .Where(x => x.OrderId == complaint.OrderId)
+                    .OrderByDescending(x => x.PaidAtUtc)
+                    .FirstOrDefaultAsync(cancellationToken)
+                    ?? throw new InvalidOperationException("Successful payment not found.");
 
+                var hold = await db.SellerBalanceHolds.SingleOrDefaultAsync(
+                    x => x.OrderId == complaint.OrderId &&
+                         x.SellerId == complaint.SellerId &&
+                         x.Status == SellerBalanceHoldStatus.Active,
+                    cancellationToken);
+
+                if (hold is not null)
+                {
+                    var existingCompensation = await db.Refunds.SingleOrDefaultAsync(
+                        x => x.OrderId == complaint.OrderId &&
+                             x.PaymentId == payment.Id &&
+                             x.Reason == $"COMPLAINT:{complaint.Id}",
+                        cancellationToken);
+
+                    if (existingCompensation is null)
+                    {
+                        db.Refunds.Add(Refund.Create(
+                            ids.NewId(),
+                            complaint.OrderId,
+                            payment.Id,
+                            hold.AmountIRR,
+                            $"COMPLAINT:{complaint.Id}"));
+                    }
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
         }
         catch
