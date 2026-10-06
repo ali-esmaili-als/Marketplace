@@ -23,6 +23,9 @@ public sealed class PaymentRepository(MarketplaceDbContext db) : IPaymentReposit
 {
     public Task<Payment?> GetAsync(long id, CancellationToken ct=default) => db.Payments.SingleOrDefaultAsync(x=>x.Id==id,ct);
     public Task<Payment?> GetByOrderAsync(long orderId, CancellationToken ct=default) => db.Payments.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);
+    public Task<PaymentTransaction?> GetLatestTransactionAsync(long paymentId, CancellationToken ct=default)
+        => db.PaymentTransactions.Where(x=>x.PaymentId==paymentId).OrderByDescending(x=>x.Id).FirstOrDefaultAsync(ct);
+    public void AddTransaction(PaymentTransaction transaction) => db.PaymentTransactions.Add(transaction);
     public void Add(Payment payment) => db.Payments.Add(payment);
 }
 
