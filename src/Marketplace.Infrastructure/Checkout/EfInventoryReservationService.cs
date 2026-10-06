@@ -78,4 +78,54 @@ public sealed class EfInventoryReservationService(
 
         await db.SaveChangesAsync(cancellationToken);
     }
+    public async Task ApplyRefundAsync(
+        long orderId,
+        IReadOnlyList<InventoryRefundRequest> items,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var item in items.OrderBy(x => x.ProductVariantId))
+        {
+            var reservation = await db.InventoryReservations
+                .Where(x => x.OrderId == orderId && x.ProductVariantId == item.ProductVariantId)
+                .OrderByDescending(x => x.ReservedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Inventory reservation not found.");
+
+            if (item.Quantity <= 0 || item.Quantity > reservation.Quantity)
+                throw new InvalidOperationException("Invalid inventory refund quantity.");
+
+            int affected;
+            if (reservation.Status == InventoryReservationStatus.Reserved)
+            {
+                affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+                    UPDATE dbo.ProductVariants
+                    SET ReservedQuantity = ReservedQuantity - {item.Quantity}
+                    WHERE Id = {item.ProductVariantId}
+                      AND ReservedQuantity >= {item.Quantity}
+                    """, cancellationToken);
+            }
+            else if (reservation.Status == InventoryReservationStatus.Consumed &&
+                     item.Disposition == Marketplace.Domain.Refunds.RefundInventoryDisposition.ReturnToStock)
+            {
+                affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+                    UPDATE dbo.ProductVariants
+                    SET StockQuantity = StockQuantity + {item.Quantity}
+                    WHERE Id = {item.ProductVariantId}
+                    """, cancellationToken);
+            }
+            else
+            {
+                affected = 1;
+            }
+
+            if (affected != 1)
+                throw new InvalidOperationException("Inventory refund failed.");
+
+            if (item.Quantity == reservation.Quantity)
+                reservation.Release();
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
 }
