@@ -13,14 +13,18 @@ public sealed class SettlementService
     private readonly IUnitOfWork _uow;
     private readonly IIdGenerator _ids;
     private readonly ISellerPayoutGateway _payout;
+    private readonly ISellerManagementRepository _sellers;
 
-    public SettlementService(ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,ISellerPayoutGateway payout)
+    public SettlementService(ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,ISellerPayoutGateway payout,ISellerManagementRepository sellers)
     {
-        _life=life; _uow=uow; _ids=ids; _payout=payout;
+        _life=life; _uow=uow; _ids=ids; _payout=payout; _sellers=sellers;
     }
 
-    public Task<SettlementResult> RequestAsync(long sellerId,long bankAccountId,long amountIRR,CancellationToken ct=default)
-        => _uow.ExecuteInTransactionAsync(async token =>
+    public async Task<SettlementResult> RequestAsync(long userId,long bankAccountId,long amountIRR,CancellationToken ct=default)
+    {
+        var seller = await _sellers.GetSellerByUserIdAsync(userId, ct) ?? throw new DomainException("Seller profile not found.");
+        if (seller.Status != SellerStatus.Active) throw new DomainException("Seller is not active.");
+        return await _uow.ExecuteInTransactionAsync(async token =>
         {
             var balance=await _life.GetSellerBalanceAsync(sellerId,token)??throw new DomainException("Seller balance not found.");
             var account=await _life.GetSellerBankAccountAsync(sellerId,bankAccountId,token)??throw new DomainException("Bank account not found.");
@@ -39,6 +43,7 @@ public sealed class SettlementService
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id,amountIRR,settlement.Status.ToString(),null);
         },ct);
+    }
 
     public async Task<SettlementResult> ProcessAsync(long settlementId,CancellationToken ct=default)
     {
