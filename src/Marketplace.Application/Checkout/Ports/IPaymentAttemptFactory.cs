@@ -1,0 +1,1 @@
+namespace Marketplace.Application.Checkout.Ports; public interface IPaymentAttemptFactory{Task<long> CreateAsync(PaymentAttemptRequest request,CancellationToken cancellationToken=default);} public sealed record PaymentAttemptRequest(long OrderId,long CustomerId,long AmountIRR,string CurrencyCode,decimal FxRateToIRR,string Gateway);
