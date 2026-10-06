@@ -30,6 +30,10 @@ app.MapPost("/api/payments/{paymentId:long}/verify",async(long paymentId,Payment
     return result.Paid ? Results.Ok(result) : Results.BadRequest(result);
 });
 
+app.MapPost("/api/orders/{orderId:long}/delivery/ready",async(long orderId,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
+    await service.MarkReadyForDeliveryAsync(orderId,ct);return Results.Ok();
+});
+
 app.MapPost("/api/orders/{orderId:long}/delivery/confirm",async(long orderId,DeliveryConfirmRequest request,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
     await service.MarkDeliveredAsync(orderId,request.Reference,request.DeliveredAtUtc,request.ComplaintExpiresAtUtc,ct);
     return Results.Ok();
