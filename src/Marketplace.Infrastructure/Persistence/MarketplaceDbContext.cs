@@ -80,9 +80,8 @@ public sealed class MarketplaceDbContext : DbContext
             e.ToTable("Categories"); e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Slug).HasMaxLength(250).IsRequired();
-            e.Property(x => x.Path).HasMaxLength(450).IsRequired();
+            e.Property(x => x.Path).HasColumnType("varchar(850)").IsRequired();
             e.HasIndex(x => new { x.ParentCategoryId, x.Slug }).IsUnique();
-            e.HasIndex(x => x.Path);
         });
         b.Entity<Product>(e =>
         {
@@ -98,9 +97,10 @@ public sealed class MarketplaceDbContext : DbContext
         {
             e.ToTable("ProductVariants"); e.HasKey(x => x.Id);
             e.Property(x => x.SKU).HasMaxLength(150).IsRequired();
-            e.Property(x => x.VariantKey).HasMaxLength(450).IsRequired();
+            e.Property(x => x.VariantKey).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.VariantKeyHash).HasColumnType("binary(32)").ValueGeneratedOnAddOrUpdate();
             e.HasIndex(x => new { x.ProductId, x.SKU }).IsUnique();
-            e.HasIndex(x => new { x.ProductId, x.VariantKey }).IsUnique();
+            e.HasIndex(x => new { x.ProductId, x.VariantKeyHash }).IsUnique();
         });
         b.Entity<ProductAttribute>(e =>
         {
