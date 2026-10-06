@@ -52,22 +52,9 @@ public sealed class PaymentVerificationService
             return new PaymentVerificationResult(false,result.Reference,result.Error);
         }
 
-        await _uow.ExecuteInTransactionAsync(async token =>
-        {
-            var current=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
-            if(current.Status==PaymentStatus.Succeeded) return 0;
-            if(!string.Equals(current.Authority,authority,StringComparison.Ordinal))
-                throw new DomainException("Payment authority does not match.");
-
-            current.Succeed(result.Reference ?? authority);
-            var transaction=await _payments.GetLatestTransactionAsync(paymentId,token);
-            transaction?.Succeed(result.Reference ?? authority);
-            await _uow.SaveChangesAsync(token);
-            return 0;
-        },ct);
-
-        // Financial lifecycle runs in its own transaction and is idempotent for a succeeded payment.
+        // Payment status and seller financial movement are finalized together by the lifecycle service.
         await _lifecycle.PaymentSucceededAsync(payment.OrderId,result.Reference ?? authority,ct);
+
         return new PaymentVerificationResult(true,result.Reference ?? authority,null);
     }
 }
