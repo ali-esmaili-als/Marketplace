@@ -196,6 +196,21 @@ app.MapPost("/api/orders/{orderId:long}/refund",async(long orderId,RefundRequest
     await service.ProcessAsync(orderId,request.Reason,ct);return Results.Ok();
 }).RequirePermission("Order.Create");
 
+
+app.MapPost("/api/sellers/me/campaigns",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Pricing.CreateCampaignRequest request,Marketplace.Application.Pricing.PricingManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
+    var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
+    var variants=request.VariantIds??Array.Empty<long>();
+    var targets=request.ProductIds.Select((p,i)=>(p, i<variants.Length && variants[i]>0 ? (long?)variants[i] : null)).ToArray();
+    var id=await service.CreateCampaignAsync(seller.Id,request.StoreId,request.Name,request.DiscountType,request.DiscountValue,request.StartsAtUtc,request.EndsAtUtc,targets,ct);
+    return Results.Ok(new { id });
+}).RequirePermission("Seller.Campaign.Manage");
+
+app.MapPost("/api/sellers/me/coupons",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Pricing.CreateCouponRequest request,Marketplace.Application.Pricing.PricingManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
+    var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
+    var id=await service.CreateCouponAsync(seller.Id,request.StoreId,request.Code,request.DiscountType,request.DiscountValue,request.MaxDiscountAmountIRR,request.MinimumPurchaseIRR,request.MaxUses,request.NewCustomerOnly,request.StartsAtUtc,request.EndsAtUtc,request.ProductIds??Array.Empty<long>(),request.CategoryIds??Array.Empty<long>(),ct);
+    return Results.Ok(new { id });
+}).RequirePermission("Seller.Coupon.Manage");
+
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
