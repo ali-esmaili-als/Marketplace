@@ -29,7 +29,7 @@ public abstract class BankGatewayAdapterBase : IPaymentGateway
     public virtual Task<bool> RefundAsync(string? paymentReference,long amountIRR,CancellationToken ct=default)
         => throw new DomainException($"{ProviderName} gateway refund protocol adapter is not configured.");
 
-    protected static BankGatewayConfiguration Parse(string json)
+    public static BankGatewayConfiguration Parse(string json)
         => JsonSerializer.Deserialize<BankGatewayConfiguration>(json) ?? throw new DomainException("Invalid bank gateway configuration.");
 }
 
