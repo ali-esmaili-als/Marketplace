@@ -6,131 +6,67 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Marketplace.Infrastructure.Finance;
 
-public sealed class EfSellerBalanceService(
-    MarketplaceDbContext db,
-    IIdGenerator ids) : ISellerBalanceService
+public sealed class EfSellerBalanceService(MarketplaceDbContext db, IIdGenerator ids) : ISellerBalanceService
 {
-    public Task AddPendingAsync(
-        long sellerId,
-        long orderId,
-        long amountIRR,
-        string reference,
-        CancellationToken cancellationToken = default)
-        => MutateAsync(
-            sellerId,
-            orderId,
-            amountIRR,
-            BalanceTransactionType.Sale,
-            reference,
-            (balance, amount) => balance.AddPending(amount),
-            cancellationToken);
+    public Task AddPendingAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
+        => Change(sellerId,orderId,amount,BalanceTransactionType.Sale,BalanceBucket.Pending,reference,
+            b=>b.AddPending(amount),()=>GetPending());
 
-    public Task ReleasePendingAsync(
-        long sellerId,
-        long orderId,
-        long amountIRR,
-        string reference,
-        CancellationToken cancellationToken = default)
-        => MutateAsync(
-            sellerId,
-            orderId,
-            amountIRR,
-            BalanceTransactionType.ReleasePending,
-            reference,
-            (balance, amount) => balance.ReleasePending(amount),
-            cancellationToken);
+    public Task ReleasePendingAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
+        => Transfer(sellerId,orderId,amount,BalanceTransactionType.ReleasePending,BalanceBucket.Pending,BalanceBucket.Available,reference,b=>b.ReleasePending(amount));
 
-    public Task BlockAsync(
-        long sellerId,
-        long orderId,
-        long amountIRR,
-        string reference,
-        CancellationToken cancellationToken = default)
-        => MutateAsync(
-            sellerId,
-            orderId,
-            amountIRR,
-            BalanceTransactionType.Adjustment,
-            reference,
-            (balance, amount) => balance.Block(amount),
-            cancellationToken);
+    public Task BlockAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
+        => Transfer(sellerId,orderId,amount,BalanceTransactionType.Adjustment,BalanceBucket.Available,BalanceBucket.Blocked,reference,b=>b.Block(amount));
 
-    public Task ReleaseBlockAsync(
-        long sellerId,
-        long orderId,
-        long amountIRR,
-        string reference,
-        CancellationToken cancellationToken = default)
-        => MutateAsync(
-            sellerId,
-            orderId,
-            amountIRR,
-            BalanceTransactionType.Adjustment,
-            reference,
-            (balance, amount) => balance.ReleaseBlock(amount),
-            cancellationToken);
+    public Task ReleaseBlockAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
+        => Transfer(sellerId,orderId,amount,BalanceTransactionType.Adjustment,BalanceBucket.Blocked,BalanceBucket.Available,reference,b=>b.ReleaseBlock(amount));
 
-    public Task DebitAvailableAsync(
-        long sellerId,
-        long orderId,
-        long amountIRR,
-        BalanceTransactionType transactionType,
-        string reference,
-        CancellationToken cancellationToken = default)
-        => MutateAsync(
-            sellerId,
-            orderId,
-            amountIRR,
-            transactionType,
-            reference,
-            (balance, amount) => balance.RemoveAvailable(amount),
-            cancellationToken);
+    public Task DebitAvailableAsync(long sellerId,long orderId,long amount,BalanceTransactionType type,string reference,CancellationToken ct=default)
+        => Change(sellerId,orderId,amount,type,BalanceBucket.Available,reference,b=>b.RemoveAvailable(amount),()=>GetAvailable());
 
-    public Task AddLiabilityAsync(
-        long sellerId,
-        long orderId,
-        long amountIRR,
-        string reference,
-        CancellationToken cancellationToken = default)
-        => MutateAsync(
-            sellerId,
-            orderId,
-            amountIRR,
-            BalanceTransactionType.Adjustment,
-            reference,
-            (balance, amount) => balance.AddLiability(amount),
-            cancellationToken);
+    public Task AddLiabilityAsync(long sellerId,long orderId,long amount,string reference,CancellationToken ct=default)
+        => Change(sellerId,orderId,amount,BalanceTransactionType.Adjustment,BalanceBucket.Liability,reference,b=>b.AddLiability(amount),()=>GetLiability());
 
-    private async Task MutateAsync(
-        long sellerId,
-        long orderId,
-        long amountIRR,
-        BalanceTransactionType transactionType,
-        string reference,
-        Action<SellerBalance, long> mutation,
-        CancellationToken cancellationToken)
+    private async Task Change(long sellerId,long orderId,long amount,BalanceTransactionType type,BalanceBucket bucket,string reference,Action<SellerBalance> action,Func<long> beforeFactory)
     {
-        if (amountIRR <= 0)
-            throw new ArgumentOutOfRangeException(nameof(amountIRR));
-
-        var balance = await db.SellerBalances.SingleOrDefaultAsync(
-            x => x.SellerId == sellerId,
-            cancellationToken)
-            ?? throw new InvalidOperationException("Seller balance not found.");
-
-        var before = balance.AvailableIRR;
-        mutation(balance, amountIRR);
-        var after = balance.AvailableIRR;
-
-        db.BalanceTransactions.Add(BalanceTransaction.Create(
-            ids.NewId(),
-            sellerId,
-            orderId,
-            null,
-            transactionType,
-            amountIRR,
-            before,
-            after,
-            reference));
+        if(amount<=0) throw new ArgumentOutOfRangeException(nameof(amount));
+        var b=await Get(sellerId);
+        var before=beforeFactory();
+        action(b);
+        var after=bucket switch
+        {
+            BalanceBucket.Available=>b.AvailableIRR,
+            BalanceBucket.Pending=>b.PendingIRR,
+            BalanceBucket.Liability=>b.LiabilityIRR,
+            _=>throw new InvalidOperationException()
+        };
+        db.BalanceTransactions.Add(BalanceTransaction.Create(ids.NewId(),sellerId,orderId,null,type,bucket,amount,before,after,reference));
     }
+
+    private async Task Transfer(long sellerId,long orderId,long amount,BalanceTransactionType type,BalanceBucket from,BalanceBucket to,string reference,Action<SellerBalance> action)
+    {
+        if(amount<=0) throw new ArgumentOutOfRangeException(nameof(amount));
+        var b=await Get(sellerId);
+        var beforeFrom=Value(b,from); var beforeTo=Value(b,to);
+        action(b);
+        db.BalanceTransactions.Add(BalanceTransaction.Create(ids.NewId(),sellerId,orderId,null,type,from,amount,beforeFrom,Value(b,from),reference));
+        db.BalanceTransactions.Add(BalanceTransaction.Create(ids.NewId(),sellerId,orderId,null,type,to,amount,beforeTo,Value(b,to),reference));
+    }
+
+    private async Task<SellerBalance> Get(long sellerId)
+        => await db.SellerBalances.SingleOrDefaultAsync(x=>x.SellerId==sellerId)
+           ?? throw new InvalidOperationException("Seller balance not found.");
+
+    private long GetPending()=>0;
+    private long GetAvailable()=>0;
+    private long GetLiability()=>0;
+
+    private static long Value(SellerBalance b,BalanceBucket x)=>x switch
+    {
+        BalanceBucket.Available=>b.AvailableIRR,
+        BalanceBucket.Pending=>b.PendingIRR,
+        BalanceBucket.Blocked=>b.BlockedIRR,
+        BalanceBucket.Liability=>b.LiabilityIRR,
+        _=>throw new InvalidOperationException()
+    };
 }
