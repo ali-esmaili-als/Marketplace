@@ -36,7 +36,7 @@ public sealed class OrderCreationService
     {
         long orderId=0, paymentId=0, total=0;
 
-        await _uow.ExecuteInTransactionAsync(async token =>
+        await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             var cart=await _carts.GetByCustomerAsync(customerId,token)??throw new DomainException("Cart is empty.");
             var items=await _carts.GetItemsAsync(cart.Id,token);
