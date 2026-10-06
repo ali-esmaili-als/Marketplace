@@ -31,6 +31,9 @@ public sealed class OrderLifecycleService
             return 0;
 
         p.Succeed(reference);
+        var paymentTransaction=await _payments.GetLatestTransactionAsync(p.Id,token);
+        if(paymentTransaction is not null && paymentTransaction.Status==Marketplace.Domain.Payments.PaymentTransactionStatus.Initiated)
+            paymentTransaction.Succeed(reference);
         var hold=_domain.OnPaymentSucceeded(o,p,b,await _ids.NextAsync(token));
         _life.AddBalanceHold(hold);
 
