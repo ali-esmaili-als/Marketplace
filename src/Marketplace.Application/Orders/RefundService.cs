@@ -96,7 +96,7 @@ public sealed class RefundService
             order.MarkRefunded();
 
             _life.AddBalanceTransaction(BalanceTransaction.Create(
-                await _ids.NextAsync(token),order.SellerId,order.Id,refund.Id,
+                await _ids.NextAsync(token),order.SellerId,order.Id,null,
                 BalanceTransactionType.Refund,order.SellerAmountIRR,
                 Math.Max(beforeBlocked, beforePending)-order.SellerAmountIRR,
                 Math.Max(balance.BlockedIRR,balance.PendingIRR),"REFUND"));
