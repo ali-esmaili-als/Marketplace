@@ -4,14 +4,14 @@ using Marketplace.Domain.Common;
 namespace Marketplace.Application.Maintenance;
 public sealed class MaintenanceService
 {
- private readonly IMaintenanceRepository _repo; private readonly OrderLifecycleService _orders; private readonly IUnitOfWork _uow;
- public MaintenanceService(IMaintenanceRepository repo,OrderLifecycleService orders,IUnitOfWork uow){_repo=repo;_orders=orders;_uow=uow;}
+ private readonly IMaintenanceRepository _repo; private readonly OrderLifecycleService _orders; private readonly IUnitOfWork _uow; private readonly RefundService _refunds;
+ public MaintenanceService(IMaintenanceRepository repo,OrderLifecycleService orders,IUnitOfWork uow,RefundService refunds){_repo=repo;_orders=orders;_uow=uow;_refunds=refunds;}
  public async Task RunOnceAsync(CancellationToken ct=default)
  {
   var now=DateTime.UtcNow;
   foreach(var d in await _repo.GetExpiredDeliveriesAsync(now,ct))
   {
-   try{await _orders.ExpireDeliveryAsync(d.OrderId,now,ct);}catch(DomainException){}
+   try{await _orders.ExpireDeliveryAsync(d.OrderId,now,ct);await _refunds.ProcessAsync(d.OrderId,Marketplace.Domain.Refunds.RefundReason.DeliveryExpired,ct);}catch(DomainException){}
   }
   foreach(var r in await _repo.GetExpiredReservationsAsync(now,ct))
   {
