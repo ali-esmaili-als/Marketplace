@@ -61,7 +61,7 @@ public sealed class RefundService
         // The gateway call is intentionally outside the DB transaction.
         var paymentForGateway=await _payments.GetAsync(paymentId,ct)??throw new DomainException("Payment not found.");
         if(!Enum.TryParse<Marketplace.Domain.Payments.PaymentProviderCode>(paymentForGateway.Provider,true,out var provider)) throw new DomainException("Invalid payment provider.");
-        var gateway=await _gatewayFactory.GetAsync(provider,ct);
+        var gateway=await _gatewayFactory.GetForExistingPaymentAsync(provider,ct);
         var gatewayOk=await gateway.RefundAsync(paymentReference,amount,ct);
 
         // Phase 2: finalize exactly once in a short DB transaction.
