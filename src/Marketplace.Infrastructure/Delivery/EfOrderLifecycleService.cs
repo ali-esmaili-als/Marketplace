@@ -115,18 +115,27 @@ public sealed class EfOrderLifecycleService(MarketplaceDbContext db, ICurrentUse
         order.Complete();
         await db.SaveChangesAsync(cancellationToken);
     }
+    private async Task EnsureSellerOrAdminAsync(long orderId, CancellationToken cancellationToken)
+    {
+        if (!currentUser.IsAuthenticated)
+            throw new UnauthorizedAccessException("Authentication is required.");
+        if (await IsAdminAsync(cancellationToken))
+            return;
+
+        var storeId = await db.Orders.Where(x => x.Id == orderId)
+            .Select(x => x.StoreId)
+            .SingleAsync(cancellationToken);
+        var ownerUserId = await db.Stores.Where(x => x.Id == storeId)
+            .Select(x => x.Seller.UserId)
+            .SingleAsync(cancellationToken);
+
+        if (ownerUserId != currentUser.UserId)
+            throw new UnauthorizedAccessException("Only the store seller or admin can change the order.");
+    }
+
     private Task<bool> IsAdminAsync(CancellationToken cancellationToken)
         => db.UserUserTypes.AnyAsync(
             x => x.UserId == currentUser.UserId &&
-                 x.UserTypeId == Marketplace.Domain.Identity.UserTypeId.Admin,
+                 x.UserTypeId == UserTypeId.Admin,
             cancellationToken);
 }
-    private async Task EnsureSellerOrAdminAsync(long orderId, CancellationToken cancellationToken)
-    {
-        if (!currentUser.IsAuthenticated) throw new UnauthorizedAccessException("Authentication is required.");
-        if (await IsAdminAsync(cancellationToken)) return;
-        var sellerId = await db.Stores.Where(x => x.Id == db.Orders.Where(o => o.Id == orderId).Select(o => o.StoreId).Single()).Select(x => x.SellerId).SingleAsync(cancellationToken);
-        var ownerUserId = await db.Sellers.Where(x => x.Id == sellerId).Select(x => x.UserId).SingleAsync(cancellationToken);
-        if (ownerUserId != currentUser.UserId) throw new UnauthorizedAccessException("Only the store seller or admin can change the order.");
-    }
-    private Task<bool> IsAdminAsync(CancellationToken cancellationToken) => db.UserUserTypes.AnyAsync(x => x.UserId == currentUser.UserId && x.UserTypeId == UserTypeId.Admin, cancellationToken);
