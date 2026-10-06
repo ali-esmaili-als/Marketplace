@@ -1,4 +1,5 @@
 using Marketplace.Application.Abstractions;
+using CartEntity = Marketplace.Domain.Cart.Cart;
 using Marketplace.Domain.Cart;
 using Marketplace.Domain.Common;
 
@@ -35,7 +36,7 @@ public sealed class CartService
             var cart = await _carts.GetByCustomerAsync(customerId, token);
             if (cart is null)
             {
-                cart = Cart.Create(await _ids.NextAsync(token), customerId, sellerId, storeId);
+                cart = CartEntity.Create(await _ids.NextAsync(token), customerId, sellerId, storeId);
                 _carts.Add(cart);
             }
             else if (cart.SellerId != sellerId || cart.StoreId != storeId)
