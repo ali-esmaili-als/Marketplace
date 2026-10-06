@@ -1,3 +1,4 @@
+using Marketplace.Infrastructure.Authorization;
 using Marketplace.Application.Authorization;
 using Marketplace.Application.Delivery.Ports;
 using Marketplace.Domain.Identity;
