@@ -1,5 +1,7 @@
 using Marketplace.Application.Common.Abstractions;
 using Marketplace.Infrastructure.Persistence;
+using Marketplace.Application.Checkout.Ports;
+using Marketplace.Infrastructure.Checkout;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +17,11 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, InfrastructureUnitOfWork>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IIdGenerator, MonotonicIdGenerator>();
+        services.AddScoped<ICheckoutReader, EfCheckoutReader>();
+        services.AddScoped<IOrderWriter, EfOrderWriter>();
+        services.AddScoped<IPaymentAttemptFactory, EfPaymentAttemptFactory>();
+        services.AddScoped<IInventoryReservationService, EfInventoryReservationService>();
+        services.AddScoped<ICouponReservationService, EfCouponReservationService>();
         return services;
     }
 
