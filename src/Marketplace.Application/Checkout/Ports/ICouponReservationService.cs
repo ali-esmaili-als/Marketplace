@@ -1,0 +1,1 @@
+namespace Marketplace.Application.Checkout.Ports; public interface ICouponReservationService{Task<CouponReservationResult?> ReserveAsync(long customerId,long cartId,long orderId,string couponCode,long eligibleAmountIRR,CancellationToken cancellationToken=default);} public sealed record CouponReservationResult(long CouponId,long DiscountIRR);
