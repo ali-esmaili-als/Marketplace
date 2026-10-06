@@ -46,6 +46,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<BalanceTransaction> BalanceTransactions => Set<BalanceTransaction>();
     public DbSet<Commission> Commissions => Set<Commission>();
     public DbSet<CommissionReversal> CommissionReversals => Set<CommissionReversal>();
+    public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<PaymentProviderSetting> PaymentProviderSettings => Set<PaymentProviderSetting>();
 
     protected override void OnModelCreating(ModelBuilder b)
@@ -165,6 +166,18 @@ public sealed class MarketplaceDbContext : DbContext
         b.Entity<BalanceTransaction>(e => { e.ToTable("BalanceTransactions"); e.HasKey(x => x.Id); e.Property(x => x.Type).HasConversion<byte>(); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.CreatedAtUtc }); e.HasIndex(x => new { x.OrderId, x.Type }); });
         b.Entity<Commission>(e => { e.ToTable("Commissions"); e.HasKey(x => x.Id); e.Property(x => x.CommissionRate).HasPrecision(9,4); e.HasIndex(x => x.OrderId).IsUnique(); });
         b.Entity<CommissionReversal>(e => { e.ToTable("CommissionReversals"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.CommissionId, x.RefundId }).IsUnique(); });
+        b.Entity<Settlement>(e =>
+        {
+            e.ToTable("Settlements"); e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.BankNameSnapshot).HasMaxLength(150).IsRequired();
+            e.Property(x => x.IbanSnapshot).HasMaxLength(34).IsRequired();
+            e.Property(x => x.AccountHolderNameSnapshot).HasMaxLength(250).IsRequired();
+            e.Property(x => x.Reference).HasMaxLength(200);
+            e.Property(x => x.FailureReason).HasMaxLength(1000);
+            e.HasIndex(x => new { x.SellerId, x.Status });
+            e.HasIndex(x => new { x.Status, x.RequestedAtUtc });
+        });
         b.Entity<PaymentProviderSetting>(e =>
         {
             e.ToTable("PaymentProviderSettings"); e.HasKey(x => x.Id);
