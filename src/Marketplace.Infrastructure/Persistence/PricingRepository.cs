@@ -27,8 +27,8 @@ public sealed class PricingRepository(MarketplaceDbContext db) : IPricingReposit
     {
         var path=await db.Categories.Where(x=>x.Id==categoryId).Select(x=>x.Path).SingleOrDefaultAsync(ct);
         if(path is null) return false;
-        return await db.CouponCategories.Join(db.Categories,x=>x.CategoryId,c=>c.Id,(x,c)=>new{x,c.Path})
-            .AnyAsync(x=>x.x.CouponId==couponId&&(path==x.Path||path.StartsWith(x.Path+"-")),ct);
+        return await db.CouponCategories.Join(db.Categories,x=>x.CategoryId,c=>c.Id,(scope,category)=>new { CouponId=scope.CouponId, Path=category.Path })
+            .AnyAsync(x=>x.CouponId==couponId&&(path==x.Path||path.StartsWith(x.Path+"-")),ct);
     }
     public Task<bool> CouponHasProductScopeAsync(long couponId,long productId,CancellationToken ct=default)
         => db.CouponProducts.AnyAsync(x=>x.CouponId==couponId&&x.ProductId==productId,ct);
