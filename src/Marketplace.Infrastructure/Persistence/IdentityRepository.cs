@@ -17,10 +17,17 @@ public sealed class IdentityRepository(MarketplaceDbContext db) : IIdentityRepos
             .Join(db.Rules.Where(x => x.IsActive), x => x.RuleId, x => x.Id, (_, rule) => rule)
             .OrderBy(x => x.Code).ToListAsync(ct);
 
+    public Task<Rule?> GetRuleByCodeAsync(string code, CancellationToken ct = default)
+        => db.Rules.SingleOrDefaultAsync(x => x.Code == code && x.IsActive, ct);
+
+    public Task<Role?> GetRoleByNameAsync(string name, CancellationToken ct = default)
+        => db.Roles.SingleOrDefaultAsync(x => x.Name == name && x.IsActive, ct);
+
     public Task<bool> HasPermissionAsync(long userId, string ruleCode, CancellationToken ct = default)
         => db.UserRules.AnyAsync(x => x.UserId == userId && x.Rule.IsActive && x.Rule.Code == ruleCode, ct);
 
     public void AddUser(User user) => db.Users.Add(user);
     public void AddRule(Rule rule) => db.Rules.Add(rule);
     public void AddUserRule(UserRule userRule) => db.UserRules.Add(userRule);
+    public void AddUserRoleAssignment(UserRoleAssignment assignment) => db.UserRoleAssignments.Add(assignment);
 }
