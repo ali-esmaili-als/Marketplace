@@ -87,6 +87,7 @@ public sealed class OrderCreationService
                 total, commissionRate, store.MinimumCommissionIRR);
 
             var order=Order.Create(orderId,customerId,store.SellerId,store.Id,total);
+            order.SetShippingDestination(destinationCity.Id,destinationCity.Name,destinationCity.ProvinceName);
             order.SetSellerAmount(commission.SellerAmountIRR);
             _orders.Add(order);
             _life.AddCommission(commission);
