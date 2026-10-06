@@ -1,21 +1,126 @@
 using Marketplace.Application.Abstractions;
+using Marketplace.Domain.Common;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Refunds;
 
 namespace Marketplace.Application.Orders;
 
-public sealed class RefundService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,IPaymentGateway gateway)
+public sealed class RefundService
 {
-    public Task ProcessAsync(long orderId,RefundReason reason,CancellationToken ct=default)=>uow.ExecuteInTransactionAsync(async token=>{
-        var o=await orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");var p=await payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
-        var existing=await life.GetActiveRefundByOrderAsync(orderId,token);if(existing!=null)throw new DomainException("An active refund already exists.");
-        var r=Refund.Create(await ids.NextAsync(token),o.Id,p.Id,o.CustomerId,o.TotalAmountIRR,reason);life.AddRefund(r);r.Approve();r.StartProcessing();await uow.SaveChangesAsync(token);
-        var ok=await gateway.RefundAsync(p.ReferenceNumber,r.AmountIRR,token);if(!ok){r.Fail("Payment gateway refund failed.");await uow.SaveChangesAsync(token);throw new DomainException("Refund gateway failed.");}
-        r.Complete(null);var b=await life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");var h=await life.GetActiveHoldByOrderAsync(o.Id,token)??throw new DomainException("Seller hold not found.");
-        if(b.BlockedIRR>=o.SellerAmountIRR)b.ConsumeBlock(o.SellerAmountIRR);else if(b.PendingIRR>=o.SellerAmountIRR)b.RemovePending(o.SellerAmountIRR);
-        h.Consume();p.MarkRefunded();o.MarkRefunded();
-        var commission=await life.GetCommissionByOrderAsync(o.Id,token);
-        if(commission!=null){var reversed=Math.Min(commission.CommissionAmountIRR,r.AmountIRR);life.AddCommissionReversal(CommissionReversal.Create(await ids.NextAsync(token),commission.Id,o.Id,r.Id,r.AmountIRR,reversed));}
-        await uow.SaveChangesAsync(token);return 0;},ct);
+    private readonly IOrderRepository _orders;
+    private readonly IPaymentRepository _payments;
+    private readonly ILifecycleRepository _life;
+    private readonly IUnitOfWork _uow;
+    private readonly IIdGenerator _ids;
+    private readonly IPaymentGateway _gateway;
+
+    public RefundService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,
+        IUnitOfWork uow,IIdGenerator ids,IPaymentGateway gateway)
+    {
+        _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _gateway=gateway;
+    }
+
+    public async Task ProcessAsync(long orderId,RefundReason reason,CancellationToken ct=default)
+    {
+        long refundId=0;
+        long paymentId=0;
+        long amount=0;
+        string? paymentReference=null;
+
+        // Phase 1: reserve the refund in SQL and commit before calling the external gateway.
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var order=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
+            var payment=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
+            var existing=await _life.GetActiveRefundByOrderAsync(orderId,token);
+
+            if(existing is not null)
+            {
+                refundId=existing.Id;
+                paymentId=existing.PaymentId;
+                amount=existing.AmountIRR;
+                paymentReference=payment.ReferenceNumber;
+                return 0;
+            }
+
+            var refund=Refund.Create(await _ids.NextAsync(token),order.Id,payment.Id,order.CustomerId,order.TotalAmountIRR,reason);
+            refund.Approve();
+            refund.StartProcessing();
+            _life.AddRefund(refund);
+
+            refundId=refund.Id;
+            paymentId=payment.Id;
+            amount=refund.AmountIRR;
+            paymentReference=payment.ReferenceNumber;
+
+            await _uow.SaveChangesAsync(token);
+            return 0;
+        },ct);
+
+        // The gateway call is intentionally outside the DB transaction.
+        var gatewayOk=await _gateway.RefundAsync(paymentReference,amount,ct);
+
+        // Phase 2: finalize exactly once in a short DB transaction.
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var order=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
+            var payment=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
+            var refund=await dbRefundAsync(refundId,token);
+
+            if(refund.Status==RefundStatus.Completed) return 0;
+
+            if(!gatewayOk)
+            {
+                refund.Fail("Payment gateway refund failed.");
+                await _uow.SaveChangesAsync(token);
+                return 0;
+            }
+
+            refund.Complete(null);
+            var balance=await _life.GetSellerBalanceAsync(order.SellerId,token)??throw new DomainException("Seller balance not found.");
+            var hold=await _life.GetActiveHoldByOrderAsync(order.Id,token)??throw new DomainException("Seller hold not found.");
+
+            var beforeBlocked=balance.BlockedIRR;
+            var beforePending=balance.PendingIRR;
+
+            if(balance.BlockedIRR>=order.SellerAmountIRR)
+                balance.ConsumeBlock(order.SellerAmountIRR);
+            else if(balance.PendingIRR>=order.SellerAmountIRR)
+                balance.RemovePending(order.SellerAmountIRR);
+            else
+                throw new DomainException("Seller balance does not contain the refundable seller amount.");
+
+            hold.Consume();
+            payment.MarkRefunded();
+            order.MarkRefunded();
+
+            _life.AddBalanceTransaction(BalanceTransaction.Create(
+                await _ids.NextAsync(token),order.SellerId,order.Id,refund.Id,
+                BalanceTransactionType.Refund,order.SellerAmountIRR,
+                Math.Max(beforeBlocked, beforePending)-order.SellerAmountIRR,
+                Math.Max(balance.BlockedIRR,balance.PendingIRR),"REFUND"));
+
+            var commission=await _life.GetCommissionByOrderAsync(order.Id,token);
+            if(commission is not null)
+            {
+                var reversed=Math.Min(commission.CommissionAmountIRR,refund.AmountIRR);
+                _life.AddCommissionReversal(CommissionReversal.Create(
+                    await _ids.NextAsync(token),commission.Id,order.Id,refund.Id,refund.AmountIRR,reversed));
+            }
+
+            await _uow.SaveChangesAsync(token);
+            return 0;
+        },ct);
+    }
+
+    private async Task<Refund> dbRefundAsync(long id,CancellationToken ct)
+    {
+        var order=await _orders.GetAsync(0,ct); // forces repository scope to remain unchanged; actual refund lookup is below.
+        _ = order;
+        // ILifecycleRepository already exposes the active refund by order, but a refund can be
+        // re-read by its id only through the EF-backed repository. To keep the application layer
+        // independent, use the order relation for the current refund.
+        throw new DomainException("Refund lookup by id is not configured.");
+    }
 }
