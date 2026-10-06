@@ -12,6 +12,7 @@ using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Sellers;
 using Marketplace.Domain.Shipping;
 using Marketplace.Domain.Pricing;
+using Marketplace.Domain.Notifications;
 
 namespace Marketplace.Infrastructure.Persistence;
 
