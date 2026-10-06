@@ -18,6 +18,9 @@ public interface ILifecycleRepository
     Task<Commission?> GetCommissionByOrderAsync(long orderId,CancellationToken ct=default);
     Task<List<InventoryReservation>> GetReservationsByOrderAsync(long orderId,CancellationToken ct=default);
     Task<InventoryItem?> GetInventoryItemAsync(long productVariantId,CancellationToken ct=default);
+    Task<SellerBankAccount?> GetSellerBankAccountAsync(long sellerId,long bankAccountId,CancellationToken ct=default);
+    Task<Settlement?> GetSettlementAsync(long settlementId,CancellationToken ct=default);
+    void AddSettlement(Settlement settlement);
     void AddDelivery(Delivery delivery);
     void AddComplaint(Complaint complaint);
     void AddRefund(Refund refund);
