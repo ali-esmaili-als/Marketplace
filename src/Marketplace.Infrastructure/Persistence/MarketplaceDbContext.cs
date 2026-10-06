@@ -104,6 +104,7 @@ public sealed class MarketplaceDbContext : DbContext
             e.ToTable("Sellers"); e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasConversion<byte>();
             e.HasIndex(x => x.UserId).IsUnique();
+            e.Property(x => x.MaxStoreCount).IsRequired();
         });
         b.Entity<Store>(e =>
         {
