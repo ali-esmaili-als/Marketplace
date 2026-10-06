@@ -1,6 +1,7 @@
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Finance;
+using Marketplace.Domain.Identity;
 using Marketplace.Domain.Sellers;
 
 namespace Marketplace.Application.Sellers;
@@ -101,8 +102,11 @@ public sealed class SellerManagementService(
         await uow.SaveChangesAsync(ct);
     }
 
-    public Task<List<Store>> GetMyStoresAsync(long userId, CancellationToken ct = default)
-        => repo.GetStoresAsync(GetSellerId(userId, ct), ct);
+    public async Task<List<Store>> GetMyStoresAsync(long userId, CancellationToken ct = default)
+    {
+        var sellerId = await GetSellerIdAsync(userId, ct);
+        return await repo.GetStoresAsync(sellerId, ct);
+    }
 
     public async Task<long> AddBankAccountAsync(long userId, string bankName, string iban, string holderName, bool makeDefault, CancellationToken ct = default)
     {
@@ -129,8 +133,11 @@ public sealed class SellerManagementService(
         await uow.SaveChangesAsync(ct);
     }
 
-    public Task<List<SellerBankAccount>> GetMyBankAccountsAsync(long userId, CancellationToken ct = default)
-        => repo.GetBankAccountsAsync(GetSellerId(userId, ct), ct);
+    public async Task<List<SellerBankAccount>> GetMyBankAccountsAsync(long userId, CancellationToken ct = default)
+    {
+        var sellerId = await GetSellerIdAsync(userId, ct);
+        return await repo.GetBankAccountsAsync(sellerId, ct);
+    }
 
     private async Task<Seller> GetActiveSellerByUserAsync(long userId, CancellationToken ct)
     {
@@ -139,6 +146,6 @@ public sealed class SellerManagementService(
         return seller;
     }
 
-    private async Task<long> GetSellerId(long userId, CancellationToken ct)
+    private async Task<long> GetSellerIdAsync(long userId, CancellationToken ct)
         => (await repo.GetSellerByUserIdAsync(userId, ct) ?? throw new DomainException("Seller profile not found.")).Id;
 }
