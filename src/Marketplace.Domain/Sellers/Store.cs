@@ -50,6 +50,8 @@ public sealed class Store : AggregateRoot<long>
         Slug = slug.Trim();
     }
 
+    public void SetDescription(string? description) => Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+
     public void ConfigureCommission(int rateBasisPoints, long minimumCommissionIrr)
     {
         if (rateBasisPoints is < 0 or > 10000 || minimumCommissionIrr < 0)
