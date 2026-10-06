@@ -22,4 +22,7 @@ public interface ILifecycleRepository
     void AddBalanceHold(SellerBalanceHold hold);
     void AddBalanceTransaction(BalanceTransaction transaction);
     void AddCommissionReversal(CommissionReversal reversal);
+    void AddOrderItem(OrderItem item);
+    void AddInventoryReservation(InventoryReservation reservation);
+    void AddCommission(Commission commission);
 }
