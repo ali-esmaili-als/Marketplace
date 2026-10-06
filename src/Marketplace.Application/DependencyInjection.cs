@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<Catalog.CatalogManagementService>();
         services.AddScoped<OrderQueryService>();
         services.AddScoped<OrderActorService>();
+        services.AddScoped<Maintenance.MaintenanceService>();
         return services;
     }
 }
