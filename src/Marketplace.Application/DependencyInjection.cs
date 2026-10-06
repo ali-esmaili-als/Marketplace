@@ -8,6 +8,7 @@ public static class DependencyInjection
     public static IServiceCollection AddMarketplaceApplication(this IServiceCollection services)
     {
         services.AddScoped<ICheckoutPricingService, CheckoutPricingService>();
+        services.AddScoped<CheckoutPayService>();
         return services;
     }
 }
