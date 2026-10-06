@@ -11,6 +11,7 @@ using Marketplace.Domain.Refunds;
 using Marketplace.Domain.Sellers;
 using Marketplace.Domain.Shipping;
 using Marketplace.Domain.Identity;
+using Marketplace.Domain.Pricing;
 
 namespace Marketplace.Infrastructure.Persistence;
 
@@ -57,6 +58,12 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<Rule> Rules => Set<Rule>();
     public DbSet<UserRule> UserRules => Set<UserRule>();
     public DbSet<UserRoleAssignment> UserRoleAssignments => Set<UserRoleAssignment>();
+    public DbSet<Campaign> Campaigns => Set<Campaign>();
+    public DbSet<CampaignProduct> CampaignProducts => Set<CampaignProduct>();
+    public DbSet<Coupon> Coupons => Set<Coupon>();
+    public DbSet<CouponProduct> CouponProducts => Set<CouponProduct>();
+    public DbSet<CouponCategory> CouponCategories => Set<CouponCategory>();
+    public DbSet<CouponUsage> CouponUsages => Set<CouponUsage>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -238,6 +245,47 @@ public sealed class MarketplaceDbContext : DbContext
             e.HasIndex(x => x.Provider).IsUnique();
             e.HasIndex(x => new { x.IsEnabled, x.IsVisible, x.SortOrder });
         });
+        b.Entity<Campaign>(e =>
+        {
+            e.ToTable("Campaigns"); e.HasKey(x=>x.Id);
+            e.Property(x=>x.Name).HasMaxLength(250).IsRequired();
+            e.Property(x=>x.DiscountType).HasConversion<byte>();
+            e.Property(x=>x.DiscountValue).HasPrecision(18,4);
+            e.HasIndex(x=>new { x.StoreId,x.StartsAtUtc,x.EndsAtUtc });
+            e.HasIndex(x=>new { x.StoreId,x.IsActive });
+        });
+        b.Entity<CampaignProduct>(e =>
+        {
+            e.ToTable("CampaignProducts"); e.HasKey(x=>x.Id);
+            e.HasIndex(x=>new { x.CampaignId,x.ProductId,x.ProductVariantId }).IsUnique();
+            e.HasIndex(x=>new { x.ProductId,x.ProductVariantId });
+        });
+        b.Entity<Coupon>(e =>
+        {
+            e.ToTable("Coupons"); e.HasKey(x=>x.Id);
+            e.Property(x=>x.Code).HasMaxLength(100).IsRequired();
+            e.Property(x=>x.DiscountType).HasConversion<byte>();
+            e.Property(x=>x.DiscountValue).HasPrecision(18,4);
+            e.HasIndex(x=>new { x.StoreId,x.Code }).IsUnique();
+            e.HasIndex(x=>new { x.StoreId,x.IsActive });
+        });
+        b.Entity<CouponProduct>(e =>
+        {
+            e.ToTable("CouponProducts"); e.HasKey(x=>x.Id);
+            e.HasIndex(x=>new { x.CouponId,x.ProductId }).IsUnique();
+        });
+        b.Entity<CouponCategory>(e =>
+        {
+            e.ToTable("CouponCategories"); e.HasKey(x=>x.Id);
+            e.HasIndex(x=>new { x.CouponId,x.CategoryId }).IsUnique();
+        });
+        b.Entity<CouponUsage>(e =>
+        {
+            e.ToTable("CouponUsages"); e.HasKey(x=>x.Id);
+            e.HasIndex(x=>new { x.CouponId,x.CustomerId }).IsUnique();
+            e.HasIndex(x=>x.OrderId).IsUnique();
+        });
+
         b.Entity<DeliveryCity>(e =>
         {
             e.ToTable("DeliveryCities"); e.HasKey(x => x.Id);
