@@ -12,7 +12,6 @@ public sealed class CheckoutPayService(
     IExchangeRateProvider exchangeRates,
     IOrderWriter orders,
     IInventoryReservationService inventory,
-    ICouponReservationService coupons,
     IPaymentAttemptFactory payments,
     IUnitOfWork unitOfWork)
 {
