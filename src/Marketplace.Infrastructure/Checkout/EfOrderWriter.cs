@@ -5,7 +5,7 @@ using Marketplace.Infrastructure.Persistence;
 
 namespace Marketplace.Infrastructure.Checkout;
 
-public sealed class EfOrderWriter(MarketplaceDbContext db, IIdGenerator ids, IClock clock) : IOrderWriter
+public sealed class EfOrderWriter(MarketplaceDbContext db, IIdGenerator ids) : IOrderWriter
 {
     public async Task<long> CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken = default)
     {
