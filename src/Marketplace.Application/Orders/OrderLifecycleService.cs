@@ -5,6 +5,8 @@ using Marketplace.Domain.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Lifecycle;
 using Marketplace.Domain.Orders;
+using Marketplace.Domain.Notifications;
+using System.Security.Cryptography;
 
 namespace Marketplace.Application.Orders;
 
@@ -16,10 +18,11 @@ public sealed class OrderLifecycleService
     private readonly IUnitOfWork _uow;
     private readonly IIdGenerator _ids;
     private readonly OrderFinancialLifecycle _domain=new();
+    private readonly INotificationRepository _notifications;
 
-    public OrderLifecycleService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids)
+    public OrderLifecycleService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,INotificationRepository notifications)
     {
-        _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids;
+        _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _notifications=notifications;
     }
 
     public Task PaymentSucceededAsync(long orderId,string reference,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
@@ -63,10 +66,12 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
-    public Task MarkDeliveredAsync(long orderId,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task MarkDeliveredAsync(long orderId,string deliveryCode,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
+        var code=await _life.GetDeliveryCodeByOrderAsync(orderId,token)??throw new DomainException("Delivery code not found.");
+        if(!code.Verify(deliveryCode,now)) throw new DomainException("Invalid or expired delivery code.");
 
         d.ConfirmDelivered(confirmationReference,now);
         var pendingBefore=b.PendingIRR;
