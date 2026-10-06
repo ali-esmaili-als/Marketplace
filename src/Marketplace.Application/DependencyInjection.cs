@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Marketplace.Application.Orders;
+using Marketplace.Application.Cart;
 
 namespace Marketplace.Application;
 
@@ -9,6 +10,8 @@ public static class DependencyInjection
     {
         services.AddScoped<OrderLifecycleService>();
         services.AddScoped<RefundService>();
+        services.AddScoped<CartService>();
+        services.AddScoped<OrderCreationService>();
         return services;
     }
 }
