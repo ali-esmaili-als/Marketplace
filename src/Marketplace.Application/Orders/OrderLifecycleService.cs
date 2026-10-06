@@ -62,6 +62,26 @@ public sealed class OrderLifecycleService
         o.StartPreparing();
         d.MarkReady();
         o.MarkReady();
+
+        var deliveryCodeValue = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+        var deliveryCode = DeliveryCode.Create(
+            await _ids.NextAsync(token),
+            o.Id,
+            deliveryCodeValue,
+            d.ExpiresAtUtc);
+        _life.AddDeliveryCode(deliveryCode);
+
+        var notification = Notification.Create(
+            await _ids.NextAsync(token),
+            o.CustomerId,
+            NotificationChannel.InApp,
+            "کد تحویل سفارش",
+            $"کد تحویل سفارش شما: {deliveryCodeValue}",
+            "Order",
+            o.Id);
+        notification.MarkSent();
+        _notifications.Add(notification);
+
         await _uow.SaveChangesAsync(token);
         return 0;
     },ct);
