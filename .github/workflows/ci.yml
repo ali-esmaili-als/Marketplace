@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, rebuild/develop-clean ]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_NOLOGO: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Marketplace.sln
+
+      - name: Build
+        run: dotnet build Marketplace.sln --configuration Release --no-restore
+
+      - name: Application tests
+        run: dotnet test tests/Marketplace.Application.Tests/Marketplace.Application.Tests.csproj --configuration Release --no-build --verbosity normal
