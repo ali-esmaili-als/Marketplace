@@ -37,3 +37,20 @@ GO
 -- Example seed rows can be inserted by the application/admin import.
 -- City data is intentionally not hard-coded here because the platform should own
 -- the authoritative city master data and may later import/update it.
+
+GO
+
+IF COL_LENGTH(N'dbo.Orders', N'DestinationCityId') IS NULL
+BEGIN
+    ALTER TABLE dbo.Orders ADD DestinationCityId BIGINT NULL;
+    ALTER TABLE dbo.Orders ADD DestinationCityNameSnapshot NVARCHAR(200) NULL;
+    ALTER TABLE dbo.Orders ADD DestinationProvinceNameSnapshot NVARCHAR(200) NULL;
+
+    ALTER TABLE dbo.Orders
+        ADD CONSTRAINT FK_Orders_DestinationCity
+        FOREIGN KEY (DestinationCityId) REFERENCES dbo.DeliveryCities(Id);
+
+    CREATE INDEX IX_Orders_DestinationCityId
+        ON dbo.Orders(DestinationCityId);
+END;
+GO
