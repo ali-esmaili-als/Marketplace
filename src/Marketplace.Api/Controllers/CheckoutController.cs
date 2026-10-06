@@ -1,3 +1,4 @@
+using Marketplace.Infrastructure.Authorization;
 using Marketplace.Application.Authorization;
 using Marketplace.Application.Checkout.Commands;
 using Marketplace.Application.Checkout.Results;
