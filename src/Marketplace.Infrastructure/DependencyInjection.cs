@@ -1,5 +1,7 @@
 using Marketplace.Application.Common.Abstractions;
 using Marketplace.Infrastructure.Persistence;
+using Marketplace.Application.Identity.Ports;
+using Marketplace.Infrastructure.Identity;
 using Marketplace.Application.Checkout.Ports;
 using Marketplace.Infrastructure.Checkout;
 using Marketplace.Application.Delivery.Ports;
@@ -41,6 +43,9 @@ public static class DependencyInjection
         services.AddScoped<ISettlementService, EfSettlementService>();
         services.AddScoped<IRefundService, EfRefundService>();
         services.AddScoped<IComplaintService, EfComplaintService>();
+        services.AddOptions<JwtOptions>().BindConfiguration("Jwt").Validate(x => !string.IsNullOrWhiteSpace(x.SigningKey) && x.SigningKey.Length >= 32, "Jwt:SigningKey must be at least 32 characters.").ValidateOnStart();
+        services.AddSingleton<JwtTokenService>();
+        services.AddScoped<IAuthService, EfAuthService>();
         return services;
     }
 
