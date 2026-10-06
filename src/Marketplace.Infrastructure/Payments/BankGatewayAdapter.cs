@@ -1,4 +1,6 @@
+using System.Net.Http;
 using System.Text.Json;
+using Microsoft.Extensions.Http;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Payments;
