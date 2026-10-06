@@ -23,6 +23,13 @@ app.MapGet("/api/cart",async(long customerId,Marketplace.Application.Cart.CartSe
 app.MapGet("/api/payments/providers",async(Marketplace.Application.Abstractions.IPaymentProviderSettings settings,CancellationToken ct)=>
     Results.Ok(await settings.GetAvailableAsync(ct)));
 
+app.MapGet("/api/admin/payment-providers",async(Marketplace.Application.Payments.PaymentProviderSettingsService service,CancellationToken ct)=>
+    Results.Ok(await service.GetAllAsync(ct)));
+app.MapPut("/api/admin/payment-providers/{provider}",async(Marketplace.Domain.Payments.PaymentProviderCode provider,PaymentProviderConfigureRequest request,Marketplace.Application.Payments.PaymentProviderSettingsService service,CancellationToken ct)=>{
+    await service.ConfigureAsync(provider,request.IsEnabled,request.IsVisible,request.SortOrder,request.ConfigurationJson,ct);
+    return Results.NoContent();
+});
+
 app.MapPost("/api/settlements",async(SettlementRequest request,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
     var result=await service.RequestAsync(request.SellerId,request.BankAccountId,request.AmountIRR,ct);
     return Results.Ok(result);
@@ -68,6 +75,7 @@ app.Run();
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider);
 public sealed record SettlementRequest(long SellerId,long BankAccountId,long AmountIRR);
+public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record PaymentVerifyRequest(string Authority);
 public sealed record DeliveryConfirmRequest(string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
 public sealed record ComplaintRequest(long CustomerId,string Reason);
