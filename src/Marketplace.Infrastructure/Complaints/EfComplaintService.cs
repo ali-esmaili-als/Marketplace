@@ -9,7 +9,7 @@ namespace Marketplace.Infrastructure.Complaints;
 
 public sealed class EfComplaintService(
     MarketplaceDbContext db,
-    IIdGenerator ids, ICurrentUser currentUser) : IComplaintService
+    IIdGenerator ids, ICurrentUser currentUser, ISellerBalanceService sellerBalance) : IComplaintService
 {
     public async Task<long> OpenAsync(
         long orderId, long customerId, string subject, string description,
@@ -65,7 +65,7 @@ public sealed class EfComplaintService(
                 var amount = Math.Min(balance.WithdrawableIRR, commission.SellerAmountIRR);
                 if (amount > 0)
                 {
-                    balance.Block(amount);
+                    await sellerBalance.BlockAsync(complaint.SellerId, order.Id, amount, $"COMPLAINT:{complaint.Id}", cancellationToken);
                     db.SellerBalanceHolds.Add(SellerBalanceHold.Create(
                         ids.NewId(), complaint.SellerId, order.Id, amount, $"COMPLAINT:{complaint.Id}"));
                 }
@@ -101,9 +101,9 @@ public sealed class EfComplaintService(
 
             if (hold is not null)
             {
-                var balance = await db.SellerBalances.SingleAsync(
-                    x => x.SellerId == complaint.SellerId, cancellationToken);
-                balance.ReleaseBlock(hold.AmountIRR);
+                await sellerBalance.ReleaseBlockAsync(
+                    complaint.SellerId, complaint.OrderId, hold.AmountIRR,
+                    $"COMPLAINT:{complaint.Id}:RELEASE", cancellationToken);
                 hold.Release();
             }
 
