@@ -26,4 +26,8 @@ public interface IAuthorizationAdminService
         long userId,
         long ruleId,
         CancellationToken cancellationToken = default);
+
+    Task<UserAuthorizationRulesDto> GetUserRulesAsync(
+        long userId,
+        CancellationToken cancellationToken = default);
 }
