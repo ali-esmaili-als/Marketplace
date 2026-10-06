@@ -43,6 +43,8 @@ long CurrentUserId(System.Security.Claims.ClaimsPrincipal user)
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/api/notifications",async(System.Security.Claims.ClaimsPrincipal user,int? take,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>Results.Ok(await service.GetAsync(CurrentUserId(user),take??50,ct))).RequireAuthorization();
+app.MapPost("/api/notifications/{notificationId:long}/read",async(System.Security.Claims.ClaimsPrincipal user,long notificationId,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>{await service.MarkReadAsync(CurrentUserId(user),notificationId,ct);return Results.NoContent();}).RequireAuthorization();
 app.MapGet("/health",()=>Results.Ok(new{status="ok",utc=DateTime.UtcNow}));
 
 app.MapPost("/api/auth/register/customer",async(RegisterCustomerRequest request,Marketplace.Application.Identity.RegistrationService service,CancellationToken ct)=>
