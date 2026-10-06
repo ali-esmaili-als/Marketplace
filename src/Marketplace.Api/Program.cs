@@ -78,6 +78,10 @@ app.MapPut("/api/admin/sellers/{sellerId:long}/store-limit",async(long sellerId,
     await service.ConfigureStoreLimitAsync(sellerId,maxStoreCount,ct); return Results.NoContent();
 }).RequirePermission("Admin.Seller.Manage");
 
+app.MapPost("/api/admin/sellers/{sellerId:long}/suspend",async(long sellerId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{await service.SuspendAsync(sellerId,ct);return Results.NoContent();}).RequirePermission("Admin.Seller.Manage");
+app.MapPost("/api/admin/sellers/{sellerId:long}/reject",async(long sellerId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{await service.RejectAsync(sellerId,ct);return Results.NoContent();}).RequirePermission("Admin.Seller.Manage");
+app.MapPut("/api/admin/sellers/{sellerId:long}/commission",async(long sellerId,CommissionConfigRequest request,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{await service.ConfigureCommissionAsync(sellerId,request.RateBasisPoints,request.MinimumCommissionIRR,ct);return Results.NoContent();}).RequirePermission("Admin.Seller.Manage");
+
 app.MapPost("/api/auth/login",async(LoginRequest request,Marketplace.Application.Identity.AuthenticationService service,CancellationToken ct)=>
 {
     var result=await service.LoginAsync(request.Mobile,request.Password,ct);
