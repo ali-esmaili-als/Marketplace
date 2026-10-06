@@ -8,11 +8,13 @@ public sealed class ShippingCoverageService
 {
     private readonly IShippingRepository _shipping;
     private readonly IUnitOfWork _uow;
+    private readonly ISellerManagementRepository _sellers;
 
-    public ShippingCoverageService(IShippingRepository shipping , IUnitOfWork uow)
+    public ShippingCoverageService(IShippingRepository shipping, IUnitOfWork uow, ISellerManagementRepository sellers)
     {
         _shipping = shipping;
         _uow = uow;
+        _sellers = sellers;
     }
 
     public Task<List<DeliveryCity>> GetCitiesAsync(CancellationToken ct = default)
@@ -21,9 +23,12 @@ public sealed class ShippingCoverageService
     public Task<List<DeliveryCity>> GetStoreCitiesAsync(long storeId, CancellationToken ct = default)
         => _shipping.GetStoreCitiesAsync(storeId, ct);
 
-    public async Task ConfigureStoreCitiesAsync(long storeId, IReadOnlyCollection<long> cityIds, CancellationToken ct = default)
+    public async Task ConfigureStoreCitiesAsync(long userId, long storeId, IReadOnlyCollection<long> cityIds, CancellationToken ct = default)
     {
-        if (storeId <= 0) throw new DomainException("Invalid store.");
+        if (userId <= 0 || storeId <= 0) throw new DomainException("Invalid store.");
+        var seller = await _sellers.GetSellerByUserIdAsync(userId, ct) ?? throw new DomainException("Seller profile not found.");
+        if (seller.Status != Marketplace.Domain.Sellers.SellerStatus.Active) throw new DomainException("Seller is not active.");
+        if (!await _sellers.StoreBelongsToSellerAsync(storeId, seller.Id, ct)) throw new DomainException("Store not found.");
 
         var normalized = cityIds.Where(x => x > 0).Distinct().ToArray();
         foreach (var cityId in normalized)
