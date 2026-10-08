@@ -19,6 +19,7 @@ var jwtAudience=builder.Configuration["Authentication:Jwt:Audience"] ?? "Marketp
 builder.Services.AddMarketplaceApplication();
 builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
 builder.Services.AddMemoryCache();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<Marketplace.Api.Auth.OtpAuthService>();
 builder.Services.AddScoped<Marketplace.Application.Abstractions.ISmsProviderSettings, Marketplace.Infrastructure.Notifications.SmsProviderSettingsRepository>();
 builder.Services.AddScoped<Marketplace.Application.Abstractions.ISmsProviderSettingsAdmin, Marketplace.Infrastructure.Notifications.SmsProviderSettingsAdminRepository>();
