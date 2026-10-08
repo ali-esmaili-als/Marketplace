@@ -3,6 +3,7 @@ using Marketplace.Infrastructure;
 using Marketplace.Api.Auth;
 using Marketplace.Api.DTOs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
@@ -236,6 +237,39 @@ app.MapPut("/api/admin/payment-providers/{provider}",async(Marketplace.Domain.Pa
     await service.ConfigureAsync(provider,request.IsEnabled,request.IsVisible,request.SortOrder,request.ConfigurationJson,ct);
     return Results.NoContent();
 }).RequirePermission("Admin.PaymentProviders.Configure");
+
+app.MapGet("/api/sellers/me/finance", async (System.Security.Claims.ClaimsPrincipal user, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var userId = CurrentUserId(user);
+    var sellerId = await db.Sellers.AsNoTracking().Where(s => s.UserId == userId).Select(s => (long?)s.Id).SingleOrDefaultAsync(ct);
+    if (sellerId is null) return Results.NotFound(new { detail = "Seller profile not found." });
+    var balance = await db.SellerBalances.AsNoTracking().Where(x => x.SellerId == sellerId.Value)
+        .Select(x => new { x.AvailableIRR, x.PendingIRR, x.BlockedIRR, x.ReservedForSettlementIRR, x.LiabilityIRR, x.UpdatedAtUtc })
+        .SingleOrDefaultAsync(ct);
+    var available = balance?.AvailableIRR ?? 0L;
+    var reserved = balance?.ReservedForSettlementIRR ?? 0L;
+    return Results.Ok(new {
+        sellerId = sellerId.Value, availableIRR = available, pendingIRR = balance?.PendingIRR ?? 0L,
+        blockedIRR = balance?.BlockedIRR ?? 0L, reservedForSettlementIRR = reserved,
+        liabilityIRR = balance?.LiabilityIRR ?? 0L, withdrawableIRR = Math.Max(0L, available - reserved),
+        updatedAtUtc = balance?.UpdatedAtUtc
+    });
+}).RequirePermission("Seller.Settlement.Request");
+
+app.MapGet("/api/sellers/me/settlements", async (System.Security.Claims.ClaimsPrincipal user, int? take, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var userId = CurrentUserId(user);
+    var sellerId = await db.Sellers.AsNoTracking().Where(s => s.UserId == userId).Select(s => (long?)s.Id).SingleOrDefaultAsync(ct);
+    if (sellerId is null) return Results.NotFound(new { detail = "Seller profile not found." });
+    var limit = Math.Clamp(take ?? 20, 1, 100);
+    var rows = await db.Settlements.AsNoTracking().Where(x => x.SellerId == sellerId.Value)
+        .OrderByDescending(x => x.RequestedAtUtc).Take(limit).ToListAsync(ct);
+    return Results.Ok(rows.Select(x => new {
+        id = x.Id, amountIRR = x.AmountIRR, status = x.Status.ToString(), bankName = x.BankNameSnapshot,
+        iban = x.IbanSnapshot, accountHolderName = x.AccountHolderNameSnapshot, reference = x.Reference,
+        failureReason = x.FailureReason, requestedAtUtc = x.RequestedAtUtc, completedAtUtc = x.CompletedAtUtc
+    }));
+}).RequirePermission("Seller.Settlement.Request");
 
 app.MapPost("/api/settlements",async(System.Security.Claims.ClaimsPrincipal user,SettlementRequest request,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
     var result=await service.RequestAsync(CurrentUserId(user),request.BankAccountId,request.AmountIRR,ct); return Results.Ok(result);
