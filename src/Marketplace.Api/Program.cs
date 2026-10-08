@@ -20,6 +20,12 @@ builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<Marketplace.Api.Auth.OtpAuthService>();
 builder.Services.AddSingleton<Marketplace.Application.Abstractions.ISmsProvider, Marketplace.Infrastructure.Sms.TestSmsProvider>();
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.KavenegarSmsProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.KavenegarSmsProvider>());
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.SmsIrProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.SmsIrProvider>());
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.MelipayamakSmsProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.MelipayamakSmsProvider>());
 builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.HttpApiSmsProvider>();
 builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.HttpApiSmsProvider>());
 
