@@ -11,7 +11,6 @@ public sealed record OtpLoginResult(long UserId, string Mobile, string DisplayNa
     IReadOnlyCollection<string> Permissions, string AccessToken, DateTime ExpiresAtUtc, bool IsNewUser = false);
 
 public sealed class OtpAuthService(
-    IConfiguration configuration,
     IEnumerable<ISmsProvider> providers,
     ISmsProviderSettings settings,
     IMemoryCache cache,
