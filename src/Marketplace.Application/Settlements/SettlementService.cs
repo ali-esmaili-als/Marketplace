@@ -83,7 +83,28 @@ public sealed class SettlementService
         // funds reserved. The external bank may have accepted the transfer despite a timeout;
         // automatically marking it Failed/releasing funds could permit a duplicate payout.
         // Reconciliation must resolve this state before any retry is allowed.
-        var result=await _payout.TransferAsync(bankName,iban,holder,amount,ct);
+        SettlementPayoutResult result;
+        try
+        {
+            result = await _payout.TransferAsync(bankName,iban,holder,amount,ct);
+        }
+        catch
+        {
+            // A thrown exception/timeout is ambiguous. Once the provider call has returned
+            // control to us, move to OnHold so reconciliation cannot race an in-flight payout.
+            // Do not release the reserved balance; an operator must verify the bank's final state.
+            await _uow.ExecuteInSerializableTransactionAsync(async token =>
+            {
+                var settlement = await _life.GetSettlementAsync(settlementId, token);
+                if (settlement?.Status == SettlementStatus.Processing)
+                {
+                    settlement.PutOnHold();
+                    await _uow.SaveChangesAsync(token);
+                }
+                return 0;
+            }, CancellationToken.None);
+            throw;
+        }
 
         return await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
@@ -122,7 +143,7 @@ public sealed class SettlementService
         {
             var settlement = await _life.GetSettlementAsync(settlementId, token)
                 ?? throw new DomainException("Settlement not found.");
-            if (settlement.Status is not (SettlementStatus.Processing or SettlementStatus.OnHold))
+            if (settlement.Status != SettlementStatus.OnHold)
                 throw new DomainException("Only ambiguous processing settlements can be reconciled.");
 
             var balance = await _life.GetSellerBalanceAsync(settlement.SellerId, token)
