@@ -169,7 +169,7 @@ app.MapGet("/api/cart/summary", async (System.Security.Claims.ClaimsPrincipal us
         join product in db.Products.AsNoTracking() on item.ProductId equals product.Id
         join variant in db.ProductVariants.AsNoTracking() on item.ProductVariantId equals variant.Id
         join store in db.Stores.AsNoTracking() on product.StoreId equals store.Id
-        join warrantyRow in db.Warranties.AsNoTracking() on item.WarrantyId equals warrantyRow.Id into warrantyGroup
+        join warrantyRow in db.Warranties.AsNoTracking() on item.WarrantyId equals (long?)warrantyRow.Id into warrantyGroup
         from warranty in warrantyGroup.DefaultIfEmpty()
         where item.CartId == cart.Id
         select new
