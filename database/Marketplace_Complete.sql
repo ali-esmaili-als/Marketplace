@@ -438,11 +438,12 @@ WHEN NOT MATCHED THEN INSERT(Id,Code,Name,ActionType,IsActive) VALUES(s.Id,s.Cod
 MERGE dbo.PaymentProviderSettings AS t
 USING (VALUES
 (1000000101,1,N'بانک ملی',1),(1000000102,2,N'بانک پارسیان',2),(1000000103,3,N'بانک پاسارگاد',3),
-(1000000104,4,N'بانک ملت',4),(1000000105,5,N'بانک سپه',5),(1000000106,6,N'بانک تجارت',6),(1000000107,7,N'بانک سامان',7)
+(1000000104,4,N'بانک ملت',4),(1000000105,5,N'بانک سپه',5),(1000000106,6,N'بانک تجارت',6),(1000000107,7,N'بانک سامان',7),
+(1000000108,8,N'بانک تستی (بدون اتصال به بانک واقعی)',0)
 ) AS s(Id,Provider,DisplayName,SortOrder)
 ON t.Provider=s.Provider
 WHEN NOT MATCHED THEN INSERT(Id,Provider,DisplayName,IsEnabled,IsVisible,SortOrder,ConfigurationJson,UpdatedAtUtc)
-VALUES(s.Id,s.Provider,s.DisplayName,0,0,s.SortOrder,N'{}',SYSUTCDATETIME());
+VALUES(s.Id,s.Provider,s.DisplayName,CASE WHEN s.Provider=8 THEN 1 ELSE 0 END,CASE WHEN s.Provider=8 THEN 1 ELSE 0 END,s.SortOrder,N'{}',SYSUTCDATETIME());
 
 COMMIT;
 
