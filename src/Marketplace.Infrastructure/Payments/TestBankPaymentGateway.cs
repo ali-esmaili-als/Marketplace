@@ -9,7 +9,7 @@ namespace Marketplace.Infrastructure.Payments;
 /// </summary>
 public sealed class TestBankPaymentGateway(string? returnBaseUrl) : IPaymentGateway
 {
-    public string ProviderName => "TEST_BANK";
+    public string ProviderName => "TestBank";
 
     public Task<PaymentRedirect> CreatePaymentAsync(long paymentId, long orderId, long amountIRR, CancellationToken cancellationToken = default)
     {
