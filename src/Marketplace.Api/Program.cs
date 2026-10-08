@@ -320,7 +320,9 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
-public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);\npublic sealed record OtpRequest(string Mobile);\npublic sealed record OtpVerifyRequest(string Mobile, string Otp);
+public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
+public sealed record OtpRequest(string Mobile);
+public sealed record OtpVerifyRequest(string Mobile, string Otp);
 public sealed record PaymentVerifyRequest(string Authority);
 public sealed record DeliveryConfirmRequest(string Code,string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
 public sealed record ComplaintRequest(long CustomerId,string Reason);
