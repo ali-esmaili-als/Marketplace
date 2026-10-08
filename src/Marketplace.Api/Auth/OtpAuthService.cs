@@ -39,7 +39,7 @@ public sealed class OtpAuthService(
         try
         {
             if (!string.Equals(provider.Name, "Test", StringComparison.OrdinalIgnoreCase))
-                await provider.SendAsync(mobile, $"Your Marketplace verification code is {code}", ct);
+                await provider.SendOtpAsync(mobile, code, ct);
         }
         catch
         {
