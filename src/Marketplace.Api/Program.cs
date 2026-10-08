@@ -19,9 +19,9 @@ builder.Services.AddMarketplaceApplication();
 builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<Marketplace.Api.Auth.OtpAuthService>();
-builder.Services.AddSingleton<Marketplace.Api.Auth.ISmsProvider, Marketplace.Api.Auth.TestSmsProvider>();
-builder.Services.AddHttpClient<Marketplace.Api.Auth.HttpApiSmsProvider>();
-builder.Services.AddTransient<Marketplace.Api.Auth.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Api.Auth.HttpApiSmsProvider>());
+builder.Services.AddSingleton<Marketplace.Application.Abstractions.ISmsProvider, Marketplace.Infrastructure.Sms.TestSmsProvider>();
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.HttpApiSmsProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.HttpApiSmsProvider>());
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -76,7 +76,7 @@ app.MapGet("/health/db",async (Marketplace.Infrastructure.Persistence.Marketplac
                       : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 });
 
-app.MapGet("/api/auth/options", (Marketplace.Api.Auth.OtpAuthService otp) => Results.Ok(new { otpEnabled = otp.IsEnabled }));
+app.MapGet("/api/auth/options", (Marketplace.Api.Auth.OtpAuthService otp) => Results.Ok(new { otpEnabled = otp.IsEnabled, providerName = otp.SelectedProviderDisplayName }));
 
 app.MapPost("/api/auth/otp/request", async (OtpRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
     Results.Ok(await otp.RequestAsync(request.Mobile, ct)));
