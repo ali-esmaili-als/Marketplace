@@ -256,6 +256,38 @@ app.MapGet("/api/sellers/me/finance", async (System.Security.Claims.ClaimsPrinci
     });
 }).RequirePermission("Seller.Settlement.Request");
 
+app.MapGet("/api/sellers/me/finance/transactions", async (
+    System.Security.Claims.ClaimsPrincipal user, DateTime? fromUtc, DateTime? toUtc,
+    string? type, long? orderId, int? take,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var userId = CurrentUserId(user);
+    var sellerId = await db.Sellers.AsNoTracking().Where(s => s.UserId == userId)
+        .Select(s => (long?)s.Id).SingleOrDefaultAsync(ct);
+    if (sellerId is null) return Results.NotFound(new { detail = "Seller profile not found." });
+    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value > toUtc.Value)
+        return Results.BadRequest(new { detail = "fromUtc must be earlier than toUtc." });
+
+    var query = db.BalanceTransactions.AsNoTracking().Where(x => x.SellerId == sellerId.Value);
+    if (fromUtc.HasValue) query = query.Where(x => x.CreatedAtUtc >= fromUtc.Value);
+    if (toUtc.HasValue) query = query.Where(x => x.CreatedAtUtc < toUtc.Value);
+    if (orderId.HasValue) query = query.Where(x => x.OrderId == orderId.Value);
+    if (!string.IsNullOrWhiteSpace(type) && Enum.TryParse<Marketplace.Domain.Finance.BalanceTransactionType>(type, true, out var parsedType))
+        query = query.Where(x => x.Type == parsedType);
+    else if (!string.IsNullOrWhiteSpace(type))
+        return Results.BadRequest(new { detail = "Unknown transaction type." });
+
+    var limit = Math.Clamp(take ?? 50, 1, 100);
+    var rows = await query.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
+        .Take(limit).Select(x => new {
+            id = x.Id, orderId = x.OrderId, settlementId = x.SettlementId,
+            type = x.Type.ToString(), bucket = x.Bucket.ToString(), amountIRR = x.AmountIRR,
+            balanceBeforeIRR = x.BalanceBeforeIRR, balanceAfterIRR = x.BalanceAfterIRR,
+            reference = x.Reference, createdAtUtc = x.CreatedAtUtc
+        }).ToListAsync(ct);
+    return Results.Ok(rows);
+}).RequirePermission("Seller.Settlement.Request");
+
 app.MapGet("/api/sellers/me/settlements", async (System.Security.Claims.ClaimsPrincipal user, int? take, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var userId = CurrentUserId(user);
@@ -311,6 +343,19 @@ app.MapPost("/api/admin/settlements/{settlementId:long}/reconcile", async (long 
 app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
     var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,ct); return Results.Ok(result);
 }).RequirePermission("Order.Create");
+
+app.MapGet("/api/payments/test-return", async (long paymentId, string authority, string? result,
+    Marketplace.Application.Orders.PaymentVerificationService service, CancellationToken ct) =>
+{
+    var verified = await service.VerifyTestReturnAsync(paymentId, authority,
+        string.Equals(result, "success", StringComparison.OrdinalIgnoreCase), ct);
+    var heading = verified.Paid ? "پرداخت آزمایشی موفق بود" : "پرداخت آزمایشی ناموفق بود";
+    var message = verified.Paid
+        ? "پرداخت ثبت شد. می‌توانید به فروشگاه برگردید."
+        : (verified.Error ?? "پرداخت انجام نشد.");
+    return Results.Content($"<!doctype html><html lang=\"fa\" dir=\"rtl\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{heading}</title><body style=\"font-family:Tahoma,sans-serif;max-width:620px;margin:10vh auto;padding:24px;line-height:2\"><h1>{heading}</h1><p>{System.Net.WebUtility.HtmlEncode(message)}</p><p>شناسه پرداخت: {paymentId}</p></body></html>", "text/html; charset=utf-8",
+        System.Text.Encoding.UTF8, verified.Paid ? StatusCodes.Status200OK : StatusCodes.Status400BadRequest);
+});
 
 app.MapPost("/api/payments/{paymentId:long}/verify",async(System.Security.Claims.ClaimsPrincipal user,long paymentId,PaymentVerifyRequest request,Marketplace.Application.Orders.PaymentVerificationService service,CancellationToken ct)=>{
     var result=await service.VerifyAsync(CurrentUserId(user),paymentId,request.Authority,ct);
