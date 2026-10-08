@@ -24,7 +24,7 @@ public sealed class PaymentVerificationService
             throw new DomainException("Test payment return is invalid.");
 
         var payment = await _payments.GetAsync(paymentId, ct) ?? throw new DomainException("Payment not found.");
-        if (!string.Equals(payment.Provider, "TEST_BANK", StringComparison.Ordinal)
+        if (!string.Equals(payment.Provider, "TestBank", StringComparison.Ordinal)
             || !string.Equals(payment.Authority, authority, StringComparison.Ordinal))
             throw new DomainException("Test return does not match this payment.");
 
