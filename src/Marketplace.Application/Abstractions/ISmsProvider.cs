@@ -4,6 +4,6 @@ public interface ISmsProvider
 {
     string Name { get; }
     string DisplayName { get; }
-    Task SendAsync(string mobile, string message, CancellationToken ct);
     string CreateCode();
+    Task SendOtpAsync(string mobile, string code, CancellationToken ct);
 }
