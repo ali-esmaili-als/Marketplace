@@ -8,5 +8,6 @@ public enum PaymentProviderCode : byte
     Mellat = 4,
     Sepah = 5,
     Tejarat = 6,
-    Saman = 7
+    Saman = 7,
+    TestBank = 8
 }
