@@ -59,7 +59,7 @@ public sealed class OrderLifecycleService
     public Task MarkReadyForDeliveryAsync(long orderId,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
-        o.StartPreparing();
+        if (o.Status == OrderStatus.Paid) o.StartPreparing();
         d.MarkReady();
         o.MarkReady();
 
