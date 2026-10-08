@@ -153,6 +153,36 @@ app.MapPost("/api/auth/login",async(LoginRequest request,Marketplace.Application
     return Results.Ok(result);
 });
 
+app.MapGet("/api/payment-providers", async (Marketplace.Application.Abstractions.IPaymentGatewayFactory gateways, CancellationToken ct) =>
+    Results.Ok(await gateways.GetAvailableAsync(ct)))
+    .RequirePermission("Order.Create");
+
+app.MapGet("/api/cart/summary", async (System.Security.Claims.ClaimsPrincipal user, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var userId = CurrentUserId(user);
+    var cart = await db.Carts.AsNoTracking().Where(x => x.CustomerId == userId)
+        .Select(x => new { x.Id, x.StoreId, x.SellerId }).SingleOrDefaultAsync(ct);
+    if (cart is null) return Results.Ok(Array.Empty<object>());
+
+    var rows = await (
+        from item in db.CartItems.AsNoTracking()
+        join product in db.Products.AsNoTracking() on item.ProductId equals product.Id
+        join variant in db.ProductVariants.AsNoTracking() on item.ProductVariantId equals variant.Id
+        join store in db.Stores.AsNoTracking() on product.StoreId equals store.Id
+        join warrantyRow in db.Warranties.AsNoTracking() on item.WarrantyId equals warrantyRow.Id into warrantyGroup
+        from warranty in warrantyGroup.DefaultIfEmpty()
+        where item.CartId == cart.Id
+        select new
+        {
+            item.Id, item.ProductId, item.ProductVariantId, item.WarrantyId, item.Quantity,
+            product.Name, variant.SKU, variant.VariantKey, StoreName = store.Name,
+            UnitPriceIRR = variant.PriceIRR ?? product.BasePriceIRR,
+            WarrantyName = warranty == null ? null : warranty.Name,
+            WarrantyPriceIRR = warranty == null ? 0L : warranty.PriceIRR
+        }).ToListAsync(ct);
+    return Results.Ok(rows);
+}).RequirePermission("Cart.Read");
+
 app.MapGet("/api/cart/items",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
     var items=await service.GetItemsAsync(CurrentUserId(user),ct); return Results.Ok(items);
 }).RequirePermission("Cart.Read");
