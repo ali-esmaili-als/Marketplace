@@ -101,6 +101,7 @@ public sealed class OtpAuthService(
             ?? throw new DomainException("No account exists for this mobile number. Register or use password login first.");
         if (!user.IsActive) throw new DomainException("User is inactive.");
 
+        user.SetMobileVerified();
         user.MarkLogin();
         await unitOfWork.SaveChangesAsync(ct);
         var rules = await identity.GetActiveRulesForUserAsync(user.Id, ct);
