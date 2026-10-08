@@ -22,7 +22,8 @@ USING (VALUES
  (1000000104,4,N'بانک ملت',0,0,4),
  (1000000105,5,N'بانک سپه',0,0,5),
  (1000000106,6,N'بانک تجارت',0,0,6),
- (1000000107,7,N'بانک سامان',0,0,7)
+ (1000000107,7,N'بانک سامان',0,0,7),
+ (1000000108,8,N'بانک تستی (بدون اتصال به بانک واقعی)',1,1,0)
 ) AS s(Id,Provider,DisplayName,IsEnabled,IsVisible,SortOrder)
 ON t.Provider=s.Provider
 WHEN NOT MATCHED THEN
