@@ -83,7 +83,7 @@ public sealed class SettlementService
         // funds reserved. The external bank may have accepted the transfer despite a timeout;
         // automatically marking it Failed/releasing funds could permit a duplicate payout.
         // Reconciliation must resolve this state before any retry is allowed.
-        SettlementPayoutResult result;
+        (bool Success, string? Reference, string? Error) result;
         try
         {
             result = await _payout.TransferAsync(bankName,iban,holder,amount,ct);
