@@ -13,19 +13,36 @@ public sealed record OtpLoginResult(long UserId, string Mobile, string DisplayNa
 public sealed class OtpAuthService(
     IConfiguration configuration,
     IEnumerable<ISmsProvider> providers,
+    ISmsProviderSettings settings,
     IMemoryCache cache,
     IIdentityRepository identity,
     ITokenService tokens,
     IUnitOfWork unitOfWork)
 {
     private static string CacheKey(string mobile) => $"auth:otp:{mobile}";
-    private string? SelectedProvider => configuration["Authentication:Otp:Provider"]?.Trim();
-    public bool IsEnabled => !string.IsNullOrWhiteSpace(SelectedProvider) && providers.Any(x => string.Equals(x.Name, SelectedProvider, StringComparison.OrdinalIgnoreCase));
-    public string? SelectedProviderDisplayName => providers.FirstOrDefault(x => string.Equals(x.Name, SelectedProvider, StringComparison.OrdinalIgnoreCase))?.DisplayName;
+
+    public async Task<(bool OtpEnabled, string? ProviderName)> GetOptionsAsync(CancellationToken ct = default)
+    {
+        var selected = await settings.GetSelectedAsync(ct);
+        if (selected is null) return (false, null);
+
+        var provider = providers.FirstOrDefault(x => string.Equals(x.Name, selected.Provider, StringComparison.OrdinalIgnoreCase));
+        return provider is null ? (false, null) : (true, provider.DisplayName);
+    }
+
+    private async Task<ISmsProvider> GetSelectedProviderAsync(CancellationToken ct)
+    {
+        var selected = await settings.GetSelectedAsync(ct);
+        if (selected is null)
+            throw new DomainException("OTP login is disabled because no SMS provider is selected.");
+
+        return providers.FirstOrDefault(x => string.Equals(x.Name, selected.Provider, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"SMS provider '{selected.Provider}' is enabled in database but is not registered.");
+    }
 
     public async Task<OtpRequestResult> RequestAsync(string mobile, CancellationToken ct)
     {
-        var provider = GetSelectedProvider();
+        var provider = await GetSelectedProviderAsync(ct);
         mobile = NormalizeMobile(mobile);
         var throttleKey = $"auth:otp:throttle:{mobile}";
         if (cache.TryGetValue(throttleKey, out _))
@@ -54,7 +71,7 @@ public sealed class OtpAuthService(
 
     public async Task<OtpLoginResult> VerifyAsync(string mobile, string otp, CancellationToken ct)
     {
-        _ = GetSelectedProvider();
+        _ = await GetSelectedProviderAsync(ct);
         mobile = NormalizeMobile(mobile);
         if (!cache.TryGetValue<string>(CacheKey(mobile), out var expected))
             throw new DomainException("Invalid or expired verification code.");
@@ -86,14 +103,6 @@ public sealed class OtpAuthService(
         var token = tokens.Create(user, roles, rules.Select(x => x.Code).ToArray());
         return new OtpLoginResult(user.Id, user.Mobile, user.DisplayName, roles, rules.Select(x => x.Code).ToArray(),
             token.AccessToken, token.ExpiresAtUtc);
-    }
-
-    private ISmsProvider GetSelectedProvider()
-    {
-        if (string.IsNullOrWhiteSpace(SelectedProvider))
-            throw new DomainException("OTP login is disabled because no SMS provider is configured.");
-        return providers.FirstOrDefault(x => string.Equals(x.Name, SelectedProvider, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"SMS provider '{SelectedProvider}' is not registered. Configure a supported provider or add its implementation.");
     }
 
     private static string NormalizeMobile(string mobile)
