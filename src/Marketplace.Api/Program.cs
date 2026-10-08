@@ -302,6 +302,12 @@ app.MapPost("/api/settlements/{settlementId:long}/process",async(long settlement
     return result.Status=="Completed" ? Results.Ok(result) : Results.BadRequest(result);
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapPost("/api/admin/settlements/{settlementId:long}/reconcile", async (long settlementId, SettlementReconciliationRequest request, Marketplace.Application.Settlements.SettlementService service, CancellationToken ct) =>
+{
+    var result = await service.ReconcileAsync(settlementId, request.TransferCompleted, request.BankReference, request.Note, ct);
+    return Results.Ok(result);
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
     var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,ct); return Results.Ok(result);
 }).RequirePermission("Order.Create");
@@ -397,6 +403,7 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
+public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);
