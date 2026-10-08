@@ -33,16 +33,17 @@ public sealed class RefundService
         {
             var order=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
             var payment=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
-            var existing=await _life.GetActiveRefundByOrderAsync(orderId,token);
+            if(payment.Status!=Marketplace.Domain.Payments.PaymentStatus.Succeeded)
+                throw new DomainException("Only successfully paid orders can be refunded.");
 
+            if(order.Status is OrderStatus.Delivered or OrderStatus.DeliveryExpired)
+                order.RequestRefund();
+            else if(order.Status!=OrderStatus.RefundRequested)
+                throw new DomainException("Order is not in a refundable state.");
+
+            var existing=await _life.GetActiveRefundByOrderAsync(orderId,token);
             if(existing is not null)
-            {
-                refundId=existing.Id;
-                paymentId=existing.PaymentId;
-                amount=existing.AmountIRR;
-                paymentReference=payment.ReferenceNumber;
-                return 0;
-            }
+                throw new DomainException("A refund is already in progress. Do not submit another request while its gateway result is uncertain.");
 
             var refund=Refund.Create(await _ids.NextAsync(token),order.Id,payment.Id,order.CustomerId,order.TotalAmountIRR,reason);
             refund.Approve();
