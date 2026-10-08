@@ -112,4 +112,54 @@ public sealed class SettlementService
             return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),result.Reference);
         },ct);
     }
+
+    public async Task<SettlementResult> ReconcileAsync(long settlementId, bool transferCompleted, string? bankReference, string note, CancellationToken ct=default)
+    {
+        if (string.IsNullOrWhiteSpace(note))
+            throw new DomainException("A reconciliation note is required.");
+
+        return await _uow.ExecuteInSerializableTransactionAsync(async token =>
+        {
+            var settlement = await _life.GetSettlementAsync(settlementId, token)
+                ?? throw new DomainException("Settlement not found.");
+            if (settlement.Status is not (SettlementStatus.Processing or SettlementStatus.OnHold))
+                throw new DomainException("Only ambiguous processing settlements can be reconciled.");
+
+            var balance = await _life.GetSellerBalanceAsync(settlement.SellerId, token)
+                ?? throw new DomainException("Seller balance not found.");
+            var amount = settlement.AmountIRR;
+
+            if (transferCompleted)
+            {
+                if (string.IsNullOrWhiteSpace(bankReference))
+                    throw new DomainException("Bank reference is required when confirming a completed transfer.");
+
+                settlement.Complete(bankReference);
+                var before = balance.WithdrawableIRR;
+                balance.CompleteSettlement(amount);
+                balance.RemoveAvailable(amount);
+                _life.AddBalanceTransaction(BalanceTransaction.Create(
+                    await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
+                    BalanceTransactionType.Settlement, amount, before, balance.WithdrawableIRR,
+                    $"RECONCILED_PAID:{bankReference.Trim()}", BalanceBucket.Available));
+            }
+            else
+            {
+                // Use only after checking the bank/provider's final status. A mere timeout is
+                // not evidence that no transfer occurred.
+                var reservedBefore = balance.ReservedForSettlementIRR;
+                settlement.Fail($"Reconciled as not transferred: {note.Trim()}");
+                balance.FailSettlement(amount);
+                _life.AddBalanceTransaction(BalanceTransaction.Create(
+                    await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
+                    BalanceTransactionType.Settlement, amount, reservedBefore,
+                    balance.ReservedForSettlementIRR, $"RECONCILED_NOT_PAID:{note.Trim()}",
+                    BalanceBucket.ReservedForSettlement));
+            }
+
+            await _uow.SaveChangesAsync(token);
+            return new SettlementResult(settlement.Id, amount, settlement.Status.ToString(), settlement.Reference);
+        }, ct);
+    }
+
 }
