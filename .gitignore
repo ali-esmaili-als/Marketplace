@@ -11,3 +11,6 @@
 /tests/Marketplace.Domain.Tests/bin/Debug/net8.0
 /tests/Marketplace.Domain.Tests/obj
 /src/Marketplace.Domain/bin/Debug/net8.0
+/src/Marketplace.Api/bin/Debug/net8.0
+/src/Marketplace.Application/bin/Debug/net8.0
+/src/Marketplace.Infrastructure/bin/Debug/net8.0
