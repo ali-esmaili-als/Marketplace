@@ -73,4 +73,32 @@ public sealed class SettlementTests
         Assert.Throws<DomainException>(() => balance.ReserveForSettlement(30_000));
         Assert.Equal(20_000, balance.WithdrawableIRR);
     }
+
+    [Fact]
+    public void OnHoldSettlement_CanBeCompletedAfterVerifiedReconciliation()
+    {
+        var settlement = CreateSettlement();
+        settlement.MarkProcessing();
+        settlement.PutOnHold();
+
+        settlement.Complete("BANK-RECONCILED-1");
+
+        Assert.Equal(SettlementStatus.Completed, settlement.Status);
+        Assert.Equal("BANK-RECONCILED-1", settlement.Reference);
+        Assert.NotNull(settlement.CompletedAtUtc);
+    }
+
+    [Fact]
+    public void OnHoldSettlement_CanBeFailedAfterVerifiedNonTransfer()
+    {
+        var settlement = CreateSettlement();
+        settlement.MarkProcessing();
+        settlement.PutOnHold();
+
+        settlement.Fail("Bank confirmed no transfer.");
+
+        Assert.Equal(SettlementStatus.Failed, settlement.Status);
+        Assert.Equal("Bank confirmed no transfer.", settlement.FailureReason);
+    }
+
 }
