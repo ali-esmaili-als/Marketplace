@@ -11,7 +11,7 @@ public sealed class SmsProviderSettingsRepository(Marketplace.Infrastructure.Per
             .ToListAsync(ct);
 
     public Task<SmsProviderInfo?> GetSelectedAsync(CancellationToken ct = default)
-        => db.SmsProviderSettings.Where(x => x.IsEnabled && x.IsVisible).OrderBy(x => x.SortOrder)
+        => db.SmsProviderSettings.Where(x => x.IsEnabled).OrderBy(x => x.SortOrder)
             .Select(x => new SmsProviderInfo(x.Provider, x.DisplayName, x.IsEnabled, x.IsVisible, x.SortOrder))
             .FirstOrDefaultAsync(ct);
 }
