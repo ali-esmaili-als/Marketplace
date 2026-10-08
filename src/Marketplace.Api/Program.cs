@@ -162,7 +162,7 @@ app.MapGet("/api/cart/summary", async (System.Security.Claims.ClaimsPrincipal us
     var userId = CurrentUserId(user);
     var cart = await db.Carts.AsNoTracking().Where(x => x.CustomerId == userId)
         .Select(x => new { x.Id, x.StoreId, x.SellerId }).SingleOrDefaultAsync(ct);
-    if (cart is null) return Results.Ok(Array.Empty<object>());
+    if (cart is null) return Results.Ok((object)Array.Empty<object>());
 
     var rows = await (
         from item in db.CartItems.AsNoTracking()
@@ -180,7 +180,7 @@ app.MapGet("/api/cart/summary", async (System.Security.Claims.ClaimsPrincipal us
             WarrantyName = warranty == null ? null : warranty.Name,
             WarrantyPriceIRR = warranty == null ? 0L : warranty.PriceIRR
         }).ToListAsync(ct);
-    return Results.Ok(rows);
+    return Results.Ok((object)rows);
 }).RequirePermission("Cart.Read");
 
 app.MapGet("/api/cart/items",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
