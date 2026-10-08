@@ -24,7 +24,10 @@ public sealed class SettlementService
     {
         var seller = await _sellers.GetSellerByUserIdAsync(userId, ct) ?? throw new DomainException("Seller profile not found.");
         if (seller.Status != SellerStatus.Active) throw new DomainException("Seller is not active.");
-        return await _uow.ExecuteInTransactionAsync(async token =>
+
+        // Withdrawable balance is shared mutable financial state. Serialize the read/reserve/write
+        // sequence so two simultaneous requests cannot reserve the same available funds.
+        return await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             var balance=await _life.GetSellerBalanceAsync(seller.Id,token)??throw new DomainException("Seller balance not found.");
             var account=await _life.GetSellerBankAccountAsync(seller.Id,bankAccountId,token)??throw new DomainException("Bank account not found.");
@@ -49,7 +52,11 @@ public sealed class SettlementService
     {
         long sellerId=0; long amount=0; string bankName="",iban="",holder="";
         SettlementResult? alreadyCompleted = null;
-        await _uow.ExecuteInTransactionAsync(async token =>
+
+        // Claim the settlement under a serializable transaction. Only Requested -> Processing
+        // may reach the external payout call; a concurrent admin request sees Processing and
+        // fails the domain transition instead of starting a second transfer.
+        await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             var settlement=await _life.GetSettlementAsync(settlementId,token)??throw new DomainException("Settlement not found.");
             if(settlement.Status==SettlementStatus.Completed)
@@ -57,8 +64,13 @@ public sealed class SettlementService
                 alreadyCompleted = new SettlementResult(settlement.Id, settlement.AmountIRR, settlement.Status.ToString(), settlement.Reference);
                 return 0;
             }
+
             settlement.MarkProcessing();
-            sellerId=settlement.SellerId; amount=settlement.AmountIRR; bankName=settlement.BankNameSnapshot; iban=settlement.IbanSnapshot; holder=settlement.AccountHolderNameSnapshot;
+            sellerId=settlement.SellerId;
+            amount=settlement.AmountIRR;
+            bankName=settlement.BankNameSnapshot;
+            iban=settlement.IbanSnapshot;
+            holder=settlement.AccountHolderNameSnapshot;
             await _uow.SaveChangesAsync(token);
             return 0;
         },ct);
@@ -67,9 +79,13 @@ public sealed class SettlementService
         // another external bank transfer.
         if (alreadyCompleted is not null) return alreadyCompleted;
 
+        // If the gateway throws or times out, keep the settlement in Processing and keep the
+        // funds reserved. The external bank may have accepted the transfer despite a timeout;
+        // automatically marking it Failed/releasing funds could permit a duplicate payout.
+        // Reconciliation must resolve this state before any retry is allowed.
         var result=await _payout.TransferAsync(bankName,iban,holder,amount,ct);
 
-        return await _uow.ExecuteInTransactionAsync(async token =>
+        return await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             var settlement=await _life.GetSettlementAsync(settlementId,token)??throw new DomainException("Settlement not found.");
             var balance=await _life.GetSellerBalanceAsync(sellerId,token)??throw new DomainException("Seller balance not found.");
