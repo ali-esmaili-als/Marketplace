@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
@@ -13,16 +14,25 @@ public sealed class PaymentGatewayFactory(
     IHttpClientFactory httpClientFactory,
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
     IConfiguration configuration,
-    IHttpContextAccessor httpContextAccessor) : IPaymentGatewayFactory
+    IHttpContextAccessor httpContextAccessor,
+    IHostEnvironment environment) : IPaymentGatewayFactory
 {
-    public Task<IReadOnlyList<PaymentProviderInfo>> GetAvailableAsync(CancellationToken ct=default)
-        => settings.GetAvailableAsync(ct);
+    public async Task<IReadOnlyList<PaymentProviderInfo>> GetAvailableAsync(CancellationToken ct=default)
+    {
+        var providers = await settings.GetAvailableAsync(ct);
+        return environment.IsProduction()
+            ? providers.Where(x => x.Provider != PaymentProviderCode.TestBank).ToArray()
+            : providers;
+    }
 
     public Task<IPaymentGateway> GetForExistingPaymentAsync(PaymentProviderCode provider,CancellationToken ct=default)=>CreateAsync(provider,ct,false);
     public Task<IPaymentGateway> GetAsync(PaymentProviderCode provider,CancellationToken ct=default)=>CreateAsync(provider,ct,true);
 
     private async Task<IPaymentGateway> CreateAsync(PaymentProviderCode provider,CancellationToken ct,bool requireVisible)
     {
+        if (provider == PaymentProviderCode.TestBank && environment.IsProduction())
+            throw new DomainException("The test bank provider is only available outside Production.");
+
         var setting=await db.PaymentProviderSettings.SingleOrDefaultAsync(x=>x.Provider==provider,ct)
             ?? throw new DomainException("Payment provider is not configured.");
 
