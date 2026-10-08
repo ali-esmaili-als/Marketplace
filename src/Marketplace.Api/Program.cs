@@ -17,6 +17,11 @@ var jwtAudience=builder.Configuration["Authentication:Jwt:Audience"] ?? "Marketp
 
 builder.Services.AddMarketplaceApplication();
 builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<Marketplace.Api.Auth.OtpAuthService>();
+builder.Services.AddSingleton<Marketplace.Api.Auth.ISmsProvider, Marketplace.Api.Auth.TestSmsProvider>();
+builder.Services.AddHttpClient<Marketplace.Api.Auth.HttpApiSmsProvider>();
+builder.Services.AddTransient<Marketplace.Api.Auth.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Api.Auth.HttpApiSmsProvider>());
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -70,6 +75,24 @@ app.MapGet("/health/db",async (Marketplace.Infrastructure.Persistence.Marketplac
     return canConnect ? Results.Ok(new { status = "ok", database = "connected", utc = DateTime.UtcNow })
                       : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 });
+
+app.MapGet("/api/auth/options", (Marketplace.Api.Auth.OtpAuthService otp) => Results.Ok(new { otpEnabled = otp.IsEnabled }));
+
+app.MapPost("/api/auth/otp/request", async (Marketplace.Api.Auth.OtpRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+    Results.Ok(await otp.RequestAsync(request.Mobile, ct)));
+
+app.MapPost("/api/auth/otp/verify", async (Marketplace.Api.Auth.OtpVerifyRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+    Results.Ok(await otp.VerifyAsync(request.Mobile, request.Otp, ct)));
+
+app.MapGet("/api/auth/me", async (System.Security.Claims.ClaimsPrincipal user, Marketplace.Application.Abstractions.IIdentityRepository identity, Marketplace.Application.Abstractions.ITokenService tokens, CancellationToken ct) =>
+{
+    var id = CurrentUserId(user);
+    var current = await identity.GetUserByIdAsync(id, ct);
+    if (current is null || !current.IsActive) return Results.Unauthorized();
+    var roles = await tokens.GetRolesAsync(id, ct);
+    var permissions = (await identity.GetActiveRulesForUserAsync(id, ct)).Select(x => x.Code).ToArray();
+    return Results.Ok(new { id = current.Id.ToString(), mobile = current.Mobile, displayName = current.DisplayName, roles, permissions });
+}).RequireAuthorization();
 
 app.MapPost("/api/auth/register/customer",async(RegisterCustomerRequest request,Marketplace.Application.Identity.RegistrationService service,CancellationToken ct)=>
 {
@@ -293,11 +316,11 @@ app.MapGet("/api/seller/orders",async(System.Security.Claims.ClaimsPrincipal use
 app.MapGet("/api/seller/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrderAsync(seller.Id,orderId,ct));}).RequirePermission("Order.ReadOwn");
 app.Run();
 
-public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
+public sealed record LoginRequest(string Mobile, string Password);\npublic sealed record RegisterCustomerRequest(string Mobile, string Password, string DisplayName);\npublic sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
-public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
+public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);\npublic sealed record OtpRequest(string Mobile);\npublic sealed record OtpVerifyRequest(string Mobile, string Otp);
 public sealed record PaymentVerifyRequest(string Authority);
 public sealed record DeliveryConfirmRequest(string Code,string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
 public sealed record ComplaintRequest(long CustomerId,string Reason);
