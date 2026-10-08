@@ -17,6 +17,20 @@ var jwtAudience=builder.Configuration["Authentication:Jwt:Audience"] ?? "Marketp
 
 builder.Services.AddMarketplaceApplication();
 builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<Marketplace.Api.Auth.OtpAuthService>();
+builder.Services.AddScoped<Marketplace.Application.Abstractions.ISmsProviderSettings, Marketplace.Infrastructure.Notifications.SmsProviderSettingsRepository>();
+builder.Services.AddScoped<Marketplace.Application.Abstractions.ISmsProviderSettingsAdmin, Marketplace.Infrastructure.Notifications.SmsProviderSettingsAdminRepository>();
+builder.Services.AddScoped<Marketplace.Application.Notifications.SmsProviderSettingsService>();
+builder.Services.AddSingleton<Marketplace.Application.Abstractions.ISmsProvider, Marketplace.Infrastructure.Sms.TestSmsProvider>();
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.KavenegarSmsProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.KavenegarSmsProvider>());
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.SmsIrProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.SmsIrProvider>());
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.MelipayamakSmsProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.MelipayamakSmsProvider>());
+builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.HttpApiSmsProvider>();
+builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.HttpApiSmsProvider>());
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -70,6 +84,28 @@ app.MapGet("/health/db",async (Marketplace.Infrastructure.Persistence.Marketplac
     return canConnect ? Results.Ok(new { status = "ok", database = "connected", utc = DateTime.UtcNow })
                       : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 });
+
+app.MapGet("/api/auth/options", async (Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+{
+    var options = await otp.GetOptionsAsync(ct);
+    return Results.Ok(new { otpEnabled = options.OtpEnabled, providerName = options.ProviderName });
+});
+
+app.MapPost("/api/auth/otp/request", async (OtpRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+    Results.Ok(await otp.RequestAsync(request.Mobile, ct)));
+
+app.MapPost("/api/auth/otp/verify", async (OtpVerifyRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+    Results.Ok(await otp.VerifyAsync(request.Mobile, request.Otp, ct)));
+
+app.MapGet("/api/auth/me", async (System.Security.Claims.ClaimsPrincipal user, Marketplace.Application.Abstractions.IIdentityRepository identity, Marketplace.Application.Abstractions.ITokenService tokens, CancellationToken ct) =>
+{
+    var id = CurrentUserId(user);
+    var current = await identity.GetUserByIdAsync(id, ct);
+    if (current is null || !current.IsActive) return Results.Unauthorized();
+    var roles = await tokens.GetRolesAsync(id, ct);
+    var permissions = (await identity.GetActiveRulesForUserAsync(id, ct)).Select(x => x.Code).ToArray();
+    return Results.Ok(new { id = current.Id.ToString(), mobile = current.Mobile, displayName = current.DisplayName, roles, permissions });
+}).RequireAuthorization();
 
 app.MapPost("/api/auth/register/customer",async(RegisterCustomerRequest request,Marketplace.Application.Identity.RegistrationService service,CancellationToken ct)=>
 {
@@ -186,6 +222,13 @@ app.MapPut("/api/stores/{storeId:long}/shipping-cities",async(System.Security.Cl
 app.MapGet("/api/payments/providers",async(Marketplace.Application.Abstractions.IPaymentProviderSettings settings,CancellationToken ct)=>
     Results.Ok(await settings.GetAvailableAsync(ct)));
 
+app.MapGet("/api/admin/sms-providers",async(Marketplace.Application.Notifications.SmsProviderSettingsService service,CancellationToken ct)=>
+    Results.Ok(await service.GetAllAsync(ct))).RequirePermission("Admin.SmsProviders.Read");
+app.MapPut("/api/admin/sms-providers/{provider}",async(string provider,SmsProviderConfigureRequest request,Marketplace.Application.Notifications.SmsProviderSettingsService service,CancellationToken ct)=>{
+    await service.ConfigureAsync(provider,request.IsEnabled,request.IsVisible,request.SortOrder,ct);
+    return Results.NoContent();
+}).RequirePermission("Admin.SmsProviders.Configure");
+
 app.MapGet("/api/admin/payment-providers",async(Marketplace.Application.Payments.PaymentProviderSettingsService service,CancellationToken ct)=>
     Results.Ok(await service.GetAllAsync(ct))).RequirePermission("Admin.PaymentProviders.Read");
 
@@ -274,6 +317,7 @@ app.MapPut("/api/sellers/me/variants/{variantId:long}",async(System.Security.Cla
  var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.UpdateVariantAsync(seller.Id,variantId,request.SKU,request.VariantKey,request.PriceIRR,request.IsActive,ct); return Results.NoContent();
 }).RequirePermission("Seller.Catalog.Manage");
 
+app.MapGet("/api/sellers/me/variants/{variantId:long}/stock",async(System.Security.Claims.ClaimsPrincipal user,long variantId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();var stock=await service.GetStockAsync(seller.Id,variantId,ct);return Results.Ok(new { stockQuantity=stock.StockQuantity,reservedQuantity=stock.ReservedQuantity,availableQuantity=stock.AvailableQuantity });}).RequirePermission("Seller.Catalog.Manage");
 app.MapPut("/api/sellers/me/variants/{variantId:long}/stock",async(System.Security.Claims.ClaimsPrincipal user,long variantId,StockRequest request,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
  var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.SetStockAsync(seller.Id,variantId,request.Quantity,ct); return Results.NoContent();
 }).RequirePermission("Seller.Catalog.Manage");
@@ -298,6 +342,9 @@ public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
+public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
+public sealed record OtpRequest(string Mobile);
+public sealed record OtpVerifyRequest(string Mobile, string Otp);
 public sealed record PaymentVerifyRequest(string Authority);
 public sealed record DeliveryConfirmRequest(string Code,string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
 public sealed record ComplaintRequest(long CustomerId,string Reason);
