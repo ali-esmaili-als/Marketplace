@@ -31,7 +31,7 @@ public sealed class TestBankPaymentGateway(string? returnBaseUrl) : IPaymentGate
         var valid = amountIRR > 0 && !string.IsNullOrWhiteSpace(authority)
             && authority.StartsWith("TEST-", StringComparison.Ordinal);
         return Task.FromResult(valid
-            ? new PaymentVerification(true, $"TEST-REF-{authority[^Math.Min(authority.Length, 12)..]}", null)
+            ? new PaymentVerification(true, $"TEST-REF-{authority.Substring(Math.Max(0, authority.Length - 12))}", null)
             : new PaymentVerification(false, null, "Invalid test-bank authority."));
     }
 
