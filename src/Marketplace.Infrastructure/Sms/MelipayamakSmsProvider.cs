@@ -10,41 +10,64 @@ public sealed class MelipayamakSmsProvider(HttpClient http, IConfiguration confi
     public string DisplayName => "ملی پیامک";
     public string CreateCode() => RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
 
-    public async Task SendAsync(string mobile, string message, CancellationToken ct)
+    public async Task SendOtpAsync(string mobile, string code, CancellationToken ct)
     {
         var username = Required("Authentication:Otp:Melipayamak:Username");
         var password = Required("Authentication:Otp:Melipayamak:Password");
         var from = configuration["Authentication:Otp:Melipayamak:From"];
         var bodyId = configuration["Authentication:Otp:Melipayamak:BodyId"];
-        var code = ExtractCode(message);
 
         using HttpResponseMessage response;
         if (int.TryParse(bodyId, out var templateId) && templateId > 0)
         {
-            using var content = new FormUrlEncodedContent(new Dictionary<string,string> {
-                ["username"]=username, ["password"]=password, ["text"]=code, ["to"]=mobile, ["bodyId"]=templateId.ToString()
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["username"] = username,
+                ["password"] = password,
+                ["text"] = code,
+                ["to"] = mobile,
+                ["bodyId"] = templateId.ToString()
             });
-            response = await http.PostAsync("https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber", content, ct);
+            response = await http.PostAsync(
+                "https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber",
+                content,
+                ct);
         }
         else
         {
-            if (string.IsNullOrWhiteSpace(from)) throw new InvalidOperationException("Authentication:Otp:Melipayamak:From or BodyId is required.");
-            using var content = new FormUrlEncodedContent(new Dictionary<string,string> {
-                ["username"]=username, ["password"]=password, ["to"]=mobile, ["from"]=from, ["text"]=message, ["isFlash"]="false"
+            if (string.IsNullOrWhiteSpace(from))
+                throw new InvalidOperationException(
+                    "Authentication:Otp:Melipayamak:From or BodyId is required.");
+
+            var message = $"Your Marketplace verification code is {code}";
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["username"] = username,
+                ["password"] = password,
+                ["to"] = mobile,
+                ["from"] = from,
+                ["text"] = message,
+                ["isFlash"] = "false"
             });
-            response = await http.PostAsync("https://rest.payamak-panel.com/api/SendSMS/SendSMS", content, ct);
+            response = await http.PostAsync(
+                "https://rest.payamak-panel.com/api/SendSMS/SendSMS",
+                content,
+                ct);
         }
 
         var body = await response.Content.ReadAsStringAsync(ct);
-        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Melipayamak rejected the OTP request. HTTP {(int)response.StatusCode}: {body}");
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"Melipayamak rejected the OTP request. HTTP {(int)response.StatusCode}: {body}");
+
         using var json = JsonDocument.Parse(body);
-        if (json.RootElement.TryGetProperty("RetStatus", out var status) && status.GetInt32() != 1)
+        if (json.RootElement.TryGetProperty("RetStatus", out var status) &&
+            status.GetInt32() != 1)
             throw new InvalidOperationException($"Melipayamak rejected the OTP request: {body}");
     }
 
-    private string Required(string key) => configuration[key] is { Length: > 0 } value ? value : throw new InvalidOperationException($"{key} is required.");
-    private static string ExtractCode(string message) {
-        var digits = new string(message.Where(char.IsDigit).ToArray());
-        return digits.Length >= 4 ? digits[^Math.Min(6, digits.Length)..] : throw new InvalidOperationException("OTP code is missing.");
-    }
+    private string Required(string key) =>
+        configuration[key] is { Length: > 0 } value
+            ? value
+            : throw new InvalidOperationException($"{key} is required.");
 }
