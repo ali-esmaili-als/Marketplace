@@ -92,11 +92,24 @@ public sealed class OtpAuthService(
     {
         _ = GetSelectedProvider();
         mobile = NormalizeMobile(mobile);
-        if (string.IsNullOrWhiteSpace(otp) || !cache.TryGetValue<string>(CacheKey(mobile), out var expected) ||
-            !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected!), Encoding.UTF8.GetBytes(Hash(otp.Trim()))))
+        if (!cache.TryGetValue<string>(CacheKey(mobile), out var expected))
             throw new DomainException("Invalid or expired verification code.");
 
+        var suppliedHash = Hash((otp ?? string.Empty).Trim());
+        if (string.IsNullOrWhiteSpace(otp) ||
+            !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected!), Encoding.UTF8.GetBytes(suppliedHash)))
+        {
+            var attemptsKey = $"auth:otp:attempts:{mobile}";
+            var attempts = cache.Get<int>(attemptsKey) + 1;
+            cache.Set(attemptsKey, attempts, TimeSpan.FromMinutes(5));
+            if (attempts >= 5) cache.Remove(CacheKey(mobile));
+            throw new DomainException(attempts >= 5
+                ? "Too many invalid verification attempts. Request a new code."
+                : "Invalid or expired verification code.");
+        }
+
         cache.Remove(CacheKey(mobile));
+        cache.Remove($"auth:otp:attempts:{mobile}");
         var user = await identity.GetUserByMobileAsync(mobile, ct)
             ?? throw new DomainException("No account exists for this mobile number. Register or use password login first.");
         if (!user.IsActive) throw new DomainException("User is inactive.");
