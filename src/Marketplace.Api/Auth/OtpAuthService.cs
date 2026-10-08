@@ -29,7 +29,7 @@ public sealed class HttpApiSmsProvider(HttpClient http, IConfiguration configura
     public async Task SendAsync(string mobile, string message, CancellationToken ct)
     {
         var endpoint = configuration["Authentication:Otp:HttpApi:Endpoint"];
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttps && !http.BaseAddress?.IsLoopback == true))
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
             throw new InvalidOperationException("A valid HTTPS Authentication:Otp:HttpApi:Endpoint is required for the HttpApi SMS provider.");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, uri)
@@ -57,7 +57,7 @@ public sealed class OtpAuthService(
 {
     private static string CacheKey(string mobile) => $"auth:otp:{mobile}";
     private string? SelectedProvider => configuration["Authentication:Otp:Provider"]?.Trim();
-    public bool IsEnabled => !string.IsNullOrWhiteSpace(SelectedProvider);
+    public bool IsEnabled => !string.IsNullOrWhiteSpace(SelectedProvider) && providers.Any(x => string.Equals(x.Name, SelectedProvider, StringComparison.OrdinalIgnoreCase));
 
     public async Task<OtpRequestResult> RequestAsync(string mobile, CancellationToken ct)
     {
