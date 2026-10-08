@@ -18,7 +18,7 @@ public sealed class MelipayamakSmsProvider(HttpClient http, IConfiguration confi
         var from = configuration["Authentication:Otp:Melipayamak:From"];
         var bodyId = configuration["Authentication:Otp:Melipayamak:BodyId"];
 
-        using HttpResponseMessage response;
+        HttpResponseMessage response;
         if (int.TryParse(bodyId, out var templateId) && templateId > 0)
         {
             using var content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -56,15 +56,18 @@ public sealed class MelipayamakSmsProvider(HttpClient http, IConfiguration confi
                 ct);
         }
 
-        var body = await response.Content.ReadAsStringAsync(ct);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(
-                $"Melipayamak rejected the OTP request. HTTP {(int)response.StatusCode}: {body}");
+        using (response)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"Melipayamak rejected the OTP request. HTTP {(int)response.StatusCode}: {body}");
 
-        using var json = JsonDocument.Parse(body);
-        if (json.RootElement.TryGetProperty("RetStatus", out var status) &&
-            status.GetInt32() != 1)
-            throw new InvalidOperationException($"Melipayamak rejected the OTP request: {body}");
+            using var json = JsonDocument.Parse(body);
+            if (json.RootElement.TryGetProperty("RetStatus", out var status) &&
+                status.GetInt32() != 1)
+                throw new InvalidOperationException($"Melipayamak rejected the OTP request: {body}");
+        }
     }
 
     private string Required(string key) =>
