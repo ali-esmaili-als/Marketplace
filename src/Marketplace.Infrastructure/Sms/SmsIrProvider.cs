@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Marketplace.Application.Abstractions;
