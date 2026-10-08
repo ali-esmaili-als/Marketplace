@@ -3,13 +3,15 @@ using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Payments;
+using Microsoft.Extensions.Configuration;
 
 namespace Marketplace.Infrastructure.Payments;
 
 public sealed class PaymentGatewayFactory(
     IPaymentProviderSettings settings,
     IHttpClientFactory httpClientFactory,
-    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db) : IPaymentGatewayFactory
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    IConfiguration configuration) : IPaymentGatewayFactory
 {
     public Task<IReadOnlyList<PaymentProviderInfo>> GetAvailableAsync(CancellationToken ct=default)
         => settings.GetAvailableAsync(ct);
@@ -28,6 +30,7 @@ public sealed class PaymentGatewayFactory(
         var config=BankGatewayAdapterBase.Parse(setting.ConfigurationJson);
         return provider switch
         {
+            PaymentProviderCode.TestBank=>new TestBankPaymentGateway(configuration["Payment:TestReturnBaseUrl"]),
             PaymentProviderCode.Melli=>new MelliGatewayAdapter(httpClientFactory,config),
             PaymentProviderCode.Parsian=>new ParsianGatewayAdapter(httpClientFactory,config),
             PaymentProviderCode.Pasargad=>new PasargadGatewayAdapter(httpClientFactory,config),
