@@ -19,6 +19,9 @@ builder.Services.AddMarketplaceApplication();
 builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<Marketplace.Api.Auth.OtpAuthService>();
+builder.Services.AddScoped<Marketplace.Application.Abstractions.ISmsProviderSettings, Marketplace.Infrastructure.Notifications.SmsProviderSettingsRepository>();
+builder.Services.AddScoped<Marketplace.Application.Abstractions.ISmsProviderSettingsAdmin, Marketplace.Infrastructure.Notifications.SmsProviderSettingsAdminRepository>();
+builder.Services.AddScoped<Marketplace.Application.Notifications.SmsProviderSettingsService>();
 builder.Services.AddSingleton<Marketplace.Application.Abstractions.ISmsProvider, Marketplace.Infrastructure.Sms.TestSmsProvider>();
 builder.Services.AddHttpClient<Marketplace.Infrastructure.Sms.KavenegarSmsProvider>();
 builder.Services.AddTransient<Marketplace.Application.Abstractions.ISmsProvider>(sp => sp.GetRequiredService<Marketplace.Infrastructure.Sms.KavenegarSmsProvider>());
@@ -82,7 +85,11 @@ app.MapGet("/health/db",async (Marketplace.Infrastructure.Persistence.Marketplac
                       : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 });
 
-app.MapGet("/api/auth/options", (Marketplace.Api.Auth.OtpAuthService otp) => Results.Ok(new { otpEnabled = otp.IsEnabled, providerName = otp.SelectedProviderDisplayName }));
+app.MapGet("/api/auth/options", async (Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+{
+    var options = await otp.GetOptionsAsync(ct);
+    return Results.Ok(new { otpEnabled = options.OtpEnabled, providerName = options.ProviderName });
+});
 
 app.MapPost("/api/auth/otp/request", async (OtpRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
     Results.Ok(await otp.RequestAsync(request.Mobile, ct)));
@@ -215,6 +222,13 @@ app.MapPut("/api/stores/{storeId:long}/shipping-cities",async(System.Security.Cl
 app.MapGet("/api/payments/providers",async(Marketplace.Application.Abstractions.IPaymentProviderSettings settings,CancellationToken ct)=>
     Results.Ok(await settings.GetAvailableAsync(ct)));
 
+app.MapGet("/api/admin/sms-providers",async(Marketplace.Application.Notifications.SmsProviderSettingsService service,CancellationToken ct)=>
+    Results.Ok(await service.GetAllAsync(ct))).RequirePermission("Admin.SmsProviders.Read");
+app.MapPut("/api/admin/sms-providers/{provider}",async(string provider,SmsProviderConfigureRequest request,Marketplace.Application.Notifications.SmsProviderSettingsService service,CancellationToken ct)=>{
+    await service.ConfigureAsync(provider,request.IsEnabled,request.IsVisible,request.SortOrder,ct);
+    return Results.NoContent();
+}).RequirePermission("Admin.SmsProviders.Configure");
+
 app.MapGet("/api/admin/payment-providers",async(Marketplace.Application.Payments.PaymentProviderSettingsService service,CancellationToken ct)=>
     Results.Ok(await service.GetAllAsync(ct))).RequirePermission("Admin.PaymentProviders.Read");
 
@@ -327,6 +341,7 @@ public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
+public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);
 public sealed record OtpVerifyRequest(string Mobile, string Otp);
 public sealed record PaymentVerifyRequest(string Authority);
