@@ -401,6 +401,13 @@ app.MapPost("/api/seller/orders/{orderId:long}/delivery/expire",async(System.Sec
 
 app.MapPost("/api/orders/{orderId:long}/complaints",async(System.Security.Claims.ClaimsPrincipal user,long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{var id=await service.ComplaintAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok(new{id});}).RequirePermission("Order.Create");
 
+app.MapGet("/api/admin/complaints",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
+    Results.Ok(await (from c in db.Complaints
+                      join o in db.Orders on c.OrderId equals o.Id
+                      orderby c.CreatedAtUtc descending
+                      select new { c.Id,c.OrderId,c.CustomerId,c.SellerId,Status=(byte)c.Status,c.Reason,c.ResolutionNote,c.CreatedAtUtc,c.ResolvedAtUtc,OrderStatus=(byte)o.Status,TotalIRR=o.TotalAmountIRR })
+                     .Take(200).ToListAsync(ct))).RequirePermission("Complaint.Resolve");
+
 app.MapPost("/api/complaints/{complaintId:long}/resolve",async(long complaintId,ComplaintResolveRequest request,Marketplace.Application.Orders.OrderLifecycleService service,CancellationToken ct)=>{
     await service.ResolveComplaintAsync(complaintId,request.CustomerWon,request.Note,ct);return Results.Ok();
 }).RequirePermission("Complaint.Resolve");
