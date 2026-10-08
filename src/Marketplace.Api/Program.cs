@@ -78,10 +78,10 @@ app.MapGet("/health/db",async (Marketplace.Infrastructure.Persistence.Marketplac
 
 app.MapGet("/api/auth/options", (Marketplace.Api.Auth.OtpAuthService otp) => Results.Ok(new { otpEnabled = otp.IsEnabled }));
 
-app.MapPost("/api/auth/otp/request", async (Marketplace.Api.Auth.OtpRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+app.MapPost("/api/auth/otp/request", async (OtpRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
     Results.Ok(await otp.RequestAsync(request.Mobile, ct)));
 
-app.MapPost("/api/auth/otp/verify", async (Marketplace.Api.Auth.OtpVerifyRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
+app.MapPost("/api/auth/otp/verify", async (OtpVerifyRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
     Results.Ok(await otp.VerifyAsync(request.Mobile, request.Otp, ct)));
 
 app.MapGet("/api/auth/me", async (System.Security.Claims.ClaimsPrincipal user, Marketplace.Application.Abstractions.IIdentityRepository identity, Marketplace.Application.Abstractions.ITokenService tokens, CancellationToken ct) =>
