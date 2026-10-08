@@ -48,12 +48,13 @@ public sealed class SettlementService
     public async Task<SettlementResult> ProcessAsync(long settlementId,CancellationToken ct=default)
     {
         long sellerId=0; long amount=0; string bankName="",iban="",holder="";
+        SettlementResult? alreadyCompleted = null;
         await _uow.ExecuteInTransactionAsync(async token =>
         {
             var settlement=await _life.GetSettlementAsync(settlementId,token)??throw new DomainException("Settlement not found.");
             if(settlement.Status==SettlementStatus.Completed)
             {
-                sellerId=settlement.SellerId; amount=settlement.AmountIRR; bankName=settlement.BankNameSnapshot; iban=settlement.IbanSnapshot; holder=settlement.AccountHolderNameSnapshot;
+                alreadyCompleted = new SettlementResult(settlement.Id, settlement.AmountIRR, settlement.Status.ToString(), settlement.Reference);
                 return 0;
             }
             settlement.MarkProcessing();
@@ -61,6 +62,10 @@ public sealed class SettlementService
             await _uow.SaveChangesAsync(token);
             return 0;
         },ct);
+
+        // A repeated admin request for an already completed settlement must never initiate
+        // another external bank transfer.
+        if (alreadyCompleted is not null) return alreadyCompleted;
 
         var result=await _payout.TransferAsync(bankName,iban,holder,amount,ct);
 

@@ -271,6 +271,28 @@ app.MapGet("/api/sellers/me/settlements", async (System.Security.Claims.ClaimsPr
     }));
 }).RequirePermission("Seller.Settlement.Request");
 
+app.MapGet("/api/admin/settlements", async (string? status, int? take, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var query = db.Settlements.AsNoTracking().AsQueryable();
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        if (!Enum.TryParse<Marketplace.Domain.Finance.SettlementStatus>(status, true, out var parsedStatus))
+            return Results.BadRequest(new { detail = "Invalid settlement status." });
+        query = query.Where(x => x.Status == parsedStatus);
+    }
+
+    var limit = Math.Clamp(take ?? 50, 1, 100);
+    var items = await query.OrderByDescending(x => x.RequestedAtUtc).Take(limit)
+        .Select(x => new
+        {
+            id = x.Id, sellerId = x.SellerId, amountIRR = x.AmountIRR, status = x.Status.ToString(),
+            bankName = x.BankNameSnapshot, iban = x.IbanSnapshot, accountHolderName = x.AccountHolderNameSnapshot,
+            reference = x.Reference, failureReason = x.FailureReason,
+            requestedAtUtc = x.RequestedAtUtc, completedAtUtc = x.CompletedAtUtc
+        }).ToListAsync(ct);
+    return Results.Ok(items);
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapPost("/api/settlements",async(System.Security.Claims.ClaimsPrincipal user,SettlementRequest request,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
     var result=await service.RequestAsync(CurrentUserId(user),request.BankAccountId,request.AmountIRR,ct); return Results.Ok(result);
 }).RequirePermission("Seller.Settlement.Request");
