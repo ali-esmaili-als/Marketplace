@@ -1,47 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Marketplace.Api.Auth;
-
-public interface ISmsProvider
-{
-    string Name { get; }
-    Task SendAsync(string mobile, string message, CancellationToken ct);
-    string CreateCode();
-}
-
-public sealed class TestSmsProvider : ISmsProvider
-{
-    public string Name => "Test";
-    public string CreateCode() => "1234";
-    public Task SendAsync(string mobile, string message, CancellationToken ct) => Task.CompletedTask;
-}
-
-public sealed class HttpApiSmsProvider(HttpClient http, IConfiguration configuration) : ISmsProvider
-{
-    public string Name => "HttpApi";
-    public string CreateCode() => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
-
-    public async Task SendAsync(string mobile, string message, CancellationToken ct)
-    {
-        var endpoint = configuration["Authentication:Otp:HttpApi:Endpoint"];
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidOperationException("A valid HTTPS Authentication:Otp:HttpApi:Endpoint is required for the HttpApi SMS provider.");
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
-        {
-            Content = new StringContent(JsonSerializer.Serialize(new { mobile, message }), Encoding.UTF8, "application/json")
-        };
-        var apiKey = configuration["Authentication:Otp:HttpApi:ApiKey"];
-        if (!string.IsNullOrWhiteSpace(apiKey)) request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
-        using var response = await http.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
-    }
-}
 
 public sealed record OtpRequestResult(int ExpiresInSeconds, int RetryAfterSeconds, string? MaskedMobile);
 public sealed record OtpLoginResult(long UserId, string Mobile, string DisplayName, IReadOnlyCollection<string> Roles,
@@ -58,6 +21,7 @@ public sealed class OtpAuthService(
     private static string CacheKey(string mobile) => $"auth:otp:{mobile}";
     private string? SelectedProvider => configuration["Authentication:Otp:Provider"]?.Trim();
     public bool IsEnabled => !string.IsNullOrWhiteSpace(SelectedProvider) && providers.Any(x => string.Equals(x.Name, SelectedProvider, StringComparison.OrdinalIgnoreCase));
+    public string? SelectedProviderDisplayName => providers.FirstOrDefault(x => string.Equals(x.Name, SelectedProvider, StringComparison.OrdinalIgnoreCase))?.DisplayName;
 
     public async Task<OtpRequestResult> RequestAsync(string mobile, CancellationToken ct)
     {
