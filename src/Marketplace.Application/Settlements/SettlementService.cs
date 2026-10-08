@@ -159,10 +159,12 @@ public sealed class SettlementService
                 var before = balance.WithdrawableIRR;
                 balance.CompleteSettlement(amount);
                 balance.RemoveAvailable(amount);
+                var auditReference = $"RECONCILED_PAID:{bankReference.Trim()}:{note.Trim()}";
+                if (auditReference.Length > 200) auditReference = auditReference[..200];
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
                     BalanceTransactionType.Settlement, amount, before, balance.WithdrawableIRR,
-                    $"RECONCILED_PAID:{bankReference.Trim()}", BalanceBucket.Available));
+                    auditReference, BalanceBucket.Available));
             }
             else
             {
@@ -171,10 +173,12 @@ public sealed class SettlementService
                 var reservedBefore = balance.ReservedForSettlementIRR;
                 settlement.Fail($"Reconciled as not transferred: {note.Trim()}");
                 balance.FailSettlement(amount);
+                var auditReference = $"RECONCILED_NOT_PAID:{note.Trim()}";
+                if (auditReference.Length > 200) auditReference = auditReference[..200];
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
                     BalanceTransactionType.Settlement, amount, reservedBefore,
-                    balance.ReservedForSettlementIRR, $"RECONCILED_NOT_PAID:{note.Trim()}",
+                    balance.ReservedForSettlementIRR, auditReference,
                     BalanceBucket.ReservedForSettlement));
             }
 
