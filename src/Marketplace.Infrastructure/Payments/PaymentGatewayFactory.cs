@@ -11,7 +11,8 @@ public sealed class PaymentGatewayFactory(
     IPaymentProviderSettings settings,
     IHttpClientFactory httpClientFactory,
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
-    IConfiguration configuration) : IPaymentGatewayFactory
+    IConfiguration configuration,
+    IHttpContextAccessor httpContextAccessor) : IPaymentGatewayFactory
 {
     public Task<IReadOnlyList<PaymentProviderInfo>> GetAvailableAsync(CancellationToken ct=default)
         => settings.GetAvailableAsync(ct);
@@ -30,7 +31,7 @@ public sealed class PaymentGatewayFactory(
         var config=BankGatewayAdapterBase.Parse(setting.ConfigurationJson);
         return provider switch
         {
-            PaymentProviderCode.TestBank=>new TestBankPaymentGateway(configuration["Payment:TestReturnBaseUrl"]),
+            PaymentProviderCode.TestBank=>new TestBankPaymentGateway(configuration["Payment:TestReturnBaseUrl"] ?? (httpContextAccessor.HttpContext is { } context ? $"{context.Request.Scheme}://{context.Request.Host}" : null)),
             PaymentProviderCode.Melli=>new MelliGatewayAdapter(httpClientFactory,config),
             PaymentProviderCode.Parsian=>new ParsianGatewayAdapter(httpClientFactory,config),
             PaymentProviderCode.Pasargad=>new PasargadGatewayAdapter(httpClientFactory,config),
