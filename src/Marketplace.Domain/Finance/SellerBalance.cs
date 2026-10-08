@@ -22,7 +22,7 @@ public sealed class SellerBalance : AggregateRoot<long>
     public void ConsumeBlock(long amount){Positive(amount);if(BlockedIRR<amount)throw new DomainException("Insufficient blocked balance.");BlockedIRR-=amount;Touch();}
     public void ReserveForSettlement(long amount){Positive(amount);if(WithdrawableIRR<amount)throw new DomainException("Insufficient withdrawable balance.");ReservedForSettlementIRR=checked(ReservedForSettlementIRR+amount);Touch();}
     public void CompleteSettlement(long amount){Positive(amount);if(ReservedForSettlementIRR<amount)throw new DomainException("Insufficient reserved settlement balance.");ReservedForSettlementIRR-=amount;Touch();}
-    public void FailSettlement(long amount){Positive(amount);if(ReservedForSettlementIRR<amount)throw new DomainException("Insufficient reserved settlement balance.");ReservedForSettlementIRR-=amount;AvailableIRR=checked(AvailableIRR+amount);Touch();}
+    public void FailSettlement(long amount){Positive(amount);if(ReservedForSettlementIRR<amount)throw new DomainException("Insufficient reserved settlement balance.");ReservedForSettlementIRR-=amount;Touch();}
     public void AddLiability(long amount){Positive(amount);LiabilityIRR=checked(LiabilityIRR+amount);Touch();}
     public void RepayLiability(long amount){Positive(amount);if(LiabilityIRR<amount)throw new DomainException("Liability cannot be negative.");LiabilityIRR-=amount;Touch();}
     public void AddAvailable(long amount){Positive(amount);AvailableIRR=checked(AvailableIRR+amount);Touch();}
