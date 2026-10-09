@@ -97,13 +97,12 @@ BEGIN TRY
 
     DECLARE @ArchivedCount INT = @@ROWCOUNT;
     COMMIT TRANSACTION;
-    SELECT @ArchivedCount;
+    SELECT @ArchivedCount AS Value;
 END TRY
 BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
     THROW;
-END CATCH;",
-                    ).SingleAsync(stoppingToken);
+END CATCH").SingleAsync(stoppingToken);
 
                 if (archived > 0)
                     _logger.LogInformation("Archived {ArchivedCount} processed Outbox messages older than {CutoffUtc}.",
