@@ -241,6 +241,23 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
             Assert.Equal(900000L, reader.GetInt64(4));
             Assert.Equal(1L, reader.GetInt64(5));
         }
+
+        SetBearerToken(CustomerUserId);
+        using var deniedArchive = await Client.GetAsync("/api/admin/outbox/archive");
+        Assert.Equal(HttpStatusCode.Forbidden, deniedArchive.StatusCode);
+
+        SetBearerToken(AuthorizedUserId);
+        using var archiveList = await Client.GetAsync("/api/admin/outbox/archive?page=1&pageSize=10");
+        Assert.Equal(HttpStatusCode.OK, archiveList.StatusCode);
+        var archiveJson = await archiveList.Content.ReadAsStringAsync();
+        Assert.Contains("Settlement.Completed", archiveJson);
+        Assert.Contains("\\"total\\":1", archiveJson, StringComparison.OrdinalIgnoreCase);
+
+        using var archiveDetail = await Client.GetAsync("/api/admin/outbox/archive/91004");
+        Assert.Equal(HttpStatusCode.OK, archiveDetail.StatusCode);
+        var detailJson = await archiveDetail.Content.ReadAsStringAsync();
+        Assert.Contains("\\"settlementId\\":4", detailJson);
+        Assert.Contains("ArchivedAtUtc", detailJson, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
