@@ -17,7 +17,18 @@ public sealed class Payment : AggregateRoot<long>
     public DateTime? PaidAtUtc {get;private set;}
     public DateTime? RefundedAtUtc {get;private set;}
     public static Payment Create(long id,long orderId,long customerId,long amountIrr){if(id<=0||orderId<=0||customerId<=0||amountIrr<=0)throw new DomainException("Invalid payment.");return new Payment{Id=id,OrderId=orderId,CustomerId=customerId,AmountIRR=amountIrr,Status=PaymentStatus.Pending,CreatedAtUtc=DateTime.UtcNow};}
-    public void Redirect(string provider,string authority,string? redirectUrl=null){if(Status!=PaymentStatus.Pending)throw new DomainException("Payment cannot be redirected.");if(string.IsNullOrWhiteSpace(provider)||string.IsNullOrWhiteSpace(authority))throw new DomainException("Provider and authority are required.");if(redirectUrl is not null&&(redirectUrl.Length>2048||!Uri.TryCreate(redirectUrl,UriKind.Absolute,out var parsed)||(parsed.Scheme!=Uri.UriSchemeHttps&&parsed.Scheme!=Uri.UriSchemeHttp)))throw new DomainException("Invalid payment redirect URL.");Provider=provider.Trim();Authority=authority.Trim();RedirectUrl=redirectUrl;Status=PaymentStatus.Redirected;}
+    public void Redirect(string provider,string authority,string? redirectUrl=null)
+    {
+        if(Status!=PaymentStatus.Pending)throw new DomainException("Payment cannot be redirected.");
+        if(string.IsNullOrWhiteSpace(provider)||string.IsNullOrWhiteSpace(authority))throw new DomainException("Provider and authority are required.");
+        if(redirectUrl is not null)
+        {
+            var localPath=redirectUrl.StartsWith("/",StringComparison.Ordinal)&&!redirectUrl.StartsWith("//",StringComparison.Ordinal);
+            var absoluteUrl=Uri.TryCreate(redirectUrl,UriKind.Absolute,out var parsed)&&(parsed.Scheme==Uri.UriSchemeHttps||parsed.Scheme==Uri.UriSchemeHttp);
+            if(redirectUrl.Length>2048||(!localPath&&!absoluteUrl))throw new DomainException("Invalid payment redirect URL.");
+        }
+        Provider=provider.Trim();Authority=authority.Trim();RedirectUrl=redirectUrl;Status=PaymentStatus.Redirected;
+    }
     public void Succeed(string reference)
     {
         if(Status is not (PaymentStatus.Pending or PaymentStatus.Redirected))
