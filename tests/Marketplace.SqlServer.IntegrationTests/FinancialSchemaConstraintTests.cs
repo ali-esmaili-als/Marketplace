@@ -23,27 +23,27 @@ public sealed class FinancialSchemaConstraintTests
 
         await db.Database.ExecuteSqlRawAsync("""
             INSERT INTO dbo.SellerBalances
-                (SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
-            VALUES (910001, 100000, 0, 0, 25000, 0, SYSUTCDATETIME());
+                (Id, SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
+            VALUES (910001, 910001, 100000, 0, 0, 25000, 0, SYSUTCDATETIME());
             """);
 
         await AssertDatabaseConstraintAsync(db, """
             INSERT INTO dbo.SellerBalances
-                (SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
-            VALUES (910002, -1, 0, 0, 0, 0, SYSUTCDATETIME());
+                (Id, SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
+            VALUES (910002, 910002, -1, 0, 0, 0, 0, SYSUTCDATETIME());
             """);
 
         await AssertDatabaseConstraintAsync(db, """
             INSERT INTO dbo.SellerBalances
-                (SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
-            VALUES (910001, 1000, 0, 0, 0, 0, SYSUTCDATETIME());
+                (Id, SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
+            VALUES (910003, 910001, 1000, 0, 0, 0, 0, SYSUTCDATETIME());
             """);
 
         await AssertDatabaseConstraintAsync(db, """
             INSERT INTO dbo.Settlements
-                (SellerId, AmountIRR, Status, BankAccountId, BankNameSnapshot, IbanSnapshot,
+                (Id, SellerId, AmountIRR, Status, BankAccountId, BankNameSnapshot, IbanSnapshot,
                  AccountHolderNameSnapshot, RequestedAtUtc)
-            VALUES (910001, 0, 1, 910001, N'Test Bank', N'IR000000000000000000000000',
+            VALUES (910004, 910001, 0, 1, 910001, N'Test Bank', N'IR000000000000000000000000',
                     N'Integration Test', SYSUTCDATETIME());
             """);
 
