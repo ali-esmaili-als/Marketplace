@@ -18,6 +18,8 @@ Carrier shipment tracking is separate from the platform's delivery confirmation 
 - GET /api/stores/{storeId}/shipping-rates and PUT /api/stores/{storeId}/shipping-rates read and save city-specific fees and delivery estimates for the owning seller.
 Shipment endpoints verify seller ownership and use existing permissions. Rate configuration requires Seller.Shipping.Configure.
 
+- GET /api/cart/shipping-options returns only destinations with active coverage and a configured rate for the authenticated customer's current cart.
+
 ## Customer endpoint
 - GET /api/orders/{orderId}/shipment returns tracking information only when the authenticated user owns the order.
 
