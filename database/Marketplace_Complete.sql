@@ -208,6 +208,22 @@ CREATE TABLE dbo.Deliveries(
  ReadyAtUtc DATETIME2(7) NULL, DeliveredAtUtc DATETIME2(7) NULL, ExpiresAtUtc DATETIME2(7) NOT NULL, ConfirmationReference NVARCHAR(200) NULL,
  CONSTRAINT UQ_Deliveries_Order UNIQUE(OrderId), CONSTRAINT CK_Deliveries_Status CHECK(Status BETWEEN 1 AND 5)
 );
+CREATE TABLE dbo.Shipments(
+ Id BIGINT NOT NULL CONSTRAINT PK_Shipments PRIMARY KEY, OrderId BIGINT NOT NULL, SellerId BIGINT NOT NULL,
+ CarrierName NVARCHAR(150) NOT NULL, TrackingNumber NVARCHAR(150) NOT NULL, TrackingUrl NVARCHAR(1000) NULL,
+ Status TINYINT NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL, UpdatedAtUtc DATETIME2(7) NOT NULL,
+ ShippedAtUtc DATETIME2(7) NULL, CarrierDeliveredAtUtc DATETIME2(7) NULL,
+ CONSTRAINT UQ_Shipments_Order UNIQUE(OrderId),
+ CONSTRAINT CK_Shipments_Status CHECK(Status BETWEEN 1 AND 8),
+ CONSTRAINT CK_Shipments_Tracking CHECK(LEN(LTRIM(RTRIM(CarrierName)))>0 AND LEN(LTRIM(RTRIM(TrackingNumber)))>0)
+);
+CREATE TABLE dbo.ShipmentTrackingEvents(
+ Id BIGINT NOT NULL CONSTRAINT PK_ShipmentTrackingEvents PRIMARY KEY, ShipmentId BIGINT NOT NULL,
+ Status TINYINT NOT NULL, Description NVARCHAR(1000) NOT NULL, Location NVARCHAR(200) NULL,
+ ActorUserId BIGINT NOT NULL, OccurredAtUtc DATETIME2(7) NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT CK_ShipmentTrackingEvents_Status CHECK(Status BETWEEN 1 AND 8),
+ CONSTRAINT CK_ShipmentTrackingEvents_Description CHECK(LEN(LTRIM(RTRIM(Description)))>0)
+);
 CREATE TABLE dbo.DeliveryCodes(
  Id BIGINT NOT NULL CONSTRAINT PK_DeliveryCodes PRIMARY KEY, OrderId BIGINT NOT NULL, CodeHash BINARY(32) NOT NULL,
  ExpiresAtUtc DATETIME2(7) NOT NULL, IssuedAtUtc DATETIME2(7) NOT NULL, UsedAtUtc DATETIME2(7) NULL,
@@ -441,6 +457,10 @@ ALTER TABLE dbo.Payments ADD CONSTRAINT FK_Payments_Orders FOREIGN KEY(OrderId) 
 ALTER TABLE dbo.PaymentTransactions ADD CONSTRAINT FK_PaymentTransactions_Payments FOREIGN KEY(PaymentId) REFERENCES dbo.Payments(Id) ON DELETE CASCADE;
 ALTER TABLE dbo.Deliveries ADD CONSTRAINT FK_Deliveries_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id),
                            CONSTRAINT FK_Deliveries_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id);
+ALTER TABLE dbo.Shipments ADD CONSTRAINT FK_Shipments_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id),
+                         CONSTRAINT FK_Shipments_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id);
+ALTER TABLE dbo.ShipmentTrackingEvents ADD CONSTRAINT FK_ShipmentTrackingEvents_Shipments FOREIGN KEY(ShipmentId) REFERENCES dbo.Shipments(Id),
+                                        CONSTRAINT FK_ShipmentTrackingEvents_Users FOREIGN KEY(ActorUserId) REFERENCES dbo.Users(Id);
 ALTER TABLE dbo.DeliveryCodes ADD CONSTRAINT FK_DeliveryCodes_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id);
 ALTER TABLE dbo.Refunds ADD CONSTRAINT FK_Refunds_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id),
                         CONSTRAINT FK_Refunds_Payments FOREIGN KEY(PaymentId) REFERENCES dbo.Payments(Id),
@@ -504,6 +524,8 @@ CREATE INDEX IX_PaymentReconciliationAudits_PaymentId_CreatedAtUtc ON dbo.Paymen
 CREATE INDEX IX_PaymentTransactions_Payment_Status ON dbo.PaymentTransactions(PaymentId,Status);
 CREATE UNIQUE INDEX UX_PaymentTransactions_Provider_Authority ON dbo.PaymentTransactions(Provider,Authority) WHERE Authority IS NOT NULL;
 CREATE INDEX IX_Deliveries_Status_Expires ON dbo.Deliveries(Status,ExpiresAtUtc);
+CREATE INDEX IX_Shipments_Seller_Status_Updated ON dbo.Shipments(SellerId,Status,UpdatedAtUtc);
+CREATE INDEX IX_ShipmentTrackingEvents_Shipment_Occurred ON dbo.ShipmentTrackingEvents(ShipmentId,OccurredAtUtc,Id);
 CREATE INDEX IX_DeliveryCodes_Expiry ON dbo.DeliveryCodes(ExpiresAtUtc,UsedAtUtc);
 CREATE INDEX IX_Refunds_Order_Status ON dbo.Refunds(OrderId,Status);
 CREATE UNIQUE INDEX UX_Refunds_OneActivePerOrder ON dbo.Refunds(OrderId) WHERE Status < 4;
@@ -605,6 +627,8 @@ INSERT INTO @ExpectedTables(TableName) VALUES
 (N'PaymentTransactions'),
 (N'PaymentProviderSettings'),
 (N'Deliveries'),
+(N'Shipments'),
+(N'ShipmentTrackingEvents'),
 (N'DeliveryCodes'),
 (N'Refunds'),
 (N'Complaints'),
