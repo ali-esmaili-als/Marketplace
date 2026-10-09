@@ -82,7 +82,7 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
 
                 -- The complete bootstrap schema seeds Admin.Settlement.Process as Rule 3003.
                 INSERT dbo.UserRules(Id, UserId, RuleId, GrantedAtUtc)
-                VALUES (99002, 71002, 3003, @now);
+                VALUES (99002, 71002, 3003, @now), (99003, 71002, 3008, @now);
 
                 INSERT dbo.Sellers(Id, UserId, Status, CommissionRateBasisPoints, MinimumCommissionIRR, MaxStoreCount, CreatedAtUtc, ActivatedAtUtc)
                 VALUES (72001, 71002, 2, 1000, 0, 2, @now, @now);
@@ -260,6 +260,45 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         using var detailDocument = System.Text.Json.JsonDocument.Parse(detailJson);
         Assert.Contains("settlementId", detailDocument.RootElement.GetProperty("payloadJson").GetString()!, StringComparison.OrdinalIgnoreCase);
         Assert.True(detailDocument.RootElement.TryGetProperty("archivedAtUtc", out _));
+    }
+
+    [Fact]
+    public async Task Admin_order_workspace_is_read_only_authorized_and_filterable()
+    {
+        SetBearerToken(CustomerUserId);
+        using var denied = await Client.GetAsync("/api/admin/orders");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+
+        SetBearerToken(AuthorizedUserId);
+        using var list = await Client.GetAsync("/api/admin/orders?status=8&page=1&pageSize=10");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        using var listJson = System.Text.Json.JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        Assert.Equal(1, listJson.RootElement.GetProperty("total").GetInt64());
+        Assert.Equal(OrderId, listJson.RootElement.GetProperty("items")[0].GetProperty("id").GetInt64());
+
+        using var detail = await Client.GetAsync($"/api/admin/orders/{OrderId}");
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        using var detailJson = System.Text.Json.JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
+        Assert.Equal(OrderId, detailJson.RootElement.GetProperty("order").GetProperty("id").GetInt64());
+        Assert.Equal(900000, detailJson.RootElement.GetProperty("order").GetProperty("sellerAmountIRR").GetInt64());
+
+        using var invalidFilter = await Client.GetAsync("/api/admin/orders?status=99");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidFilter.StatusCode);
+        using var missing = await Client.GetAsync("/api/admin/orders/999999");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+
+        await using var connection = new SqlConnection(_targetConnectionString);
+        await connection.OpenAsync();
+        await using var financial = new SqlCommand("""
+            SELECT AvailableIRR,
+                   (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions WHERE SellerId = @SellerId)
+            FROM dbo.SellerBalances WHERE SellerId = @SellerId;
+            """, connection);
+        financial.Parameters.AddWithValue("@SellerId", SellerId);
+        await using var reader = await financial.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(900000L, reader.GetInt64(0));
+        Assert.Equal(1L, reader.GetInt64(1));
     }
 
     [Fact]
