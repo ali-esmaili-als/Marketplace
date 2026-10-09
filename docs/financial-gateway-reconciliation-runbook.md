@@ -111,3 +111,12 @@ These diagnostics are deliberately conservative. Some rows indicate an inconsist
 5. If the provider state is still ambiguous, leave the refund Processing. Do not submit another refund, mark the order refunded manually, or release/consume seller funds with ad-hoc SQL.
 6. After the reconciliation transaction commits, rerun diagnostics. Confirm the expected refund/order/payment/hold/ledger/audit outcome and investigate any remaining finding.
 7. If the provider confirms a transfer but database finalization fails, preserve the existing state for reconciliation and escalate with the provider reference and exception details. Never replay the gateway refund simply to retry database persistence.
+
+### Payment-to-ledger diagnostics (checks 27–30)
+
+- **27 — Payment/order amount mismatch:** compare the persisted order total with the payment initiation snapshot and gateway receipt. Do not overwrite either amount until the cause (legacy data, incorrect payment creation, or corruption) is established.
+- **28 — Captured/refunded payment without a sale ledger entry:** inspect the payment verification result, order lifecycle transaction, seller hold, and ledger history. For refunded orders, the original sale entry should remain auditable; the refund is a separate compensating movement.
+- **29 — Sale ledger seller/amount mismatch:** compare the immutable order seller amount snapshot and seller identity against the ledger row. Treat a mismatch as a financial integrity incident, not a display issue.
+- **30 — Multiple holds for one order:** inspect every hold's status and associated ledger movements. Do not sum, release, or consume holds manually until it is clear whether duplicate rows represent a committed duplicate or legitimate historical data.
+
+For each finding, first preserve the query output and correlate payment provider references with order and ledger records. Checks 27–30 are read-only signals; they never justify direct SQL balance edits. After an authorized application-level reconciliation, rerun the relevant checks and retain the before/after evidence.
