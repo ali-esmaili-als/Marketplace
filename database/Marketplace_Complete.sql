@@ -441,6 +441,7 @@ CREATE UNIQUE INDEX UX_PaymentTransactions_Provider_Authority ON dbo.PaymentTran
 CREATE INDEX IX_Deliveries_Status_Expires ON dbo.Deliveries(Status,ExpiresAtUtc);
 CREATE INDEX IX_DeliveryCodes_Expiry ON dbo.DeliveryCodes(ExpiresAtUtc,UsedAtUtc);
 CREATE INDEX IX_Refunds_Order_Status ON dbo.Refunds(OrderId,Status);
+CREATE UNIQUE INDEX UX_Refunds_OneActivePerOrder ON dbo.Refunds(OrderId) WHERE Status < 4;
 CREATE INDEX IX_RefundReconciliationAudits_Refund_Created ON dbo.RefundReconciliationAudits(RefundId,CreatedAtUtc);
 CREATE INDEX IX_Complaints_Order_Status ON dbo.Complaints(OrderId,Status);
 CREATE INDEX IX_InventoryReservations_Order_Status ON dbo.InventoryReservations(OrderId,Status);
