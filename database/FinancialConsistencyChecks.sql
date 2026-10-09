@@ -633,3 +633,26 @@ FROM dbo.Refunds AS r
 WHERE r.Status < 4 -- Requested, Approved, Processing
 GROUP BY r.OrderId
 HAVING COUNT_BIG(*) > 1;
+
+
+PRINT '55. Successful payment transactions conflict with terminal payment status';
+SELECT pt.Id AS PaymentTransactionId, pt.PaymentId, pt.Status AS TransactionStatus,
+       p.Status AS PaymentStatus, pt.Provider, pt.Authority, pt.Reference,
+       pt.AmountIRR AS TransactionAmountIRR, p.AmountIRR AS PaymentAmountIRR
+FROM dbo.PaymentTransactions AS pt
+JOIN dbo.Payments AS p ON p.Id = pt.PaymentId
+WHERE pt.Status = 2 -- Succeeded
+  AND p.Status NOT IN (3, 8); -- Succeeded or ReconciliationRequired after a post-gateway finalization failure
+
+PRINT '56. Succeeded payments have no successful provider transaction';
+SELECT p.Id AS PaymentId, p.OrderId, p.AmountIRR, p.Status AS PaymentStatus,
+       p.Provider, p.Authority, p.ReferenceNumber
+FROM dbo.Payments AS p
+WHERE p.Status = 3 -- Succeeded
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.PaymentTransactions AS pt
+      WHERE pt.PaymentId = p.Id
+        AND pt.Status = 2 -- Succeeded
+  );
