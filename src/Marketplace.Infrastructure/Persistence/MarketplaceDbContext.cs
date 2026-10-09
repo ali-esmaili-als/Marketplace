@@ -256,6 +256,7 @@ public sealed class MarketplaceDbContext : DbContext
             e.Property(x => x.EventType).HasMaxLength(200).IsRequired();
             e.Property(x => x.PayloadJson).HasColumnType("nvarchar(max)").IsRequired();
             e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Status).IsConcurrencyToken();
             e.Property(x => x.LastError).HasMaxLength(2000);
             e.Property(x => x.LockToken).IsConcurrencyToken();
             e.HasIndex(x => new { x.Status, x.NextAttemptAtUtc, x.Id });
