@@ -16,12 +16,13 @@ public sealed class Commission : AggregateRoot<long>
     public long SellerAmountIRR { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
-    public static Commission Create(long id,long orderId,long storeId,long sellerId,long orderAmountIrr,decimal rate,long minimumCommissionIrr)
+    public static Commission Create(long id,long orderId,long storeId,long sellerId,long orderAmountIrr,decimal rate,long minimumCommissionIrr,long shippingFeeIrr=0)
     {
-        if(orderAmountIrr<0 || rate<0 || rate>100 || minimumCommissionIrr<0) throw new DomainException("Invalid commission values.");
-        var calculated=checked((long)Math.Floor(orderAmountIrr*rate/100m));
+        if(orderAmountIrr<0 || shippingFeeIrr<0 || shippingFeeIrr>orderAmountIrr || rate<0 || rate>100 || minimumCommissionIrr<0) throw new DomainException("Invalid commission values.");
+        var commissionableAmount=orderAmountIrr-shippingFeeIrr;
+        var calculated=checked((long)Math.Floor(commissionableAmount*rate/100m));
         var final=Math.Max(calculated,minimumCommissionIrr);
-        if(final>orderAmountIrr) final=orderAmountIrr;
+        if(final>commissionableAmount) final=commissionableAmount;
         return new Commission { Id=id, OrderId=orderId, StoreId=storeId, SellerId=sellerId, OrderAmountIRR=orderAmountIrr, CommissionRate=rate, MinimumCommissionIRR=minimumCommissionIrr, CalculatedCommissionIRR=calculated, CommissionAmountIRR=final, SellerAmountIRR=orderAmountIrr-final, CreatedAtUtc=DateTime.UtcNow };
     }
 }
