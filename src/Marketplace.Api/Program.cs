@@ -607,7 +607,8 @@ app.MapGet("/api/admin/settlements/reconciliation/history", async (Marketplace.I
 }).RequirePermission("Admin.Settlement.Process");
 
 app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
-    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,ct); return Results.Ok(result);
+    if(string.IsNullOrWhiteSpace(request.RequestKey)||request.RequestKey.Length<16||request.RequestKey.Length>64) return Results.BadRequest(new { detail="A valid checkout request key is required." });
+    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,request.RequestKey,ct); return Results.Ok(result);
 }).RequirePermission("Order.Create");
 
 app.MapGet("/api/payments/test-return", async (long paymentId, string authority, string? result,
@@ -890,7 +891,7 @@ app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
-public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
+public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR,string? RequestKey);
 public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);

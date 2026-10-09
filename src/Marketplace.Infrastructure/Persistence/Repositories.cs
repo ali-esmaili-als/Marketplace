@@ -19,6 +19,7 @@ namespace Marketplace.Infrastructure.Persistence;
 public sealed class OrderRepository(MarketplaceDbContext db) : IOrderRepository
 {
     public Task<Order?> GetAsync(long id, CancellationToken ct=default) => db.Orders.SingleOrDefaultAsync(x=>x.Id==id,ct);
+    public Task<Order?> GetByCustomerRequestKeyAsync(long customerId,string requestKey,CancellationToken ct=default) => db.Orders.SingleOrDefaultAsync(x=>x.CustomerId==customerId&&x.RequestKey==requestKey,ct);
     public void Add(Order order) => db.Orders.Add(order);
 }
 

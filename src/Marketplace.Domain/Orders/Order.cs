@@ -6,6 +6,7 @@ public sealed class Order : AggregateRoot<long>
 {
     private Order() { }
     public long CustomerId { get; private set; }
+    public string? RequestKey { get; private set; }
     public long SellerId { get; private set; }
     public long StoreId { get; private set; }
     public long SubtotalAmountIRR { get; private set; }
@@ -24,11 +25,12 @@ public sealed class Order : AggregateRoot<long>
     public DateTime? DeliveryExpiresAtUtc { get; private set; }
     public DateTime? ComplaintExpiresAtUtc { get; private set; }
 
-    public static Order Create(long id,long customerId,long sellerId,long storeId,long subtotalAmountIrr,long totalAmountIrr)
+    public static Order Create(long id,long customerId,long sellerId,long storeId,long subtotalAmountIrr,long totalAmountIrr,string? requestKey=null)
     {
         if(id<=0||customerId<=0||sellerId<=0||storeId<=0||subtotalAmountIrr<=0||totalAmountIrr<=0||totalAmountIrr>subtotalAmountIrr)
             throw new DomainException("Invalid order.");
-        return new Order { Id=id,CustomerId=customerId,SellerId=sellerId,StoreId=storeId,SubtotalAmountIRR=subtotalAmountIrr,TotalAmountIRR=totalAmountIrr,SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
+        if (!string.IsNullOrWhiteSpace(requestKey) && (requestKey.Trim().Length > 64 || requestKey.Trim().Length < 16)) throw new DomainException("Invalid checkout request key.");
+        return new Order { Id=id,CustomerId=customerId,RequestKey=string.IsNullOrWhiteSpace(requestKey)?null:requestKey.Trim(),SellerId=sellerId,StoreId=storeId,SubtotalAmountIRR=subtotalAmountIrr,TotalAmountIRR=totalAmountIrr,SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
     }
     public void SetDiscounts(long campaignDiscountIrr,long couponDiscountIrr,string? couponCode)
     {

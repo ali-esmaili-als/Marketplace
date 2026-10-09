@@ -24,12 +24,32 @@ public sealed class OrderCreationService
     public OrderCreationService(ICartRepository carts,ICatalogRepository catalog,IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,IPaymentGatewayFactory gatewayFactory,IShippingRepository shipping,PricingService pricing)
     { _carts=carts;_catalog=catalog;_orders=orders;_payments=payments;_life=life;_uow=uow;_ids=ids;_gatewayFactory=gatewayFactory;_shipping=shipping;_pricing=pricing; }
 
-    public async Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,CancellationToken ct=default)
+    public Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,CancellationToken ct=default)
+        => CheckoutAsync(customerId,provider,destinationCityId,couponCode,null,ct);
+
+    public async Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,string? requestKey,CancellationToken ct=default)
     {
+        requestKey=string.IsNullOrWhiteSpace(requestKey)?null:requestKey.Trim();
+        if(requestKey is not null&&(requestKey.Length<16||requestKey.Length>64))throw new DomainException("Invalid checkout request key.");
         long orderId=0,paymentId=0,total=0,subtotal=0,campaignDiscount=0,couponDiscount=0; string? appliedCoupon=null;
+        string? savedRedirectUrl=null,savedProvider=null,savedAuthority=null;
+        var reused=false;
 
         await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
+            if(requestKey is not null)
+            {
+                var existing=await _orders.GetByCustomerRequestKeyAsync(customerId,requestKey,token);
+                if(existing is not null)
+                {
+                    var existingPayment=await _payments.GetByOrderAsync(existing.Id,token)??throw new DomainException("Existing checkout payment is missing; reconciliation is required.");
+                    orderId=existing.Id;paymentId=existingPayment.Id;total=existing.TotalAmountIRR;subtotal=existing.SubtotalAmountIRR;
+                    campaignDiscount=existing.CampaignDiscountIRR;couponDiscount=existing.CouponDiscountIRR;appliedCoupon=existing.CouponCodeSnapshot;
+                    savedRedirectUrl=existingPayment.RedirectUrl;savedProvider=existingPayment.Provider;savedAuthority=existingPayment.Authority;reused=true;
+                    return 0;
+                }
+            }
+
             var cart=await _carts.GetByCustomerAsync(customerId,token)??throw new DomainException("Cart is empty.");
             var items=await _carts.GetItemsAsync(cart.Id,token);
             if(items.Count==0) throw new DomainException("Cart is empty.");
@@ -58,7 +78,7 @@ public sealed class OrderCreationService
             orderId=await _ids.NextAsync(token); paymentId=await _ids.NextAsync(token);
             var commissionRate=store.CommissionRateBasisPoints/100m;
             var commission=Commission.Create(await _ids.NextAsync(token),orderId,store.Id,store.SellerId,total,commissionRate,store.MinimumCommissionIRR);
-            var order=Order.Create(orderId,customerId,store.SellerId,store.Id,subtotal,total);
+            var order=Order.Create(orderId,customerId,store.SellerId,store.Id,subtotal,total,requestKey);
             order.SetDiscounts(campaignDiscount,couponDiscount,appliedCoupon);
             order.SetShippingDestination(city.Id,city.Name,city.ProvinceName);
             order.SetSellerAmount(commission.SellerAmountIRR);
@@ -81,12 +101,18 @@ public sealed class OrderCreationService
             await _uow.SaveChangesAsync(token); return 0;
         },ct);
 
+        if(reused && !string.IsNullOrWhiteSpace(savedRedirectUrl))
+            return new CheckoutResult(orderId,paymentId,savedProvider??string.Empty,savedAuthority??string.Empty,savedRedirectUrl,total,subtotal,campaignDiscount,couponDiscount,appliedCoupon);
+
+        var paymentBeforeGateway=await _payments.GetAsync(paymentId,ct)??throw new DomainException("Payment not found.");
+        if(paymentBeforeGateway.Status!=PaymentStatus.Pending)
+            throw new DomainException("This checkout already has a payment attempt without a reusable redirect URL. Check order status before retrying.");
         var gateway=await _gatewayFactory.GetAsync(provider,ct);
         var redirect=await gateway.CreatePaymentAsync(paymentId,orderId,total,ct);
         await _uow.ExecuteInTransactionAsync(async token =>
         {
             var payment=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
-            payment.Redirect(redirect.Provider,redirect.Authority);
+            payment.Redirect(redirect.Provider,redirect.Authority,redirect.Url);
             _payments.AddTransaction(PaymentTransaction.Create(await _ids.NextAsync(token),payment.Id,payment.AmountIRR,redirect.Provider,redirect.Authority));
             await _uow.SaveChangesAsync(token); return 0;
         },ct);

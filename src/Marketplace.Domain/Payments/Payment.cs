@@ -11,12 +11,13 @@ public sealed class Payment : AggregateRoot<long>
     public PaymentStatus Status {get;private set;}
     public string? Provider {get;private set;}
     public string? Authority {get;private set;}
+    public string? RedirectUrl {get;private set;}
     public string? ReferenceNumber {get;private set;}
     public DateTime CreatedAtUtc {get;private set;}
     public DateTime? PaidAtUtc {get;private set;}
     public DateTime? RefundedAtUtc {get;private set;}
     public static Payment Create(long id,long orderId,long customerId,long amountIrr){if(id<=0||orderId<=0||customerId<=0||amountIrr<=0)throw new DomainException("Invalid payment.");return new Payment{Id=id,OrderId=orderId,CustomerId=customerId,AmountIRR=amountIrr,Status=PaymentStatus.Pending,CreatedAtUtc=DateTime.UtcNow};}
-    public void Redirect(string provider,string authority){if(Status!=PaymentStatus.Pending)throw new DomainException("Payment cannot be redirected.");if(string.IsNullOrWhiteSpace(provider)||string.IsNullOrWhiteSpace(authority))throw new DomainException("Provider and authority are required.");Provider=provider.Trim();Authority=authority.Trim();Status=PaymentStatus.Redirected;}
+    public void Redirect(string provider,string authority,string? redirectUrl=null){if(Status!=PaymentStatus.Pending)throw new DomainException("Payment cannot be redirected.");if(string.IsNullOrWhiteSpace(provider)||string.IsNullOrWhiteSpace(authority))throw new DomainException("Provider and authority are required.");if(redirectUrl is not null&&(redirectUrl.Length>2048||!Uri.TryCreate(redirectUrl,UriKind.Absolute,out var parsed)||(parsed.Scheme!=Uri.UriSchemeHttps&&parsed.Scheme!=Uri.UriSchemeHttp)))throw new DomainException("Invalid payment redirect URL.");Provider=provider.Trim();Authority=authority.Trim();RedirectUrl=redirectUrl;Status=PaymentStatus.Redirected;}
     public void Succeed(string reference)
     {
         if(Status is not (PaymentStatus.Pending or PaymentStatus.Redirected))
