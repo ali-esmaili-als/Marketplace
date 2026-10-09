@@ -115,14 +115,14 @@ public sealed class MarketplaceDbContext : DbContext
 
         b.Entity<Seller>(e =>
         {
-            e.ToTable("Sellers"); e.HasKey(x => x.Id);
+            e.ToTable("Sellers", t => { t.HasCheckConstraint("CK_Sellers_Commission", "CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR >= 0"); t.HasCheckConstraint("CK_Sellers_MaxStore", "MaxStoreCount > 0"); }); e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasConversion<byte>();
             e.HasIndex(x => x.UserId).IsUnique();
             e.Property(x => x.MaxStoreCount).IsRequired();
         });
         b.Entity<Store>(e =>
         {
-            e.ToTable("Stores"); e.HasKey(x => x.Id);
+            e.ToTable("Stores", t => t.HasCheckConstraint("CK_Stores_Commission", "CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR >= 0")); e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasConversion<byte>();
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Slug).HasMaxLength(250).IsRequired();
@@ -240,7 +240,7 @@ public sealed class MarketplaceDbContext : DbContext
         b.Entity<SellerBalance>(e => { e.ToTable("SellerBalances", t => t.HasCheckConstraint("CK_SellerBalances_NonNegative", "AvailableIRR >= 0 AND PendingIRR >= 0 AND BlockedIRR >= 0 AND ReservedForSettlementIRR >= 0 AND LiabilityIRR >= 0")); e.HasKey(x => x.Id); e.HasIndex(x => x.SellerId).IsUnique(); });
         b.Entity<SellerBalanceHold>(e => { e.ToTable("SellerBalanceHolds", t => t.HasCheckConstraint("CK_SellerBalanceHolds_Amount", "AmountIRR > 0")); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasMaxLength(500).IsRequired(); e.HasIndex(x => new { x.OrderId, x.Status }); e.HasIndex(x => x.OrderId).IsUnique().HasFilter("[OrderId] IS NOT NULL"); });
         b.Entity<BalanceTransaction>(e => { e.ToTable("BalanceTransactions", t => t.HasCheckConstraint("CK_BalanceTransactions_Amounts", "AmountIRR >= 0 AND BalanceBeforeIRR >= 0 AND BalanceAfterIRR >= 0")); e.HasKey(x => x.Id); e.Property(x => x.Type).HasConversion<byte>(); e.Property(x=>x.Bucket).HasConversion<byte>(); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.CreatedAtUtc }); e.HasIndex(x => new { x.OrderId, x.Type }); e.HasIndex(x => x.OrderId).IsUnique().HasFilter("[OrderId] IS NOT NULL AND [Type] = 1"); });
-        b.Entity<Commission>(e => { e.ToTable("Commissions"); e.HasKey(x => x.Id); e.Property(x => x.CommissionRate).HasPrecision(9,4); e.HasIndex(x => x.OrderId).IsUnique(); });
+        b.Entity<Commission>(e => { e.ToTable("Commissions", t => t.HasCheckConstraint("CK_Commissions_Amounts", "OrderAmountIRR >= 0 AND CommissionRate >= 0 AND CommissionRate <= 100 AND MinimumCommissionIRR >= 0 AND CalculatedCommissionIRR >= 0 AND CommissionAmountIRR >= 0 AND SellerAmountIRR >= 0")); e.HasKey(x => x.Id); e.Property(x => x.CommissionRate).HasPrecision(9,4); e.HasIndex(x => x.OrderId).IsUnique(); });
         b.Entity<CommissionReversal>(e => { e.ToTable("CommissionReversals", t => t.HasCheckConstraint("CK_CommissionReversals_Amounts", "RefundAmountIRR > 0 AND ReversedCommissionIRR >= 0 AND ReversedCommissionIRR <= RefundAmountIRR")); e.HasKey(x => x.Id); e.HasIndex(x => new { x.CommissionId, x.RefundId }).IsUnique(); });
         b.Entity<SettlementReconciliationAudit>(e => { e.ToTable("SettlementReconciliationAudits"); e.HasKey(x => x.Id); e.Property(x => x.Note).HasMaxLength(2000).IsRequired(); e.Property(x => x.BankReference).HasMaxLength(200); e.HasIndex(x => new { x.SettlementId, x.CreatedAtUtc }); e.HasOne<Settlement>().WithMany().HasForeignKey(x => x.SettlementId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Settlement>(e =>
@@ -266,7 +266,7 @@ public sealed class MarketplaceDbContext : DbContext
         });
         b.Entity<Campaign>(e =>
         {
-            e.ToTable("Campaigns"); e.HasKey(x=>x.Id);
+            e.ToTable("Campaigns", t => { t.HasCheckConstraint("CK_Campaigns_Dates", "EndsAtUtc > StartsAtUtc"); t.HasCheckConstraint("CK_Campaigns_Discount", "DiscountValue >= 0 AND (DiscountType <> 1 OR DiscountValue <= 100)"); }); e.HasKey(x=>x.Id);
             e.Property(x=>x.Name).HasMaxLength(250).IsRequired();
             e.Property(x=>x.DiscountType).HasConversion<byte>();
             e.Property(x=>x.DiscountValue).HasPrecision(18,4);
@@ -281,7 +281,7 @@ public sealed class MarketplaceDbContext : DbContext
         });
         b.Entity<Coupon>(e =>
         {
-            e.ToTable("Coupons"); e.HasKey(x=>x.Id);
+            e.ToTable("Coupons", t => { t.HasCheckConstraint("CK_Coupons_Discount", "DiscountValue >= 0 AND (DiscountType <> 1 OR DiscountValue <= 100)"); t.HasCheckConstraint("CK_Coupons_Limits", "(MaxDiscountAmountIRR IS NULL OR MaxDiscountAmountIRR >= 0) AND (MinimumPurchaseIRR IS NULL OR MinimumPurchaseIRR >= 0) AND (MaxUses IS NULL OR MaxUses > 0) AND (EndsAtUtc IS NULL OR StartsAtUtc IS NULL OR EndsAtUtc > StartsAtUtc)"); }); e.HasKey(x=>x.Id);
             e.Property(x=>x.Code).HasMaxLength(100).IsRequired();
             e.Property(x=>x.DiscountType).HasConversion<byte>();
             e.Property(x=>x.DiscountValue).HasPrecision(18,4);
@@ -300,7 +300,7 @@ public sealed class MarketplaceDbContext : DbContext
         });
         b.Entity<CouponUsage>(e =>
         {
-            e.ToTable("CouponUsages"); e.HasKey(x=>x.Id);
+            e.ToTable("CouponUsages", t => t.HasCheckConstraint("CK_CouponUsages_Discount", "DiscountAmountIRR >= 0")); e.HasKey(x=>x.Id);
             e.HasIndex(x=>new { x.CouponId,x.CustomerId }).IsUnique();
             e.HasIndex(x=>x.OrderId).IsUnique();
         });
