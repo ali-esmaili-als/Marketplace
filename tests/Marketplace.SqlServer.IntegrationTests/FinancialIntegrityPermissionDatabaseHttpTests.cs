@@ -19,6 +19,7 @@ namespace Marketplace.SqlServer.IntegrationTests;
 /// Verifies that the production permission handler reads real UserRules/Rules rows and that
 /// an authorized read-only order trace leaves seller balances and ledger rows unchanged.
 /// </summary>
+[Collection("FinancialIntegrityHttpTests")]
 public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifetime
 {
     private const string DatabaseName = "MarketplaceFinancialIntegrityPermissionHttpTests";
@@ -36,6 +37,7 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
 
     private readonly string _baseConnectionString;
     private string _targetConnectionString = null!;
+    private readonly Dictionary<string, string?> _originalEnvironment = new();
     private WebApplicationFactory<global::Program>? _factory;
     private HttpClient? _client;
 
@@ -103,6 +105,11 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
                 VALUES (82001, 72001, 75001, NULL, NULL, 1, 2, 900000, 0, 900000, N'SALE-PERMISSION-TEST', @now);
                 """);
 
+            SetEnvironment("Authentication__Jwt__Key", JwtKey);
+            SetEnvironment("Authentication__Jwt__Issuer", JwtIssuer);
+            SetEnvironment("Authentication__Jwt__Audience", JwtAudience);
+            SetEnvironment("ConnectionStrings__Marketplace", _targetConnectionString);
+
             _factory = new WebApplicationFactory<global::Program>().WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment("Testing");
@@ -166,6 +173,12 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    private void SetEnvironment(string key, string value)
+    {
+        _originalEnvironment[key] = Environment.GetEnvironmentVariable(key);
+        Environment.SetEnvironmentVariable(key, value);
+    }
+
     private HttpClient Client => _client ?? throw new InvalidOperationException("HTTP test client was not initialized.");
 
     private void SetBearerToken(long userId)
@@ -218,6 +231,8 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         _client?.Dispose();
         _factory?.Dispose();
         await DropDatabaseAsync();
+        foreach (var pair in _originalEnvironment)
+            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
     }
 
     private async Task DropDatabaseAsync()
