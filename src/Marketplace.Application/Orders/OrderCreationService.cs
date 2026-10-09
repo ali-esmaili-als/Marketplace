@@ -14,7 +14,7 @@ namespace Marketplace.Application.Orders;
 
 public sealed record CheckoutResult(long OrderId,long PaymentId,string Provider,string Authority,string RedirectUrl,long TotalAmountIRR,long SubtotalAmountIRR,long CampaignDiscountIRR,long CouponDiscountIRR,string? CouponCode,long ShippingFeeIRR=0);
 public sealed record CheckoutQuoteLine(long ProductId,long VariantId,string ProductName,string SKU,string VariantKey,int Quantity,long UnitPriceIRR,long WarrantyUnitPriceIRR,string? WarrantyName,long CampaignDiscountIRR,long CouponDiscountIRR,long FinalLineIRR,long AvailableQuantity,string? CampaignName);
-public sealed record CheckoutQuoteResult(long StoreId,string StoreName,long DestinationCityId,string DestinationCityName,long SubtotalIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long ShippingFeeIRR,int MinDeliveryDays,int MaxDeliveryDays,long TotalIRR,string? CouponCode,IReadOnlyList<CheckoutQuoteLine> Lines,DateTime QuotedAtUtc);
+public sealed record CustomerAddressSnapshot(string RecipientName,string RecipientMobile,string AddressLine,string PostalCode,string? DeliveryNote);\npublic sealed record CheckoutQuoteResult(long StoreId,string StoreName,long DestinationCityId,string DestinationCityName,long SubtotalIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long ShippingFeeIRR,int MinDeliveryDays,int MaxDeliveryDays,long TotalIRR,string? CouponCode,IReadOnlyList<CheckoutQuoteLine> Lines,DateTime QuotedAtUtc);
 
 
 public sealed class OrderCreationService
@@ -59,7 +59,7 @@ public sealed class OrderCreationService
     public Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,CancellationToken ct=default)
         => CheckoutAsync(customerId,provider,destinationCityId,couponCode,null,ct);
 
-    public async Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,string? requestKey,CancellationToken ct=default)
+    public async Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,string? requestKey,CancellationToken ct=default,CustomerAddressSnapshot? deliveryAddress=null)
     {
         requestKey=string.IsNullOrWhiteSpace(requestKey)?null:requestKey.Trim();
         if(requestKey is not null&&(requestKey.Length<16||requestKey.Length>64))throw new DomainException("Invalid checkout request key.");
@@ -115,7 +115,7 @@ public sealed class OrderCreationService
             var commission=Commission.Create(await _ids.NextAsync(token),orderId,store.Id,store.SellerId,total,commissionRate,store.MinimumCommissionIRR,shippingFee);
             var order=Order.Create(orderId,customerId,store.SellerId,store.Id,subtotal,total,requestKey,shippingFee);
             order.SetDiscounts(campaignDiscount,couponDiscount,appliedCoupon);
-            order.SetShippingDestination(city.Id,city.Name,city.ProvinceName);
+            order.SetShippingDestination(city.Id,city.Name,city.ProvinceName);\n            if(deliveryAddress is not null) order.SetDeliveryAddress(deliveryAddress.RecipientName,deliveryAddress.RecipientMobile,deliveryAddress.AddressLine,deliveryAddress.PostalCode,deliveryAddress.DeliveryNote);
             order.SetSellerAmount(commission.SellerAmountIRR);
             _orders.Add(order); _life.AddCommission(commission);
 
