@@ -427,6 +427,18 @@ CREATE TABLE dbo.SmsProviderSettings(
  CONSTRAINT UQ_SmsProviderSettings_Provider UNIQUE(Provider)
 );
 
+CREATE TABLE dbo.ProductReviews(
+ Id BIGINT NOT NULL CONSTRAINT PK_ProductReviews PRIMARY KEY,
+ ProductId BIGINT NOT NULL, CustomerId BIGINT NOT NULL, OrderId BIGINT NOT NULL,
+ Rating TINYINT NOT NULL, Title NVARCHAR(150) NOT NULL, Body NVARCHAR(3000) NOT NULL,
+ Status TINYINT NOT NULL CONSTRAINT DF_ProductReviews_Status DEFAULT(1),
+ CreatedAtUtc DATETIME2(7) NOT NULL, ModeratedAtUtc DATETIME2(7) NULL,
+ ModeratorUserId BIGINT NULL, ModerationNote NVARCHAR(1000) NULL,
+ CONSTRAINT CK_ProductReviews_Rating CHECK(Rating BETWEEN 1 AND 5),
+ CONSTRAINT CK_ProductReviews_Status CHECK(Status BETWEEN 1 AND 3),
+ CONSTRAINT UQ_ProductReviews_Customer_Product UNIQUE(CustomerId,ProductId)
+);
+
 CREATE TABLE dbo.SmsAutomationSettings(
  Id BIGINT NOT NULL CONSTRAINT PK_SmsAutomationSettings PRIMARY KEY,
  AutomaticSmsEnabled BIT NOT NULL CONSTRAINT DF_SmsAutomationSettings_AutomaticSms DEFAULT(0),
@@ -438,6 +450,10 @@ CREATE TABLE dbo.SmsAutomationSettings(
 
 
 -- Foreign keys
+ALTER TABLE dbo.ProductReviews ADD CONSTRAINT FK_ProductReviews_Products FOREIGN KEY(ProductId) REFERENCES dbo.Products(Id),
+ CONSTRAINT FK_ProductReviews_Customers FOREIGN KEY(CustomerId) REFERENCES dbo.Users(Id),
+ CONSTRAINT FK_ProductReviews_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id),
+ CONSTRAINT FK_ProductReviews_Moderators FOREIGN KEY(ModeratorUserId) REFERENCES dbo.Users(Id);
 ALTER TABLE dbo.UserRules ADD CONSTRAINT FK_UserRules_Users FOREIGN KEY(UserId) REFERENCES dbo.Users(Id) ON DELETE CASCADE,
                            CONSTRAINT FK_UserRules_Rules FOREIGN KEY(RuleId) REFERENCES dbo.Rules(Id) ON DELETE CASCADE;
 ALTER TABLE dbo.UserRoleAssignments ADD CONSTRAINT FK_UserRoleAssignments_Users FOREIGN KEY(UserId) REFERENCES dbo.Users(Id) ON DELETE CASCADE,
@@ -584,6 +600,7 @@ CREATE INDEX IX_Coupons_Store_Active ON dbo.Coupons(StoreId,IsActive);
 CREATE INDEX IX_CouponUsages_Coupon ON dbo.CouponUsages(CouponId);
 CREATE INDEX IX_Notifications_User_Status_Created ON dbo.Notifications(UserId,Status,CreatedAtUtc DESC);
 CREATE INDEX IX_SmsProviderSettings_Enabled_Visible_Sort ON dbo.SmsProviderSettings(IsEnabled,IsVisible,SortOrder);
+CREATE INDEX IX_ProductReviews_Product_Status_Created ON dbo.ProductReviews(ProductId,Status,CreatedAtUtc DESC);
 
 -- Seed roles, rules and payment providers.
 IF NOT EXISTS(SELECT 1 FROM dbo.Roles WHERE Id=1) INSERT dbo.Roles(Id,Name) VALUES(1,N'Customer');
@@ -685,6 +702,7 @@ INSERT INTO @ExpectedTables(TableName) VALUES
 (N'Notifications'),
 (N'SmsProviderSettings'),
 (N'SmsAutomationSettings'),
+(N'ProductReviews'),
 (N'PaymentReconciliationAudits'),
 (N'RefundReconciliationAudits'),
 (N'SettlementReconciliationAudits'),
