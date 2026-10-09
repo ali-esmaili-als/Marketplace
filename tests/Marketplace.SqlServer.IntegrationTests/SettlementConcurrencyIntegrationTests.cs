@@ -33,7 +33,8 @@ public sealed class SettlementConcurrencyIntegrationTests
                 SELECT (SELECT COUNT_BIG(*) FROM dbo.Settlements WHERE SellerId=72001 AND RequestKey=N'same'),
                        (SELECT AvailableIRR FROM dbo.SellerBalances WHERE SellerId=72001),
                        (SELECT ReservedForSettlementIRR FROM dbo.SellerBalances WHERE SellerId=72001),
-                       (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions WHERE SellerId=72001 AND SettlementId IS NOT NULL);
+                       (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions WHERE SellerId=72001 AND SettlementId IS NOT NULL),
+                       (SELECT COUNT_BIG(*) FROM dbo.OutboxMessages WHERE EventType=N'Settlement.Requested' AND PayloadJson LIKE N'%"SellerId":72001%');
                 """, connection);
             await using var reader = await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
@@ -41,6 +42,7 @@ public sealed class SettlementConcurrencyIntegrationTests
             Assert.Equal(1_000_000L, reader.GetInt64(1));
             Assert.Equal(600_000L, reader.GetInt64(2));
             Assert.Equal(1L, reader.GetInt64(3));
+            Assert.Equal(1L, reader.GetInt64(4));
         }
         finally { await DropAsync(db, master); }
     }
@@ -111,7 +113,9 @@ public sealed class SettlementConcurrencyIntegrationTests
             await verifyConnection.OpenAsync();
             await using var verify = new SqlCommand("""
                 SELECT s.Status, b.AvailableIRR, b.ReservedForSettlementIRR,
-                       (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions WHERE SettlementId=81001)
+                       (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions WHERE SettlementId=81001),
+                       (SELECT COUNT_BIG(*) FROM dbo.OutboxMessages WHERE EventType=N'Settlement.Processing'),
+                       (SELECT COUNT_BIG(*) FROM dbo.OutboxMessages WHERE EventType=N'Settlement.Completed')
                 FROM dbo.Settlements s
                 JOIN dbo.SellerBalances b ON b.SellerId=s.SellerId
                 WHERE s.Id=81001;
@@ -122,6 +126,8 @@ public sealed class SettlementConcurrencyIntegrationTests
             Assert.Equal(500_000L, reader.GetInt64(1));
             Assert.Equal(0L, reader.GetInt64(2));
             Assert.Equal(1L, reader.GetInt64(3));
+            Assert.Equal(1L, reader.GetInt64(4));
+            Assert.Equal(1L, reader.GetInt64(5));
         }
         finally { await DropAsync(db, master); }
     }
