@@ -251,13 +251,15 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         Assert.Equal(HttpStatusCode.OK, archiveList.StatusCode);
         var archiveJson = await archiveList.Content.ReadAsStringAsync();
         Assert.Contains("Settlement.Completed", archiveJson);
-        Assert.Contains("\\"total\\":1", archiveJson, StringComparison.OrdinalIgnoreCase);
+        using var archiveDocument = System.Text.Json.JsonDocument.Parse(archiveJson);
+        Assert.Equal(1, archiveDocument.RootElement.GetProperty("total").GetInt32());
 
         using var archiveDetail = await Client.GetAsync("/api/admin/outbox/archive/91004");
         Assert.Equal(HttpStatusCode.OK, archiveDetail.StatusCode);
         var detailJson = await archiveDetail.Content.ReadAsStringAsync();
-        Assert.Contains("settlementId", detailJson, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ArchivedAtUtc", detailJson, StringComparison.OrdinalIgnoreCase);
+        using var detailDocument = System.Text.Json.JsonDocument.Parse(detailJson);
+        Assert.Contains("settlementId", detailDocument.RootElement.GetProperty("payloadJson").GetString()!, StringComparison.OrdinalIgnoreCase);
+        Assert.True(detailDocument.RootElement.TryGetProperty("archivedAtUtc", out _));
     }
 
     [Fact]
