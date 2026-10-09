@@ -46,4 +46,20 @@ public sealed class SmsIrProvider(HttpClient http, IConfiguration configuration)
         configuration[key] is { Length: > 0 } value
             ? value
             : throw new InvalidOperationException($"{key} is required.");
+    public async Task SendMessageAsync(string mobile, string message, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(message) || message.Length > 1000) throw new ArgumentException("SMS message must contain 1-1000 characters.", nameof(message));
+        var apiKey = configuration["Notifications:Sms:SmsIr:ApiKey"] ?? Required("Authentication:Otp:SmsIr:ApiKey");
+        var lineNumber = configuration["Notifications:Sms:SmsIr:LineNumber"];
+        if (string.IsNullOrWhiteSpace(lineNumber)) throw new InvalidOperationException("Notifications:Sms:SmsIr:LineNumber is required for automatic SMS.");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.sms.ir/v1/send");
+        request.Headers.TryAddWithoutValidation("X-API-KEY", apiKey);
+        request.Content = JsonContent.Create(new { lineNumber, messageText = message, mobiles = new[] { mobile } });
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"SMS.ir rejected the message. HTTP {(int)response.StatusCode}: {body}");
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.False)
+            throw new InvalidOperationException($"SMS.ir rejected the message: {body}");
+    }
 }
