@@ -437,6 +437,7 @@ CREATE INDEX IX_OrderItems_OrderId ON dbo.OrderItems(OrderId);
 CREATE INDEX IX_Payments_Authority ON dbo.Payments(Authority);
 CREATE INDEX IX_PaymentReconciliationAudits_PaymentId_CreatedAtUtc ON dbo.PaymentReconciliationAudits(PaymentId,CreatedAtUtc);
 CREATE INDEX IX_PaymentTransactions_Payment_Status ON dbo.PaymentTransactions(PaymentId,Status);
+CREATE UNIQUE INDEX UX_PaymentTransactions_Provider_Authority ON dbo.PaymentTransactions(Provider,Authority) WHERE Authority IS NOT NULL;
 CREATE INDEX IX_Deliveries_Status_Expires ON dbo.Deliveries(Status,ExpiresAtUtc);
 CREATE INDEX IX_DeliveryCodes_Expiry ON dbo.DeliveryCodes(ExpiresAtUtc,UsedAtUtc);
 CREATE INDEX IX_Refunds_Order_Status ON dbo.Refunds(OrderId,Status);
