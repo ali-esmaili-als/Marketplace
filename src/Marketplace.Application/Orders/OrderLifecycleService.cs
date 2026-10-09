@@ -158,7 +158,7 @@ public sealed class OrderLifecycleService
 
         var pendingBefore=b.PendingIRR;
         d.Expire(now);
-        _domain.OnDeliveryExpired(o,d,b);
+        _domain.OnDeliveryExpired(o,d,b,now);
 
         var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
         foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
