@@ -711,24 +711,28 @@ app.MapGet("/api/admin/financial-integrity/cases", async (
     CancellationToken ct) =>
 {
     var events = await db.AdminAuditEvents.AsNoTracking()
-        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged")
+        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseRechecked")
         .OrderByDescending(x => x.CreatedAtUtc)
         .Take(2000)
-        .Select(x => new { x.Id, x.ActorUserId, x.EntityType, x.EntityKey, x.DetailsJson, x.CorrelationId, x.CreatedAtUtc })
+        .Select(x => new { x.Id, x.ActorUserId, x.EntityType, x.EntityKey, x.Action, x.DetailsJson, x.CorrelationId, x.CreatedAtUtc })
         .ToListAsync(ct);
 
     var cases = events
         .GroupBy(x => new { x.EntityType, x.EntityKey })
         .Select(g =>
         {
-            var latest = g.First();
+            var latestActivity = g.First();
+            var latestStatus = g.FirstOrDefault(x => x.Action == "FinancialIntegrity.CaseStatusChanged");
+            if (latestStatus is null) return null;
+
             string status;
             string note;
             try
             {
-                using var document = System.Text.Json.JsonDocument.Parse(latest.DetailsJson);
-                status = document.RootElement.TryGetProperty("status", out var statusElement) ? statusElement.GetString() ?? "Open" : "Open";
-                note = document.RootElement.TryGetProperty("note", out var noteElement) ? noteElement.GetString() ?? "" : "";
+                using var statusDocument = System.Text.Json.JsonDocument.Parse(latestStatus.DetailsJson);
+                status = statusDocument.RootElement.TryGetProperty("status", out var statusElement) ? statusElement.GetString() ?? "Open" : "Open";
+                using var activityDocument = System.Text.Json.JsonDocument.Parse(latestActivity.DetailsJson);
+                note = activityDocument.RootElement.TryGetProperty("note", out var noteElement) ? noteElement.GetString() ?? "" : "";
             }
             catch
             {
@@ -738,18 +742,20 @@ app.MapGet("/api/admin/financial-integrity/cases", async (
 
             return new
             {
-                caseId = latest.EntityType + ":" + latest.EntityKey,
-                kind = latest.EntityType,
-                entityKey = latest.EntityKey,
+                caseId = latestActivity.EntityType + ":" + latestActivity.EntityKey,
+                kind = latestActivity.EntityType,
+                entityKey = latestActivity.EntityKey,
                 status,
                 note,
-                actorUserId = latest.ActorUserId,
-                auditId = latest.Id,
-                latest.CorrelationId,
-                updatedAtUtc = latest.CreatedAtUtc,
+                actorUserId = latestActivity.ActorUserId,
+                auditId = latestActivity.Id,
+                latestActivity.CorrelationId,
+                updatedAtUtc = latestActivity.CreatedAtUtc,
                 historyCount = g.Count()
             };
         })
+        .Where(x => x is not null)
+        .Select(x => x!)
         .OrderBy(x => x.status == "Resolved" || x.status == "FalsePositive" ? 1 : 0)
         .ThenByDescending(x => x.updatedAtUtc)
         .Take(500)
