@@ -232,7 +232,7 @@ FROM dbo.Refunds AS r
 JOIN dbo.Orders AS o ON o.Id = r.OrderId
 JOIN dbo.Payments AS p ON p.Id = r.PaymentId
 WHERE r.Status = 4
-  AND (o.Status <> 10 OR p.Status <> 4); -- Order Refunded, Payment Refunded
+  AND (o.Status <> 8 OR p.Status <> 6); -- Order Refunded, Payment Refunded
 
 PRINT '21. Processing refunds whose order or payment has already reached a terminal state';
 SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
@@ -241,7 +241,7 @@ FROM dbo.Refunds AS r
 JOIN dbo.Orders AS o ON o.Id = r.OrderId
 JOIN dbo.Payments AS p ON p.Id = r.PaymentId
 WHERE r.Status = 3
-  AND (o.Status = 10 OR p.Status = 4); -- A processing refund should not already be finalized
+  AND (o.Status = 8 OR p.Status = 6); -- A processing refund should not already be finalized
 
 PRINT '22. Commission reversals whose order/refund/commission linkage is inconsistent';
 SELECT cr.Id AS CommissionReversalId, cr.OrderId, cr.RefundId,
