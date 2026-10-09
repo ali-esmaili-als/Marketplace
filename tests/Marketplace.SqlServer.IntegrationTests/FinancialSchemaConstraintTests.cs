@@ -59,6 +59,52 @@ public sealed class FinancialSchemaConstraintTests
                 VALUES (940001, 940001, 5, 6, 1);
                 """, connection);
             await Assert.ThrowsAsync<SqlException>(() => invalidInsert.ExecuteNonQueryAsync());
+
+            // Contract checks catch drift between the documented bootstrap schema and
+            // the invariants relied on by checkout, refunds, payments, and seller finance.
+            await using (var contractCheck = new SqlCommand("""
+                WITH RequiredObjects AS
+                (
+                    SELECT N'CK_Products_Price' AS ObjectName, N'CHECK' AS ObjectType UNION ALL
+                    SELECT N'CK_Orders_Amounts', N'CHECK' UNION ALL
+                    SELECT N'CK_Payments_Amount', N'CHECK' UNION ALL
+                    SELECT N'CK_Refunds_Amount', N'CHECK' UNION ALL
+                    SELECT N'CK_InventoryItems_Qty', N'CHECK' UNION ALL
+                    SELECT N'CK_SellerBalances_NonNegative', N'CHECK' UNION ALL
+                    SELECT N'CK_Settlements_Amount', N'CHECK' UNION ALL
+                    SELECT N'UX_PaymentTransactions_Provider_Authority', N'INDEX' UNION ALL
+                    SELECT N'UX_Refunds_OneActivePerOrder', N'INDEX' UNION ALL
+                    SELECT N'UX_SellerBalanceHolds_OrderId', N'INDEX' UNION ALL
+                    SELECT N'UX_BalanceTransactions_Order_Sale', N'INDEX'
+                )
+                SELECT COUNT(*)
+                FROM RequiredObjects r
+                WHERE
+                    (r.ObjectType = N'CHECK' AND EXISTS
+                        (SELECT 1 FROM sys.check_constraints c WHERE c.name = r.ObjectName))
+                    OR
+                    (r.ObjectType = N'INDEX' AND EXISTS
+                        (SELECT 1 FROM sys.indexes i WHERE i.name = r.ObjectName AND i.is_unique = 1));
+                """, connection))
+            {
+                Assert.Equal(11, Convert.ToInt32(await contractCheck.ExecuteScalarAsync()));
+            }
+
+            await using (var fkCheck = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM sys.foreign_keys
+                WHERE name IN
+                (
+                    N'FK_Orders_Users',
+                    N'FK_OrderItems_Orders',
+                    N'FK_Payments_Orders',
+                    N'FK_Refunds_Orders',
+                    N'FK_Settlements_Sellers'
+                );
+                """, connection))
+            {
+                Assert.Equal(5, Convert.ToInt32(await fkCheck.ExecuteScalarAsync()));
+            }
         }
         finally
         {
