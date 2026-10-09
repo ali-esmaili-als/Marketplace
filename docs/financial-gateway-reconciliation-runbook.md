@@ -86,3 +86,28 @@ Run `database/FinancialConsistencyChecks.sql` against the intended Marketplace d
 - **Missing reservation ledger entry:** a settlement without its original reserved-bucket entry needs a full history review even if the current bucket totals happen to balance.
 
 These checks intentionally report inconsistencies instead of guessing a correction. A financially safe fix depends on provider evidence, the transaction history, and the exact failure point.
+
+### Interpreting refund diagnostics (checks 17–26)
+
+- **17 — Missing refund ledger:** a completed provider refund has no matching seller-side refund ledger row. Verify whether the seller amount was already removed at delivery expiry; do not create a compensating row until the original transaction history and balance buckets are understood.
+- **18 — Multiple refund ledger rows for one order:** review every refund attempt and provider reference. Failed attempts may exist, but duplicate *financial debit effects* must not be assumed valid merely because multiple refund records exist.
+- **19 — Seller mismatch:** a refund ledger row is associated with a seller other than the seller on the order. Treat this as a high-priority integrity incident.
+- **20 — Order/payment not refunded:** the refund is marked Completed while its order or payment state disagrees. Confirm the provider result, then inspect the finalization transaction and audit trail.
+- **21 — Processing refund with a terminal order/payment:** the order/payment appears finalized while the refund remains Processing. Check whether a previous commit partially applied outside the expected transaction boundary or whether an operator changed state manually.
+- **22 — Commission reversal linkage:** validate that the reversal points to the same order as both the commission and refund, and that it does not exceed the original commission. Also inspect the total across all reversals (check 26).
+- **23 — Multiple reconciliation audit entries:** repeated manual outcomes for a refund require review. Do not automatically classify multiple audit rows as corruption; establish their order and whether an earlier action was committed before a retry.
+- **24 — Completed refunds exceed captured payment:** compare all completed refund records for the payment against the captured amount and the provider's transaction history. Stop additional refund activity until the excess is explained.
+- **25 — Latest audit contradicts terminal refund status:** the latest recorded manual decision says the opposite of the refund's terminal state. Verify the authoritative provider outcome and the audit chronology.
+- **26 — Commission over-reversal:** total reversed commission exceeds the commission charged. Reconcile the original commission, each refund, and all reversal rows before any financial correction.
+
+These diagnostics are deliberately conservative. Some rows indicate an inconsistency; others are review signals that can be legitimate in specific histories. A query result is never, by itself, authority to alter a seller balance, refund status, payment status, commission, or ledger row.
+
+### Refund incident workflow
+
+1. Record the database/environment, UTC timestamp, order ID, payment ID, refund ID(s), provider reference, and incident ticket. Restrict access to the evidence.
+2. Run the read-only financial diagnostics and retain all relevant result sets.
+3. Query the payment provider's authoritative transaction history and verify the amount, currency, original payment, refund reference, final outcome, and timestamp. A timeout or a successful HTTP response alone is insufficient evidence.
+4. If the provider confirms the refund was sent, use the authorized reconciliation operation with a bank/provider reference and a non-empty evidence note. If it confirms no refund was sent, reconcile as not transferred only after the final state is established.
+5. If the provider state is still ambiguous, leave the refund Processing. Do not submit another refund, mark the order refunded manually, or release/consume seller funds with ad-hoc SQL.
+6. After the reconciliation transaction commits, rerun diagnostics. Confirm the expected refund/order/payment/hold/ledger/audit outcome and investigate any remaining finding.
+7. If the provider confirms a transfer but database finalization fails, preserve the existing state for reconciliation and escalate with the provider reference and exception details. Never replay the gateway refund simply to retry database persistence.
