@@ -33,6 +33,14 @@ public sealed class User : AggregateRoot<long>
         };
     }
 
+    public void UpdateProfile(string displayName, string? email)
+    {
+        if (string.IsNullOrWhiteSpace(displayName)) throw new DomainException("Display name is required.");
+        if (displayName.Trim().Length > 120) throw new DomainException("Display name cannot exceed 120 characters.");
+        if (!string.IsNullOrWhiteSpace(email) && email.Trim().Length > 254) throw new DomainException("Email cannot exceed 254 characters.");
+        DisplayName = displayName.Trim();
+        Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim();
+    }
     public void SetEmail(string? email) => Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim();
     public void SetMobileVerified(bool value = true) => IsMobileVerified = value;
     public void SetPasswordHash(string hash)
