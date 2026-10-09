@@ -1,5 +1,6 @@
 using System;
 using Marketplace.Domain.Common;
+using DeliveryEntity = Marketplace.Domain.Delivery.Delivery;
 using Marketplace.Domain.Delivery;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
@@ -20,7 +21,7 @@ public sealed class PaymentOrderLifecycleTests
     {
         var order = Order.Create(10, 20, 30, 40, 12_000, 10_000);
         var payment = Payment.Create(50, order.Id, order.CustomerId, order.TotalAmountIRR);
-        var delivery = Delivery.Create(60, order.Id, order.SellerId, Future);
+        var delivery = DeliveryEntity.Create(60, order.Id, order.SellerId, Future);
 
         payment.Redirect("TestBank", "authority-1");
         payment.Succeed("reference-1");
