@@ -170,4 +170,42 @@ public sealed class SettlementRequestValidationTests
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+    [Fact]
+    public async Task Repeating_same_request_key_returns_existing_settlement_without_reserving_again()
+    {
+        var seller = Seller.Create(10, 20); seller.Activate();
+        var existing = Settlement.Create(90, seller.Id, 200_000, 30, "Test Bank", "IR0030", "Seller", "retry-key");
+        var sellers = new Mock<ISellerManagementRepository>();
+        sellers.Setup(x => x.GetSellerByUserIdAsync(20, It.IsAny<CancellationToken>())).ReturnsAsync(seller);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementByRequestKeyAsync(seller.Id, "retry-key", It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
+        var service = new SettlementService(lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
+        var result = await service.RequestAsync(20, 30, 200_000, "retry-key");
+        Assert.Equal(90, result.SettlementId); Assert.Equal("Requested", result.Status);
+        lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        lifecycle.Verify(x => x.AddSettlement(It.IsAny<Settlement>()), Times.Never);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Reusing_request_key_with_different_details_is_rejected()
+    {
+        var seller = Seller.Create(10, 20); seller.Activate();
+        var existing = Settlement.Create(90, seller.Id, 200_000, 30, "Test Bank", "IR0030", "Seller", "retry-key");
+        var sellers = new Mock<ISellerManagementRepository>();
+        sellers.Setup(x => x.GetSellerByUserIdAsync(20, It.IsAny<CancellationToken>())).ReturnsAsync(seller);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementByRequestKeyAsync(seller.Id, "retry-key", It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
+        var service = new SettlementService(lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
+        await Assert.ThrowsAsync<DomainException>(() => service.RequestAsync(20, 30, 250_000, "retry-key"));
+        lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
 }

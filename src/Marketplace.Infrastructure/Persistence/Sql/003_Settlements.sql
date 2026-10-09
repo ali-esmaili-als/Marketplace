@@ -4,6 +4,7 @@ BEGIN
     (
         Id BIGINT NOT NULL CONSTRAINT PK_Settlements PRIMARY KEY,
         SellerId BIGINT NOT NULL,
+        RequestKey NVARCHAR(64) NULL,
         AmountIRR BIGINT NOT NULL,
         Status TINYINT NOT NULL,
         BankAccountId BIGINT NOT NULL,
@@ -15,6 +16,7 @@ BEGIN
         RequestedAtUtc DATETIME2(7) NOT NULL,
         CompletedAtUtc DATETIME2(7) NULL
     );
+    CREATE UNIQUE INDEX UX_Settlements_Seller_RequestKey ON dbo.Settlements(SellerId,RequestKey) WHERE RequestKey IS NOT NULL;
     CREATE INDEX IX_Settlements_Seller_Status ON dbo.Settlements(SellerId,Status);
     CREATE INDEX IX_Settlements_Status_RequestedAt ON dbo.Settlements(Status,RequestedAtUtc);
 END

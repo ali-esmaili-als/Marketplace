@@ -254,7 +254,7 @@ CREATE TABLE dbo.SellerBalanceHolds(
  CreatedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL, CONSTRAINT CK_SellerBalanceHolds_Amount CHECK(AmountIRR>0), CONSTRAINT CK_SellerBalanceHolds_Status CHECK(Status BETWEEN 1 AND 3)
 );
 CREATE TABLE dbo.Settlements(
- Id BIGINT NOT NULL CONSTRAINT PK_Settlements PRIMARY KEY, SellerId BIGINT NOT NULL, AmountIRR BIGINT NOT NULL, Status TINYINT NOT NULL,
+ Id BIGINT NOT NULL CONSTRAINT PK_Settlements PRIMARY KEY, SellerId BIGINT NOT NULL, RequestKey NVARCHAR(64) NULL, AmountIRR BIGINT NOT NULL, Status TINYINT NOT NULL,
  BankAccountId BIGINT NOT NULL, BankNameSnapshot NVARCHAR(150) NOT NULL, IbanSnapshot NVARCHAR(34) NOT NULL,
  AccountHolderNameSnapshot NVARCHAR(250) NOT NULL, Reference NVARCHAR(200) NULL, FailureReason NVARCHAR(1000) NULL,
  RequestedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL, CONSTRAINT CK_Settlements_Amount CHECK(AmountIRR>0),
@@ -461,6 +461,7 @@ CREATE INDEX IX_BalanceTransactions_Seller_Created ON dbo.BalanceTransactions(Se
 CREATE INDEX IX_BalanceTransactions_Order_Type ON dbo.BalanceTransactions(OrderId,Type);
 CREATE UNIQUE INDEX UX_BalanceTransactions_Order_Sale ON dbo.BalanceTransactions(OrderId) WHERE OrderId IS NOT NULL AND Type = 1;
 CREATE INDEX IX_SettlementReconciliationAudits_Settlement_Created ON dbo.SettlementReconciliationAudits(SettlementId,CreatedAtUtc);
+CREATE UNIQUE INDEX UX_Settlements_Seller_RequestKey ON dbo.Settlements(SellerId,RequestKey) WHERE RequestKey IS NOT NULL;
 CREATE INDEX IX_Settlements_Seller_Status ON dbo.Settlements(SellerId,Status);
 CREATE INDEX IX_Settlements_Status_RequestedAt ON dbo.Settlements(Status,RequestedAtUtc);
 CREATE INDEX IX_Campaigns_Store_Active ON dbo.Campaigns(StoreId,IsActive);
