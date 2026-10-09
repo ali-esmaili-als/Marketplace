@@ -244,4 +244,67 @@ public sealed class OrderLifecycleServiceTests
         lifecycle.Verify(x => x.AddBalanceHold(It.IsAny<SellerBalanceHold>()), Times.Never);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Fact]
+    public async Task Confirmed_delivery_consumes_reserved_inventory_and_moves_seller_funds_to_complaint_hold()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(301, 302, 303, 304, 2_000_000, 2_000_000);
+        order.MarkPaid(now.AddMinutes(-10));
+        var expiresAt = now.AddHours(2);
+        order.SetDeliveryExpiry(expiresAt);
+        order.MarkReady();
+
+        var delivery = DeliveryEntity.Create(305, order.Id, order.SellerId, expiresAt);
+        delivery.MarkReady();
+        var code = Marketplace.Domain.Delivery.DeliveryCode.Create(306, order.Id, "123456", expiresAt);
+
+        var balance = SellerBalance.Create(307, order.SellerId);
+        balance.AddPending(order.SellerAmountIRR);
+        var inventory = InventoryItem.Create(308, 309, 10);
+        inventory.Reserve(2);
+        var reservation = InventoryReservation.Create(310, inventory.ProductVariantId, order.Id, 2, expiresAt.AddMinutes(1));
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var payments = new Mock<IPaymentRepository>();
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetDeliveryByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(delivery);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
+        lifecycle.Setup(x => x.GetDeliveryCodeByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(code);
+        lifecycle.Setup(x => x.GetReservationsByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<InventoryReservation> { reservation });
+        lifecycle.Setup(x => x.GetInventoryItemAsync(inventory.ProductVariantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(inventory);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<bool>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<bool>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var nextId = 400L;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken _) => Task.FromResult(Interlocked.Increment(ref nextId)));
+        var notifications = new Mock<INotificationRepository>();
+        var service = new OrderLifecycleService(orders.Object, payments.Object, lifecycle.Object,
+            uow.Object, ids.Object, notifications.Object);
+
+        await service.MarkDeliveredAsync(order.Id, "123456", " CUSTOMER-CONFIRM ", now, now.AddDays(2));
+
+        Assert.Equal(OrderStatus.Delivered, order.Status);
+        Assert.Equal(Marketplace.Domain.Delivery.DeliveryStatus.Delivered, delivery.Status);
+        Assert.Equal(now, code.UsedAtUtc);
+        Assert.Equal(0, balance.PendingIRR);
+        Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
+        Assert.Equal(8, inventory.AvailableQuantity);
+        Assert.Equal(0, inventory.ReservedQuantity);
+        Assert.Equal(InventoryReservationStatus.Consumed, reservation.Status);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Bucket == BalanceBucket.Pending && t.AmountIRR == order.SellerAmountIRR)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Bucket == BalanceBucket.Blocked && t.AmountIRR == order.SellerAmountIRR)), Times.Once);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
 }
