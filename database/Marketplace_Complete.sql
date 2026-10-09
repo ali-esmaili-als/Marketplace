@@ -254,6 +254,14 @@ CREATE TABLE dbo.Settlements(
  AccountHolderNameSnapshot NVARCHAR(250) NOT NULL, Reference NVARCHAR(200) NULL, FailureReason NVARCHAR(1000) NULL,
  RequestedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL, CONSTRAINT CK_Settlements_Amount CHECK(AmountIRR>0)
 );
+CREATE TABLE dbo.SettlementReconciliationAudits(
+ Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_SettlementReconciliationAudits PRIMARY KEY,
+ SettlementId BIGINT NOT NULL, AdminUserId BIGINT NOT NULL, TransferCompleted BIT NOT NULL,
+ Note NVARCHAR(2000) NOT NULL, BankReference NVARCHAR(200) NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT FK_SettlementReconciliationAudits_Settlements FOREIGN KEY(SettlementId) REFERENCES dbo.Settlements(Id),
+ CONSTRAINT CK_SettlementReconciliationAudits_Note CHECK(LEN(LTRIM(RTRIM(Note)))>0),
+ CONSTRAINT CK_SettlementReconciliationAudits_BankReference CHECK(TransferCompleted=0 OR LEN(LTRIM(RTRIM(ISNULL(BankReference,N''))))>0)
+);
 CREATE TABLE dbo.BalanceTransactions(
  Id BIGINT NOT NULL CONSTRAINT PK_BalanceTransactions PRIMARY KEY, SellerId BIGINT NOT NULL, OrderId BIGINT NULL,
  SettlementId BIGINT NULL, Type TINYINT NOT NULL, Bucket TINYINT NOT NULL CONSTRAINT DF_BalanceTransactions_Bucket DEFAULT(1),
@@ -439,6 +447,7 @@ CREATE INDEX IX_InventoryReservations_Status_Expiry ON dbo.InventoryReservations
 CREATE INDEX IX_SellerBalanceHolds_Order_Status ON dbo.SellerBalanceHolds(OrderId,Status);
 CREATE INDEX IX_BalanceTransactions_Seller_Created ON dbo.BalanceTransactions(SellerId,CreatedAtUtc);
 CREATE INDEX IX_BalanceTransactions_Order_Type ON dbo.BalanceTransactions(OrderId,Type);
+CREATE INDEX IX_SettlementReconciliationAudits_Settlement_Created ON dbo.SettlementReconciliationAudits(SettlementId,CreatedAtUtc);
 CREATE INDEX IX_Settlements_Seller_Status ON dbo.Settlements(SellerId,Status);
 CREATE INDEX IX_Settlements_Status_RequestedAt ON dbo.Settlements(Status,RequestedAtUtc);
 CREATE INDEX IX_Campaigns_Store_Active ON dbo.Campaigns(StoreId,IsActive);
@@ -501,5 +510,5 @@ WHERE t.name IN
 'Warranties','ProductWarranties','Carts','CartItems','DeliveryCities','StoreShippingCities','Orders','OrderItems','Payments','PaymentTransactions',
 'PaymentProviderSettings','Deliveries','DeliveryCodes','Refunds','Complaints','InventoryItems','InventoryReservations','SellerBalances','SellerBalanceHolds',
 'Settlements','BalanceTransactions','Commissions','CommissionReversals','Campaigns','CampaignProducts','Coupons','CouponProducts','CouponCategories','CouponUsages','Notifications',
-'SmsProviderSettings','PaymentReconciliationAudits','RefundReconciliationAudits')
+'SmsProviderSettings','PaymentReconciliationAudits','RefundReconciliationAudits','SettlementReconciliationAudits')
 ORDER BY t.name;
