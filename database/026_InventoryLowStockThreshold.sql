@@ -8,6 +8,23 @@ BEGIN
             CONSTRAINT DF_InventoryItems_LowStockThreshold DEFAULT (5) WITH VALUES;
 END;
 
+-- Repair legacy databases where the column exists but has no default constraint.
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.default_constraints dc
+    INNER JOIN sys.columns c
+        ON c.object_id = dc.parent_object_id
+       AND c.column_id = dc.parent_column_id
+    WHERE dc.parent_object_id = OBJECT_ID(N'dbo.InventoryItems')
+      AND c.name = N'LowStockThreshold'
+)
+BEGIN
+    ALTER TABLE dbo.InventoryItems
+        ADD CONSTRAINT DF_InventoryItems_LowStockThreshold
+            DEFAULT (5) FOR LowStockThreshold;
+END;
+
 IF EXISTS
 (
     SELECT 1 FROM sys.check_constraints
