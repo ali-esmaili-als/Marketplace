@@ -105,6 +105,13 @@ public sealed class RefundService
                 bucketBefore=balance.PendingIRR;
                 balance.RemovePending(order.SellerAmountIRR);
             }
+            else if(order.DeliveredAtUtc is null && order.DeliveryExpiresAtUtc.HasValue)
+            {
+                // Delivery expiry already removed the seller share from PendingIRR.
+                // Do not debit it a second time when returning the customer's payment.
+                bucket=BalanceBucket.Pending;
+                bucketBefore=balance.PendingIRR;
+            }
             else throw new DomainException("Seller balance does not contain the refundable seller amount.");
 
             hold.Consume();
@@ -166,6 +173,13 @@ public sealed class RefundService
                 bucket=BalanceBucket.Pending;
                 bucketBefore=balance.PendingIRR;
                 balance.RemovePending(order.SellerAmountIRR);
+            }
+            else if(order.DeliveredAtUtc is null && order.DeliveryExpiresAtUtc.HasValue)
+            {
+                // Delivery expiry already removed the seller share from PendingIRR.
+                // Do not debit it a second time when returning the customer's payment.
+                bucket=BalanceBucket.Pending;
+                bucketBefore=balance.PendingIRR;
             }
             else throw new DomainException("Seller balance does not contain the refundable seller amount.");
 
