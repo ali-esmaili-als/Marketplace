@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 using Marketplace.Application.Abstractions;
+using Marketplace.Application.Payments;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Payments;
 using Microsoft.Extensions.Configuration;
@@ -20,9 +21,10 @@ public sealed class PaymentGatewayFactory(
     public async Task<IReadOnlyList<PaymentProviderInfo>> GetAvailableAsync(CancellationToken ct=default)
     {
         var providers = await settings.GetAvailableAsync(ct);
-        return environment.IsProduction()
-            ? providers.Where(x => x.Provider != PaymentProviderCode.TestBank).ToArray()
-            : providers;
+        return providers
+            .Where(x => x.IsProtocolImplemented)
+            .Where(x => !environment.IsProduction() || x.Provider != PaymentProviderCode.TestBank)
+            .ToArray();
     }
 
     public Task<IPaymentGateway> GetForExistingPaymentAsync(PaymentProviderCode provider,CancellationToken ct=default)=>CreateAsync(provider,ct,false);
@@ -32,6 +34,9 @@ public sealed class PaymentGatewayFactory(
     {
         if (provider == PaymentProviderCode.TestBank && environment.IsProduction())
             throw new DomainException("The test bank provider is only available outside Production.");
+
+        if (!PaymentProviderCapabilities.IsProtocolImplemented(provider))
+            throw new DomainException("This payment provider is not operational because its official bank protocol has not been implemented.");
 
         var setting=await db.PaymentProviderSettings.SingleOrDefaultAsync(x=>x.Provider==provider,ct)
             ?? throw new DomainException("Payment provider is not configured.");

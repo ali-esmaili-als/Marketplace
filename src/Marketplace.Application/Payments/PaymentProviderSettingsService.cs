@@ -5,7 +5,15 @@ using Marketplace.Domain.Payments;
 
 namespace Marketplace.Application.Payments;
 
-public sealed record PaymentProviderSettingDto(PaymentProviderCode Provider,string DisplayName,bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
+public sealed record PaymentProviderSettingDto(
+    PaymentProviderCode Provider,
+    string DisplayName,
+    bool IsEnabled,
+    bool IsVisible,
+    int SortOrder,
+    string ConfigurationJson,
+    bool IsProtocolImplemented,
+    string ReadinessMessage);
 
 public sealed class PaymentProviderSettingsService(IPaymentProviderSettingsAdmin admin)
 {
@@ -15,6 +23,9 @@ public sealed class PaymentProviderSettingsService(IPaymentProviderSettingsAdmin
     public Task ConfigureAsync(PaymentProviderCode provider,bool isEnabled,bool isVisible,int sortOrder,string configurationJson,CancellationToken ct=default)
     {
         if(sortOrder<0) throw new DomainException("Sort order cannot be negative.");
+
+        if (!PaymentProviderCapabilities.IsProtocolImplemented(provider) && (isEnabled || isVisible))
+            throw new DomainException("This payment provider has no implemented bank protocol and cannot be enabled or shown to customers.");
 
         var normalizedConfiguration = string.IsNullOrWhiteSpace(configurationJson) ? "{}" : configurationJson;
         try

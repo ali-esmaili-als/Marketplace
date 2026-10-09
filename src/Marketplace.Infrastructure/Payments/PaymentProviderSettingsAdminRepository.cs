@@ -11,9 +11,13 @@ public sealed class PaymentProviderSettingsAdminRepository(
     IUnitOfWork uow) : IPaymentProviderSettingsAdmin
 {
     public async Task<IReadOnlyList<PaymentProviderSettingDto>> GetAllAsync(CancellationToken ct=default)
-        => await db.PaymentProviderSettings.OrderBy(x=>x.SortOrder)
-            .Select(x=>new PaymentProviderSettingDto(x.Provider,x.DisplayName,x.IsEnabled,x.IsVisible,x.SortOrder,x.ConfigurationJson))
-            .ToListAsync(ct);
+    {
+        var settings = await db.PaymentProviderSettings.OrderBy(x=>x.SortOrder).ToListAsync(ct);
+        return settings.Select(x=>new PaymentProviderSettingDto(
+            x.Provider,x.DisplayName,x.IsEnabled,x.IsVisible,x.SortOrder,x.ConfigurationJson,
+            PaymentProviderCapabilities.IsProtocolImplemented(x.Provider),
+            PaymentProviderCapabilities.ReadinessMessage(x.Provider))).ToList();
+    }
 
     public async Task ConfigureAsync(PaymentProviderCode provider,bool isEnabled,bool isVisible,int sortOrder,string configurationJson,CancellationToken ct=default)
     {
