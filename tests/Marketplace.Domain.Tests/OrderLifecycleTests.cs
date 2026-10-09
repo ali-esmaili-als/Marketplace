@@ -5,6 +5,7 @@ using Marketplace.Domain.Finance;
 using Marketplace.Domain.Lifecycle;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
+using Marketplace.Domain.Refunds;
 using Xunit;
 
 namespace Marketplace.Domain.Tests;
@@ -190,7 +191,9 @@ public sealed class OrderLifecycleTests
         var refund = Refund.Create(79, order.Id, payment.Id, order.CustomerId, order.TotalAmountIRR, RefundReason.DeliveryExpired);
 
         Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
-            lifecycle.CompleteRefund(order, payment, refund, balance, hold));
+        {
+            lifecycle.CompleteRefund(order, payment, refund, balance, hold);
+        });
 
         Assert.Equal(OrderStatus.RefundRequested, order.Status);
         Assert.Equal(PaymentStatus.Succeeded, payment.Status);
