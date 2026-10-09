@@ -67,7 +67,7 @@ public sealed class PaymentVerificationSecurityTests
         var orders = new Mock<IOrderRepository>();
         var gatewayFactory = new Mock<IPaymentGatewayFactory>();
         var uow = new Mock<IUnitOfWork>();
-        var lifecycle = Mock.Of<OrderLifecycleService>();
+        var lifecycle = CreateLifecycle(orders.Object, payments.Object, uow.Object);
 
         var service = new PaymentVerificationService(
             payments.Object, orders.Object, gatewayFactory.Object, uow.Object, lifecycle);
@@ -90,7 +90,7 @@ public sealed class PaymentVerificationSecurityTests
         var orders = new Mock<IOrderRepository>();
         var gatewayFactory = new Mock<IPaymentGatewayFactory>();
         var uow = new Mock<IUnitOfWork>();
-        var lifecycle = Mock.Of<OrderLifecycleService>();
+        var lifecycle = CreateLifecycle(orders.Object, payments.Object, uow.Object);
 
         var service = new PaymentVerificationService(
             payments.Object, orders.Object, gatewayFactory.Object, uow.Object, lifecycle);
@@ -123,7 +123,7 @@ public sealed class PaymentVerificationSecurityTests
                 It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
         uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
-        var lifecycle = Mock.Of<OrderLifecycleService>();
+        var lifecycle = CreateLifecycle(orders.Object, payments.Object, uow.Object);
 
         var service = new PaymentVerificationService(
             payments.Object, orders.Object, gatewayFactory.Object, uow.Object, lifecycle);
