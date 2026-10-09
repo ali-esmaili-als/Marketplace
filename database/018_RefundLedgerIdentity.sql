@@ -1,6 +1,7 @@
 /* 018 - Link each refund ledger posting to the exact refund for safe retry and reconciliation. */
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+BEGIN TRANSACTION;
 
 IF OBJECT_ID(N'dbo.BalanceTransactions', N'U') IS NULL
    OR OBJECT_ID(N'dbo.Refunds', N'U') IS NULL
@@ -37,3 +38,4 @@ IF NOT EXISTS
     CREATE UNIQUE INDEX UX_BalanceTransactions_RefundId
         ON dbo.BalanceTransactions(RefundId)
         WHERE RefundId IS NOT NULL;
+COMMIT TRANSACTION;
