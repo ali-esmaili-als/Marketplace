@@ -13,5 +13,6 @@
     </PackageReference>
     <ProjectReference Include="..\..\src\Marketplace.Infrastructure\Marketplace.Infrastructure.csproj" />
     <None Include="..\..\database\Marketplace_Complete.sql" Link="database\Marketplace_Complete.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\FinancialConsistencyChecks.sql" Link="database\FinancialConsistencyChecks.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
