@@ -110,6 +110,43 @@ public sealed class PaymentVerificationServiceTests
     }
 
     [Fact]
+    public async Task Verify_ExplicitRejectionDoesNotReportFailureIfConcurrentCallbackAlreadySucceeded()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        payments.Setup(x => x.GetLatestTransactionAsync(10, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentTransaction?)null);
+        var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
+        gateway.Setup(x => x.VerifyAsync("AUTH-10", 500_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentVerification(false, null, "Stale rejection response."));
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        factory.Setup(x => x.GetAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(gateway.Object);
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Func<CancellationToken, Task<int>> action, CancellationToken token) =>
+            {
+                // Simulate a successful callback winning the race before the rejection
+                // transaction re-reads and conditionally updates the persisted payment.
+                payment.Succeed("BANK-REF-CONCURRENT");
+                return await action(token);
+            });
+        var service = CreateService(payments, factory, uow);
+
+        var result = await service.VerifyAsync(30, 10, "AUTH-10");
+
+        Assert.True(result.Paid);
+        Assert.Equal("BANK-REF-CONCURRENT", result.Reference);
+        Assert.Null(result.Error);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        factory.VerifyAll();
+    }
+
+    [Fact]
     public async Task Verify_ExplicitProviderRejectionMarksPaymentAndTransactionFailed()
     {
         var payment = Payment.Create(10, 20, 30, 500_000);

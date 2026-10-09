@@ -98,6 +98,18 @@ public sealed class PaymentVerificationService
                 return 0;
             },ct);
 
+            // A concurrent callback/reconciliation may have finalized the payment while
+            // this gateway verification was in flight. Report the persisted state, not the
+            // stale provider response, so the client never sees "failed" for a paid order.
+            var afterRejection = await _payments.GetAsync(paymentId, ct)
+                ?? throw new DomainException("Payment not found.");
+            if (afterRejection.Status == PaymentStatus.Succeeded)
+                return new PaymentVerificationResult(true, afterRejection.ReferenceNumber, null);
+            if (afterRejection.Status is PaymentStatus.ReconciliationRequired
+                or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+                return new PaymentVerificationResult(false, afterRejection.ReferenceNumber,
+                    "Payment outcome requires financial reconciliation.");
+
             return new PaymentVerificationResult(false,result.Reference,result.Error);
         }
 
