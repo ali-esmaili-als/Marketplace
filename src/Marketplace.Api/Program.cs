@@ -1882,6 +1882,61 @@ app.MapPost("/api/admin/outbox/messages/{id:long}/retry", async (
     return Results.Ok(new { id = message.Id, message.MessageId, status = message.Status, retriedAtUtc = DateTime.UtcNow, auditId = audit.Id });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/outbox/archive", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    string? eventType,
+    DateTime? fromUtc,
+    DateTime? toUtc,
+    CancellationToken ct,
+    int page = 1,
+    int pageSize = 25) =>
+{
+    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value > toUtc.Value)
+        throw new Marketplace.Domain.Common.DomainException("fromUtc must not be later than toUtc.");
+
+    page = Math.Max(1, page);
+    pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100);
+    var eventTypeFilter = string.IsNullOrWhiteSpace(eventType) ? null : eventType.Trim();
+    var skip = (page - 1) * pageSize;
+
+    var total = await db.Database.SqlQuery<long>($@"
+SELECT COUNT_BIG(*) AS Value
+FROM dbo.OutboxMessageArchive
+WHERE ({eventTypeFilter} IS NULL OR EventType LIKE N'%' + {eventTypeFilter} + N'%')
+  AND ({fromUtc} IS NULL OR ArchivedAtUtc >= {fromUtc})
+  AND ({toUtc} IS NULL OR ArchivedAtUtc <= {toUtc})")
+        .SingleAsync(ct);
+
+    var items = await db.Database.SqlQuery<OutboxArchiveListRow>($@"
+SELECT Id, MessageId, EventType, Status, Attempts, OccurredAtUtc, ProcessedAtUtc,
+       ArchivedAtUtc, LastError,
+       CASE WHEN LEN(PayloadJson) > 500 THEN LEFT(PayloadJson, 500) ELSE PayloadJson END AS PayloadPreview
+FROM dbo.OutboxMessageArchive
+WHERE ({eventTypeFilter} IS NULL OR EventType LIKE N'%' + {eventTypeFilter} + N'%')
+  AND ({fromUtc} IS NULL OR ArchivedAtUtc >= {fromUtc})
+  AND ({toUtc} IS NULL OR ArchivedAtUtc <= {toUtc})
+ORDER BY ArchivedAtUtc DESC, Id DESC
+OFFSET {skip} ROWS FETCH NEXT {pageSize} ROWS ONLY")
+        .ToListAsync(ct);
+
+    return Results.Ok(new { page, pageSize, total, pageCount = (int)Math.Ceiling(total / (double)pageSize), items });
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapGet("/api/admin/outbox/archive/{id:long}", async (
+    long id,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var item = await db.Database.SqlQuery<OutboxArchiveDetailRow>($@"
+SELECT Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc,
+       LockedUntilUtc, LockToken, NextAttemptAtUtc, Attempts, Status, LastError, ArchivedAtUtc
+FROM dbo.OutboxMessageArchive
+WHERE Id = {id}")
+        .SingleOrDefaultAsync(ct);
+
+    return item is null ? Results.NotFound() : Results.Ok(item);
+}).RequirePermission("Admin.Settlement.Process");
+
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
@@ -1933,3 +1988,34 @@ public sealed class MarketplaceMaintenanceHostedService(IServiceScopeFactory sco
 }
 
 public partial class Program { }
+
+public sealed class OutboxArchiveListRow
+{
+    public long Id { get; set; }
+    public Guid MessageId { get; set; }
+    public string EventType { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public int Attempts { get; set; }
+    public DateTime OccurredAtUtc { get; set; }
+    public DateTime ProcessedAtUtc { get; set; }
+    public DateTime ArchivedAtUtc { get; set; }
+    public string? LastError { get; set; }
+    public string PayloadPreview { get; set; } = string.Empty;
+}
+
+public sealed class OutboxArchiveDetailRow
+{
+    public long Id { get; set; }
+    public Guid MessageId { get; set; }
+    public string EventType { get; set; } = string.Empty;
+    public string PayloadJson { get; set; } = string.Empty;
+    public DateTime OccurredAtUtc { get; set; }
+    public DateTime ProcessedAtUtc { get; set; }
+    public DateTime ArchivedAtUtc { get; set; }
+    public DateTime? LockedUntilUtc { get; set; }
+    public Guid? LockToken { get; set; }
+    public DateTime NextAttemptAtUtc { get; set; }
+    public int Attempts { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? LastError { get; set; }
+}
