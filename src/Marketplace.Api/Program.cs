@@ -523,9 +523,59 @@ app.MapPost("/api/settlements",async(System.Security.Claims.ClaimsPrincipal user
     var result=await service.RequestAsync(CurrentUserId(user),request.BankAccountId,request.AmountIRR,ct); return Results.Ok(result);
 }).RequirePermission("Seller.Settlement.Request");
 
-app.MapPost("/api/settlements/{settlementId:long}/process",async(long settlementId,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
-    var result=await service.ProcessAsync(settlementId,ct);
-    return result.Status=="Completed" ? Results.Ok(result) : Results.BadRequest(result);
+app.MapPost("/api/settlements/{settlementId:long}/process", async (
+    long settlementId,
+    Marketplace.Application.Settlements.SettlementService service,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    ILogger<Program> logger,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var result = await service.ProcessAsync(settlementId, ct);
+        return result.Status == "Completed"
+            ? (IResult)Results.Ok(result)
+            : Results.BadRequest(result);
+    }
+    catch (Exception exception)
+    {
+        // SettlementService deliberately moves ambiguous gateway/finalization outcomes to
+        // OnHold and keeps the money reserved. Return that persisted state to the admin UI
+        // instead of making an expected reconciliation workflow look like an opaque HTTP 500.
+        try
+        {
+            var persisted = await db.Settlements.AsNoTracking()
+                .Where(x => x.Id == settlementId)
+                .Select(x => new { x.Id, x.AmountIRR, x.Status, x.Reference })
+                .SingleOrDefaultAsync(CancellationToken.None);
+
+            if (persisted?.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
+            {
+                logger.LogWarning(exception,
+                    "Settlement {SettlementId} is on hold after an ambiguous payout outcome and requires bank reconciliation.",
+                    settlementId);
+
+                return Results.Ok(new
+                {
+                    settlementId = persisted.Id,
+                    amountIRR = persisted.AmountIRR,
+                    status = persisted.Status.ToString(),
+                    reference = persisted.Reference,
+                    outcomeRequiresReconciliation = true,
+                    message = "Payout outcome is ambiguous. Reconcile against the bank's final status before retrying."
+                });
+            }
+        }
+        catch (Exception lookupException)
+        {
+            logger.LogError(lookupException,
+                "Could not read persisted settlement {SettlementId} after processing failed.",
+                settlementId);
+        }
+
+        logger.LogError(exception, "Settlement {SettlementId} processing failed without a confirmed OnHold outcome.", settlementId);
+        throw;
+    }
 }).RequirePermission("Admin.Settlement.Process");
 
 app.MapPost("/api/admin/settlements/{settlementId:long}/reconcile", async (long settlementId, System.Security.Claims.ClaimsPrincipal user, SettlementReconciliationRequest request, Marketplace.Application.Settlements.SettlementService service, CancellationToken ct) =>
