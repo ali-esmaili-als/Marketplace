@@ -1735,6 +1735,39 @@ app.MapGet("/api/admin/refunds/reconciliation/history",async(Marketplace.Infrast
                       select new { auditId=a.Id,refundId=r.Id,orderId=r.OrderId,customerId=r.CustomerId,sellerId=o.SellerId,amountIRR=r.AmountIRR,transferCompleted=a.TransferCompleted,note=a.Note,bankReference=a.BankReference,adminUserId=a.AdminUserId,createdAtUtc=a.CreatedAtUtc })
                      .Take(200).ToListAsync(ct))).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/me/complaints", async (System.Security.Claims.ClaimsPrincipal user, int? take, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var limit = Math.Clamp(take ?? 100, 1, 200);
+    var items = await (
+        from complaint in db.Complaints.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on complaint.OrderId equals order.Id
+        where complaint.CustomerId == customerId
+        orderby complaint.CreatedAtUtc descending
+        select new
+        {
+            id = complaint.Id,
+            orderId = complaint.OrderId,
+            status = (byte)complaint.Status,
+            reason = complaint.Reason,
+            createdAtUtc = complaint.CreatedAtUtc,
+            resolvedAtUtc = complaint.ResolvedAtUtc,
+            resolutionNote = complaint.ResolutionNote,
+            orderTotalIRR = order.TotalAmountIRR
+        }).Take(limit).ToListAsync(ct);
+    return Results.Ok(items);
+}).RequirePermission("Order.ReadOwn");
+
+app.MapPost("/api/me/complaints/{complaintId:long}/cancel", async (System.Security.Claims.ClaimsPrincipal user, long complaintId, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var complaint = await db.Complaints.SingleOrDefaultAsync(x => x.Id == complaintId && x.CustomerId == customerId, ct);
+    if (complaint is null) return Results.NotFound();
+    complaint.Cancel();
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).RequirePermission("Order.Create");
+
 app.MapGet("/api/admin/complaints",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
     Results.Ok(await (from c in db.Complaints
                       join o in db.Orders on c.OrderId equals o.Id
