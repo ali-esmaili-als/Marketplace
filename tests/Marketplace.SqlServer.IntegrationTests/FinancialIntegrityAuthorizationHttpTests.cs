@@ -25,9 +25,16 @@ public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<Web
     private const string JwtIssuer = "Marketplace.IntegrationTests";
     private const string JwtAudience = "Marketplace.IntegrationTests";
     private readonly HttpClient _client;
+    private readonly Dictionary<string, string?> _originalEnvironment = new();
 
     public FinancialIntegrityAuthorizationHttpTests(WebApplicationFactory<global::Program> factory)
     {
+        SetEnvironment("Authentication__Jwt__Key", JwtKey);
+        SetEnvironment("Authentication__Jwt__Issuer", JwtIssuer);
+        SetEnvironment("Authentication__Jwt__Audience", JwtAudience);
+        SetEnvironment("ConnectionStrings__Marketplace", Environment.GetEnvironmentVariable("MARKETPLACE_SQLSERVER")
+            ?? "Server=localhost;Database=MarketplaceAuthorizationTests;Integrated Security=true;TrustServerCertificate=True");
+
         _client = factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -100,5 +107,16 @@ public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<Web
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public void Dispose() => _client.Dispose();
+    private void SetEnvironment(string key, string value)
+    {
+        _originalEnvironment[key] = Environment.GetEnvironmentVariable(key);
+        Environment.SetEnvironmentVariable(key, value);
+    }
+
+    public void Dispose()
+    {
+        _client.Dispose();
+        foreach (var pair in _originalEnvironment)
+            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+    }
 }
