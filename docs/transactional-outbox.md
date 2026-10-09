@@ -43,6 +43,8 @@ Each POST contains `messageId`, `eventType`, `occurredAtUtc`, and the event payl
 All management endpoints require `Admin.Settlement.Process`:
 
 - `GET /api/admin/outbox/summary`: status counts, active event-type counts, and latest failures.
+- `GET /api/admin/outbox/health`: read-only operational diagnostics for due pending backlog, expired processing leases, and dead-letter messages. It returns `Healthy`, `Warning`, or `Critical`, plus bounded examples and threshold values.
+- Default health thresholds in `Outbox:Health`: pending older than 15 minutes, expired lease older than 2 minutes, and alert when at least one dead-letter exists. Tune these values for the expected workload; health checks never modify message or financial state.
 - `GET /api/admin/outbox/messages`: paged list (maximum 100 per page) with status, event type and UTC date filters.
 - `GET /api/admin/outbox/messages/{id}`: detailed message payload and processing metadata.
 - `POST /api/admin/outbox/messages/{id}/retry`: retries only a `DeadLetter` message, resets its attempt counter and next-attempt time, and appends an `Outbox.MessageRetried` admin audit event. It does not publish synchronously; the dispatcher will pick it up if enabled.
