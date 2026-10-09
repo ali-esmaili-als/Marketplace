@@ -182,10 +182,17 @@ public sealed class RefundServiceResilienceTests
         lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
         lifecycle.Setup(x => x.GetActiveHoldByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(hold);
 
+        var commission = Commission.Create(315, order.Id, 250, order.SellerId, order.TotalAmountIRR, 10m, 0);
+        lifecycle.Setup(x => x.GetCommissionByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(commission);
+
         BalanceTransaction? transaction = null;
+        CommissionReversal? reversal = null;
         RefundReconciliationAudit? audit = null;
         lifecycle.Setup(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()))
             .Callback<BalanceTransaction>(x => transaction = x);
+        lifecycle.Setup(x => x.AddCommissionReversal(It.IsAny<CommissionReversal>()))
+            .Callback<CommissionReversal>(x => reversal = x);
         lifecycle.Setup(x => x.AddRefundReconciliationAudit(It.IsAny<RefundReconciliationAudit>()))
             .Callback<RefundReconciliationAudit>(x => audit = x);
 
@@ -224,9 +231,17 @@ public sealed class RefundServiceResilienceTests
         Assert.Equal(BalanceTransactionType.Refund, transaction!.Type);
         Assert.Equal(BalanceBucket.Blocked, transaction.Bucket);
         Assert.Equal(order.Id, transaction.OrderId);
+        Assert.Equal(refund.Id, transaction.RefundId);
         Assert.Equal(order.SellerAmountIRR, transaction.AmountIRR);
         Assert.Equal(500_000, transaction.BalanceBeforeIRR);
         Assert.Equal(0, transaction.BalanceAfterIRR);
+
+        Assert.NotNull(reversal);
+        Assert.Equal(commission.Id, reversal!.CommissionId);
+        Assert.Equal(order.Id, reversal.OrderId);
+        Assert.Equal(refund.Id, reversal.RefundId);
+        Assert.Equal(refund.AmountIRR, reversal.RefundAmountIRR);
+        Assert.Equal(commission.CommissionAmountIRR, reversal.ReversedCommissionIRR);
 
         Assert.NotNull(audit);
         Assert.Equal(refund.Id, audit!.RefundId);
@@ -236,12 +251,14 @@ public sealed class RefundServiceResilienceTests
         Assert.Equal("Confirmed refund in provider portal", audit.Note);
 
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        lifecycle.Verify(x => x.AddCommissionReversal(It.IsAny<CommissionReversal>()), Times.Once);
         lifecycle.Verify(x => x.AddRefundReconciliationAudit(It.IsAny<RefundReconciliationAudit>()), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
 
         await Assert.ThrowsAsync<DomainException>(() => service.ReconcileAsync(refund.Id, 311, true,
             "BANK-REFUND-270", "Duplicate reconciliation"));
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        lifecycle.Verify(x => x.AddCommissionReversal(It.IsAny<CommissionReversal>()), Times.Once);
         lifecycle.Verify(x => x.AddRefundReconciliationAudit(It.IsAny<RefundReconciliationAudit>()), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
