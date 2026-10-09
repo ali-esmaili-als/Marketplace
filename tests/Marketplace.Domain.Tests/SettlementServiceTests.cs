@@ -20,6 +20,8 @@ public sealed class SettlementServiceTests
         var existing = Settlement.Create(703, seller.Id, 400_000, 704,
             "Test Bank", "IR0704", "Seller", "checkout-2026-01");
         var lifecycle = new Mock<ILifecycleRepository>(MockBehavior.Strict);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(seller.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SellerBalance?)null);
         lifecycle.Setup(x => x.GetSettlementByRequestKeyAsync(
                 seller.Id, "checkout-2026-01", It.IsAny<CancellationToken>()))
             .ReturnsAsync(existing);
@@ -59,6 +61,8 @@ public sealed class SettlementServiceTests
         var existing = Settlement.Create(713, seller.Id, 400_000, 714,
             "Test Bank", "IR0714", "Seller", "checkout-2026-02");
         var lifecycle = new Mock<ILifecycleRepository>(MockBehavior.Strict);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(seller.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SellerBalance?)null);
         lifecycle.Setup(x => x.GetSettlementByRequestKeyAsync(
                 seller.Id, "checkout-2026-02", It.IsAny<CancellationToken>()))
             .ReturnsAsync(existing);
