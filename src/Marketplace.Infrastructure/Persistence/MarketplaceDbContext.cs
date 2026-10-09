@@ -67,6 +67,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<StoreShippingCity> StoreShippingCities => Set<StoreShippingCity>();
     public DbSet<StoreShippingRate> StoreShippingRates => Set<StoreShippingRate>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<Rule> Rules => Set<Rule>();
     public DbSet<UserRule> UserRules => Set<UserRule>();
@@ -256,6 +257,21 @@ public sealed class MarketplaceDbContext : DbContext
         {
             e.ToTable("CartItems", t => t.HasCheckConstraint("CK_CartItems_Quantity", "Quantity > 0")); e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.CartId, x.ProductVariantId, x.WarrantyId }).IsUnique();
+        });
+
+        b.Entity<CustomerAddress>(e =>
+        {
+            e.ToTable("CustomerAddresses", t => t.HasCheckConstraint("CK_CustomerAddresses_Ids", "Id > 0 AND CustomerId > 0 AND CityId > 0"));
+            e.HasKey(x => x.Id);
+            e.Property(x => x.RecipientName).HasMaxLength(150).IsRequired();
+            e.Property(x => x.RecipientMobile).HasMaxLength(30).IsRequired();
+            e.Property(x => x.AddressLine).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.PostalCode).HasMaxLength(20).IsRequired();
+            e.Property(x => x.DeliveryNote).HasMaxLength(500);
+            e.HasIndex(x => x.CustomerId);
+            e.HasIndex(x => x.CustomerId).IsUnique().HasFilter("[IsDefault] = 1");
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<DeliveryCity>().WithMany().HasForeignKey(x => x.CityId).OnDelete(DeleteBehavior.NoAction);
         });
 
         b.Entity<Order>(e => { e.ToTable("Orders", t => t.HasCheckConstraint("CK_Orders_Amounts", "SubtotalAmountIRR > 0 AND ShippingFeeIRR >= 0 AND TotalAmountIRR > 0 AND TotalAmountIRR <= SubtotalAmountIRR + ShippingFeeIRR AND SellerAmountIRR >= 0 AND SellerAmountIRR <= TotalAmountIRR")); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>();
