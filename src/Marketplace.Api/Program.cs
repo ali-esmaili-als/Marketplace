@@ -758,6 +758,136 @@ app.MapGet("/api/admin/financial-integrity/cases", async (
     return Results.Ok(new { generatedAtUtc = DateTime.UtcNow, cases, itemsTruncated = events.Count == 2000 });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/recheck", async (
+    string kind,
+    string entityKey,
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    var allowedKinds = new[] { "PaymentOrderMismatch", "PaymentReview", "RefundProcessing", "SettlementOnHold" };
+    if (!allowedKinds.Contains(kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial case type.");
+    if (!long.TryParse(entityKey, out var entityId) || entityId <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
+
+    bool exists;
+    bool findingActive;
+    string currentState;
+    string resultNote;
+    switch (kind)
+    {
+        case "PaymentOrderMismatch":
+        {
+            var row = await (from payment in db.Payments.AsNoTracking()
+                join order in db.Orders.AsNoTracking() on payment.OrderId equals order.Id
+                where payment.Id == entityId
+                select new { PaymentStatus = payment.Status, OrderStatus = order.Status }).SingleOrDefaultAsync(ct);
+            exists = row is not null;
+            if (row is null)
+            {
+                findingActive = false;
+                currentState = "RecordNotFound";
+                resultNote = "پرداخت یا سفارش مرتبط پیدا نشد.";
+            }
+            else
+            {
+                findingActive =
+                    (row.PaymentStatus == Marketplace.Domain.Payments.PaymentStatus.Succeeded
+                        && (row.OrderStatus == Marketplace.Domain.Orders.OrderStatus.PendingPayment
+                            || row.OrderStatus == Marketplace.Domain.Orders.OrderStatus.Cancelled
+                            || row.OrderStatus == Marketplace.Domain.Orders.OrderStatus.Refunded))
+                    || (row.PaymentStatus == Marketplace.Domain.Payments.PaymentStatus.Refunded
+                        && row.OrderStatus != Marketplace.Domain.Orders.OrderStatus.Refunded);
+                currentState = $"Payment={row.PaymentStatus};Order={row.OrderStatus}";
+                resultNote = findingActive
+                    ? "مغایرت پرداخت و سفارش همچنان برقرار است."
+                    : "شرط فعلی مغایرت پرداخت و سفارش مشاهده نشد.";
+            }
+            break;
+        }
+        case "PaymentReview":
+        {
+            var row = await db.Payments.AsNoTracking()
+                .Where(x => x.Id == entityId)
+                .Select(x => new { x.Status })
+                .SingleOrDefaultAsync(ct);
+            exists = row is not null;
+            findingActive = row?.Status == Marketplace.Domain.Payments.PaymentStatus.ReconciliationRequired;
+            currentState = row is null ? "RecordNotFound" : row.Status.ToString();
+            resultNote = row is null ? "پرداخت پیدا نشد." : findingActive
+                ? "پرداخت همچنان نیازمند تطبیق است."
+                : "پرداخت دیگر در وضعیت نیازمند تطبیق نیست؛ وضعیت جاری باید جداگانه بررسی شود.";
+            break;
+        }
+        case "RefundProcessing":
+        {
+            var row = await db.Refunds.AsNoTracking()
+                .Where(x => x.Id == entityId)
+                .Select(x => new { x.Status })
+                .SingleOrDefaultAsync(ct);
+            exists = row is not null;
+            findingActive = row?.Status == Marketplace.Domain.Refunds.RefundStatus.Processing;
+            currentState = row is null ? "RecordNotFound" : row.Status.ToString();
+            resultNote = row is null ? "بازپرداخت پیدا نشد." : findingActive
+                ? "بازپرداخت همچنان در حال پردازش است."
+                : "بازپرداخت دیگر در وضعیت پردازش نیست؛ نتیجه نهایی را بررسی کنید.";
+            break;
+        }
+        case "SettlementOnHold":
+        {
+            var row = await db.Settlements.AsNoTracking()
+                .Where(x => x.Id == entityId)
+                .Select(x => new { x.Status })
+                .SingleOrDefaultAsync(ct);
+            exists = row is not null;
+            findingActive = row?.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold;
+            currentState = row is null ? "RecordNotFound" : row.Status.ToString();
+            resultNote = row is null ? "تسویه پیدا نشد." : findingActive
+                ? "تسویه همچنان متوقف است."
+                : "تسویه دیگر در وضعیت توقف نیست؛ نتیجه مالی و مرجع انتقال را بررسی کنید.";
+            break;
+        }
+        default:
+            throw new Marketplace.Domain.Common.DomainException("Unsupported financial case type.");
+    }
+
+    if (!exists) return Results.NotFound(new { detail = "Financial record not found." });
+
+    var detailsJson = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        kind,
+        entityId,
+        findingActive,
+        currentState,
+        note = resultNote,
+        checkType = "CurrentDatabaseStateOnly",
+        workflowOnly = true
+    }, new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+    var correlationId = http.TraceIdentifier;
+    var audit = Marketplace.Domain.Auditing.AdminAuditEvent.Create(
+        CurrentUserId(user), "FinancialIntegrity.CaseRechecked", kind,
+        entityId.ToString(System.Globalization.CultureInfo.InvariantCulture), detailsJson,
+        correlationId.Length <= 100 ? correlationId : correlationId[..100]);
+    db.AdminAuditEvents.Add(audit);
+    await db.SaveChangesAsync(ct);
+
+    return Results.Ok(new
+    {
+        auditId = audit.Id,
+        kind,
+        entityKey = entityId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        findingActive,
+        currentState,
+        note = resultNote,
+        checkedAtUtc = audit.CreatedAtUtc,
+        correlationId = audit.CorrelationId,
+        checkType = "CurrentDatabaseStateOnly",
+        workflowOnly = true
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", async (
     string kind,
     string entityKey,
@@ -771,7 +901,7 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
         throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
 
     var history = await db.AdminAuditEvents.AsNoTracking()
-        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged"
+        .Where(x => (x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseRechecked")
             && x.EntityType == kind && x.EntityKey == entityId.ToString(System.Globalization.CultureInfo.InvariantCulture))
         .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
         .Take(200)
@@ -781,6 +911,7 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
             actorUserId = x.ActorUserId,
             x.EntityType,
             x.EntityKey,
+            x.Action,
             x.DetailsJson,
             x.CorrelationId,
             x.CreatedAtUtc
@@ -791,10 +922,18 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
     {
         string status = "Unknown";
         string note = "";
+        bool? findingActive = null;
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(x.DetailsJson);
-            if (document.RootElement.TryGetProperty("status", out var statusElement))
+            if (x.Action == "FinancialIntegrity.CaseRechecked")
+            {
+                if (document.RootElement.TryGetProperty("findingActive", out var activeElement)
+                    && activeElement.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
+                    findingActive = activeElement.GetBoolean();
+                status = findingActive == true ? "FindingStillActive" : "RecheckClear";
+            }
+            else if (document.RootElement.TryGetProperty("status", out var statusElement))
                 status = statusElement.GetString() ?? "Unknown";
             if (document.RootElement.TryGetProperty("note", out var noteElement))
                 note = noteElement.GetString() ?? "";
@@ -810,7 +949,9 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
             x.actorUserId,
             kind = x.EntityType,
             entityKey = x.EntityKey,
+            action = x.Action,
             status,
+            findingActive,
             note,
             x.CorrelationId,
             x.CreatedAtUtc
