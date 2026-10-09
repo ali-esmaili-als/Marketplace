@@ -2435,6 +2435,17 @@ app.MapPost("/api/admin/users/{userId:long}/active", async (
     return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
+app.MapGet("/api/me/profile", async (
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var account = await db.Users.AsNoTracking().Where(x => x.Id == CurrentUserId(user))
+        .Select(x => new { x.Id, x.Mobile, x.Email, x.DisplayName, x.IsMobileVerified })
+        .SingleOrDefaultAsync(ct);
+    return account is null ? Results.NotFound() : Results.Ok(account);
+}).RequireAuthorization();
+
 app.MapPut("/api/me/profile", async (
     System.Security.Claims.ClaimsPrincipal user,
     CustomerProfileUpdateRequest request,
