@@ -19,7 +19,7 @@ Payloads contain settlement identifiers, amount, status and (where relevant) the
 
 The table and domain lifecycle support a durable queue with attempts, retry time, processing lease, last error and dead-letter state. A worker can reclaim a `Processing` row after `LockedUntilUtc` expires. Consumers must deduplicate by `MessageId`: delivery across process crashes is expected to be **at least once**, not exactly once.
 
-This change establishes atomic event persistence and lifecycle primitives. A transport-specific publisher/dispatcher is not yet enabled, so do not treat rows as delivered to an external broker or notification provider. Configure and test that integration before relying on downstream delivery.
+A lease-based hosted dispatcher is now implemented with atomic SQL claiming, per-claim lease tokens, retry backoff and dead-letter handling. It remains disabled by default. A real transport-specific `IOutboxPublisher` must be registered before enabling `Outbox:Enabled`; with no publisher registered, the worker does not claim rows. Do not treat rows as delivered to an external broker or notification provider until that integration is configured and verified. Configure and test that integration before relying on downstream delivery. Set `Outbox:Enabled=true` only after registering the publisher and validating its deduplication behavior.
 
 ## Database deployment
 
