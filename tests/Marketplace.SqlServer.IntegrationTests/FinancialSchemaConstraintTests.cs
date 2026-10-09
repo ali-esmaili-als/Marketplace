@@ -308,47 +308,7 @@ public sealed class FinancialSchemaConstraintTests
                 await seedFinancialRows.ExecuteNonQueryAsync();
             }
 
-            // Exercise the new operational diagnostics against deliberate inconsistencies.
-            // The SQL is read-only: these fixtures prove the checks surface a mismatch, not repair it.
-            await using (var seedBalanceAndSaleLedger = new SqlCommand("""
-                INSERT INTO dbo.SellerBalances
-                    (Id, SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
-                VALUES (950010, 950002, 123456, 0, 0, 0, 0, SYSUTCDATETIME());
-
-                INSERT INTO dbo.BalanceTransactions
-                    (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
-                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
-                VALUES (950011, 950002, 950004, NULL, 5, 1, 90000, 0, 90000, N'INTEGRATION-ADJUSTMENT', SYSUTCDATETIME());
-                """, connection))
-            {
-                await seedBalanceAndSaleLedger.ExecuteNonQueryAsync();
-            }
-
-            await using (var latestLedgerMismatch = new SqlCommand("""
-                SELECT COUNT_BIG(*)
-                FROM dbo.SellerBalances AS sb
-                CROSS APPLY (VALUES
-                    (1, sb.AvailableIRR),
-                    (2, sb.PendingIRR),
-                    (3, sb.BlockedIRR),
-                    (4, sb.ReservedForSettlementIRR),
-                    (5, sb.LiabilityIRR)
-                ) AS b(Bucket, BalanceIRR)
-                OUTER APPLY
-                (
-                    SELECT TOP (1) bt.BalanceAfterIRR
-                    FROM dbo.BalanceTransactions AS bt
-                    WHERE bt.SellerId = sb.SellerId AND bt.Bucket = b.Bucket
-                    ORDER BY bt.CreatedAtUtc DESC, bt.Id DESC
-                ) AS latest
-                WHERE sb.SellerId = 950002 AND b.Bucket = 1
-                  AND latest.BalanceAfterIRR <> b.BalanceIRR;
-                """, connection))
-            {
-                Assert.Equal(1L, Convert.ToInt64(await latestLedgerMismatch.ExecuteScalarAsync()));
-            }
-
-            await using (var seedFirstRefund = new SqlCommand("""
+                        await using (var seedFirstRefund = new SqlCommand("""
                 INSERT INTO dbo.Refunds (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
                 VALUES (950008, 950004, 950006, 950001, 10000, 1, 1, SYSUTCDATETIME());
                 """, connection))
@@ -592,6 +552,43 @@ public sealed class FinancialSchemaConstraintTests
             {
                 await seedSellerBalance.ExecuteNonQueryAsync();
             }
+
+// Exercise the new operational diagnostics against deliberate inconsistencies.
+            // The SQL is read-only: these fixtures prove the checks surface a mismatch, not repair it.
+            await using (var seedBalanceAndSaleLedger = new SqlCommand("""
+INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
+                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES (950040, 950002, 950004, NULL, 5, 1, 90000, 0, 90000, N'INTEGRATION-ADJUSTMENT', SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedBalanceAndSaleLedger.ExecuteNonQueryAsync();
+            }
+
+            await using (var latestLedgerMismatch = new SqlCommand("""
+                SELECT COUNT_BIG(*)
+                FROM dbo.SellerBalances AS sb
+                CROSS APPLY (VALUES
+                    (1, sb.AvailableIRR),
+                    (2, sb.PendingIRR),
+                    (3, sb.BlockedIRR),
+                    (4, sb.ReservedForSettlementIRR),
+                    (5, sb.LiabilityIRR)
+                ) AS b(Bucket, BalanceIRR)
+                OUTER APPLY
+                (
+                    SELECT TOP (1) bt.BalanceAfterIRR
+                    FROM dbo.BalanceTransactions AS bt
+                    WHERE bt.SellerId = sb.SellerId AND bt.Bucket = b.Bucket
+                    ORDER BY bt.CreatedAtUtc DESC, bt.Id DESC
+                ) AS latest
+                WHERE sb.SellerId = 950002 AND b.Bucket = 1
+                  AND latest.BalanceAfterIRR <> b.BalanceIRR;
+                """, connection))
+            {
+                Assert.Equal(1L, Convert.ToInt64(await latestLedgerMismatch.ExecuteScalarAsync()));
+            }
+
 
             var reservationStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             async Task<int> TryReserveSellerFundsAsync()
