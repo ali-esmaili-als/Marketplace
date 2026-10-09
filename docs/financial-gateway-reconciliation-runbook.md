@@ -120,3 +120,14 @@ These diagnostics are deliberately conservative. Some rows indicate an inconsist
 - **30 — Multiple holds for one order:** inspect every hold's status and associated ledger movements. Do not sum, release, or consume holds manually until it is clear whether duplicate rows represent a committed duplicate or legitimate historical data.
 
 For each finding, first preserve the query output and correlate payment provider references with order and ledger records. Checks 27–30 are read-only signals; they never justify direct SQL balance edits. After an authorized application-level reconciliation, rerun the relevant checks and retain the before/after evidence.
+
+### Delivery and inventory diagnostics (checks 31–36)
+
+- **31 — Paid-through-terminal order without a delivery row:** check payment confirmation and the order lifecycle transaction, including whether the delivery insert rolled back or historical data predates delivery tracking.
+- **32 — Delivered/completed order without a delivered delivery record:** compare order and delivery timestamps and confirmation reference. This can indicate partial persistence or a legacy migration gap.
+- **33 — Delivery says delivered but order state disagrees:** inspect the same transaction's order transition, balance movements, and inventory consumption before considering any application-level repair.
+- **34 — Active reservation attached to a terminal order:** verify whether inventory release/consumption was committed. Do not release it a second time without checking the inventory row and reservation history.
+- **35 — Inventory reserved count differs from active reservation totals:** compare per-variant inventory and every active reservation. A difference can block purchases or oversell stock; resolve through the supported inventory workflow, not a direct counter update.
+- **36 — Delivery-code use timestamp conflicts with delivery completion:** compare the code verification audit trail, delivery confirmation reference, and delivery state. Preserve evidence before any corrective action.
+
+Checks 34–36 can flag work that is in flight if the diagnostic is run concurrently with a transaction or background job. Re-run after the transaction/job has completed before escalating as a confirmed inconsistency. All checks remain read-only.
