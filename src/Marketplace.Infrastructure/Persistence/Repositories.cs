@@ -173,6 +173,7 @@ public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRep
     public void AddDeliveryCode(DeliveryCode code)=>db.DeliveryCodes.Add(code);
     public void AddComplaint(Complaint complaint)=>db.Complaints.Add(complaint);
     public void AddRefund(Refund refund)=>db.Refunds.Add(refund);
+    public void AddRefundReconciliationAudit(RefundReconciliationAudit audit)=>db.RefundReconciliationAudits.Add(audit);
     public void AddBalanceHold(SellerBalanceHold hold)=>db.SellerBalanceHolds.Add(hold);
     public void AddBalanceTransaction(BalanceTransaction transaction)=>db.BalanceTransactions.Add(transaction);
     public void AddCommissionReversal(CommissionReversal reversal)=>db.CommissionReversals.Add(reversal);
