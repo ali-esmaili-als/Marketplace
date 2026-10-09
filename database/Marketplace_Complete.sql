@@ -265,6 +265,14 @@ CREATE TABLE dbo.InventoryItems(
  CONSTRAINT UQ_InventoryItems_Variant UNIQUE(ProductVariantId),
  CONSTRAINT CK_InventoryItems_Qty CHECK(StockQuantity>=0 AND ReservedQuantity>=0 AND ReservedQuantity<=StockQuantity)
 );
+CREATE TABLE dbo.InventoryStockMovements(
+ Id BIGINT NOT NULL CONSTRAINT PK_InventoryStockMovements PRIMARY KEY,
+ ProductVariantId BIGINT NOT NULL, SellerId BIGINT NOT NULL,
+ PreviousStockQuantity BIGINT NOT NULL, NewStockQuantity BIGINT NOT NULL,
+ Reason NVARCHAR(500) NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT CK_InventoryStockMovements_Quantities CHECK(PreviousStockQuantity>=0 AND NewStockQuantity>=0),
+ CONSTRAINT CK_InventoryStockMovements_Reason CHECK(LEN(Reason)>0)
+);
 CREATE TABLE dbo.InventoryReservations(
  Id BIGINT NOT NULL CONSTRAINT PK_InventoryReservations PRIMARY KEY, ProductVariantId BIGINT NOT NULL, OrderId BIGINT NOT NULL,
  Quantity BIGINT NOT NULL, Status TINYINT NOT NULL, ExpiresAtUtc DATETIME2(7) NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
@@ -544,6 +552,8 @@ CREATE INDEX IX_Complaints_Order_Status ON dbo.Complaints(OrderId,Status);
 -- Database-level protection against two concurrent active complaints for one order.
 -- Resolved/cancelled complaints release the slot for valid future lifecycle cases.
 CREATE UNIQUE INDEX UX_Complaints_OneActivePerOrder ON dbo.Complaints(OrderId) WHERE Status IN (1, 2);
+CREATE INDEX IX_InventoryStockMovements_Variant_Created ON dbo.InventoryStockMovements(ProductVariantId,CreatedAtUtc DESC,Id DESC);
+CREATE INDEX IX_InventoryStockMovements_Seller_Created ON dbo.InventoryStockMovements(SellerId,CreatedAtUtc DESC);
 CREATE INDEX IX_InventoryReservations_Order_Status ON dbo.InventoryReservations(OrderId,Status);
 CREATE INDEX IX_InventoryReservations_Status_Expiry ON dbo.InventoryReservations(Status,ExpiresAtUtc);
 CREATE INDEX IX_SellerBalanceHolds_Order_Status ON dbo.SellerBalanceHolds(OrderId,Status);
@@ -645,6 +655,7 @@ INSERT INTO @ExpectedTables(TableName) VALUES
 (N'Complaints'),
 (N'InventoryItems'),
 (N'InventoryReservations'),
+(N'InventoryStockMovements'),
 (N'SellerBalances'),
 (N'SellerBalanceHolds'),
 (N'Settlements'),
