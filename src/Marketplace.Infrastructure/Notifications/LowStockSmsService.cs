@@ -14,6 +14,18 @@ public sealed class LowStockSmsService(
 {
     public async Task NotifyIfLowAsync(long variantId, CancellationToken ct = default)
     {
+        try
+        {
+            await NotifyIfLowCoreAsync(variantId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Low-stock notification processing failed for variant {VariantId}.", variantId);
+        }
+    }
+
+    private async Task NotifyIfLowCoreAsync(long variantId, CancellationToken ct)
+    {
         var details = await (from inventory in db.InventoryItems
             join variant in db.ProductVariants on inventory.ProductVariantId equals variant.Id
             join product in db.Products on variant.ProductId equals product.Id
