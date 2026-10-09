@@ -25,6 +25,20 @@ public sealed class OrderLifecycleService
         _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _notifications=notifications;
     }
 
+    private async Task NotifyAsync(long userId,string title,string body,long orderId,CancellationToken ct)
+    {
+        var notification=Notification.Create(await _ids.NextAsync(ct),userId,NotificationChannel.InApp,title,body,"Order",orderId);
+        notification.MarkSent();
+        _notifications.Add(notification);
+    }
+
+    private async Task NotifySellerAsync(long sellerId,string title,string body,long orderId,CancellationToken ct)
+    {
+        var userId=await _notifications.GetUserIdForSellerAsync(sellerId,ct);
+        if(userId.HasValue)
+            await NotifyAsync(userId.Value,title,body,orderId,ct);
+    }
+
     public Task PaymentSucceededAsync(long orderId,string reference,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var p=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
@@ -56,6 +70,8 @@ public sealed class OrderLifecycleService
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.Sale,
             o.SellerAmountIRR,b.PendingIRR-o.SellerAmountIRR,b.PendingIRR,"PAYMENT",BalanceBucket.Pending));
 
+        await NotifyAsync(o.CustomerId,"پرداخت سفارش موفق بود",$"پرداخت سفارش شماره {o.Id} با موفقیت ثبت شد.",o.Id,token);
+        await NotifySellerAsync(o.SellerId,"سفارش جدید دریافت شد",$"سفارش شماره {o.Id} پرداخت شده و برای آماده‌سازی در پنل شما قرار دارد.",o.Id,token);
         await _uow.SaveChangesAsync(token);
         return 0;
     },ct);
@@ -86,6 +102,8 @@ public sealed class OrderLifecycleService
             reservation.Release();
         }
 
+        await NotifyAsync(o.CustomerId,"سفارش لغو شد",$"مهلت پرداخت سفارش شماره {o.Id} پایان یافت و سفارش لغو شد.",o.Id,token);
+        await NotifySellerAsync(o.SellerId,"سفارش پرداخت نشد",$"سفارش شماره {o.Id} پس از پایان مهلت پرداخت لغو شد.",o.Id,token);
         await _uow.SaveChangesAsync(token);
         return true;
     },ct);
@@ -155,6 +173,8 @@ public sealed class OrderLifecycleService
                 await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHold,
                 o.SellerAmountIRR,b.BlockedIRR-o.SellerAmountIRR,b.BlockedIRR,"COMPLAINT_WINDOW",BalanceBucket.Blocked));
 
+            await NotifyAsync(o.CustomerId,"تحویل سفارش ثبت شد",$"تحویل سفارش شماره {o.Id} ثبت شد. مهلت ثبت شکایت طبق جزئیات سفارش محاسبه می‌شود.",o.Id,token);
+            await NotifySellerAsync(o.SellerId,"تحویل سفارش ثبت شد",$"تحویل سفارش شماره {o.Id} ثبت شد.",o.Id,token);
             await _uow.SaveChangesAsync(token);
             return false;
         },ct);
@@ -190,6 +210,8 @@ public sealed class OrderLifecycleService
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.PendingRemoved,
             o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY_EXPIRED",BalanceBucket.Pending));
 
+        await NotifyAsync(o.CustomerId,"مهلت تحویل پایان یافت",$"مهلت تحویل سفارش شماره {o.Id} پایان یافت. وضعیت سفارش را در پنل پیگیری کنید.",o.Id,token);
+        await NotifySellerAsync(o.SellerId,"مهلت تحویل پایان یافت",$"مهلت تحویل سفارش شماره {o.Id} پایان یافت.",o.Id,token);
         await _uow.SaveChangesAsync(token);
         return 0;
     },ct);
@@ -203,6 +225,7 @@ public sealed class OrderLifecycleService
 
         var c=Complaint.Create(await _ids.NextAsync(token),o.Id,customerId,o.SellerId,reason);
         _life.AddComplaint(c);
+        await NotifySellerAsync(o.SellerId,"شکایت جدید برای سفارش",$"برای سفارش شماره {o.Id} شکایت جدیدی ثبت شده است.",o.Id,token);
         await _uow.SaveChangesAsync(token);
         return c.Id;
     },ct);
@@ -235,6 +258,8 @@ public sealed class OrderLifecycleService
                 o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_SELLER_WON",BalanceBucket.Blocked));
         }
 
+        await NotifyAsync(o.CustomerId,customerWon?"نتیجه شکایت به نفع شما ثبت شد":"شکایت به نفع فروشنده تعیین تکلیف شد",$"رسیدگی به شکایت سفارش شماره {o.Id} به پایان رسید.",o.Id,token);
+        await NotifySellerAsync(o.SellerId,customerWon?"نتیجه شکایت به نفع خریدار":"شکایت به نفع شما تعیین تکلیف شد",$"رسیدگی به شکایت سفارش شماره {o.Id} به پایان رسید.",o.Id,token);
         await _uow.SaveChangesAsync(token);
         return 0;
     },ct);
@@ -267,7 +292,8 @@ public sealed class OrderLifecycleService
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
             o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_WINDOW_CLOSED",BalanceBucket.Blocked));
 
+        await NotifyAsync(o.CustomerId,"سفارش تکمیل شد",$"سفارش شماره {o.Id} تکمیل شد.",o.Id,token);
+        await NotifySellerAsync(o.SellerId,"سفارش تکمیل شد",$"سفارش شماره {o.Id} تکمیل شد و دوره شکایت به پایان رسید.",o.Id,token);
         await _uow.SaveChangesAsync(token);
         return 0;
     },ct);
-}
