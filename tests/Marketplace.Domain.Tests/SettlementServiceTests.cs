@@ -193,7 +193,7 @@ public sealed class SettlementServiceTests
         Assert.Equal("Bank definitively rejected transfer", capturedTransaction.Reference);
 
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
-        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         payout.Verify(x => x.TransferAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
             Times.Once);
