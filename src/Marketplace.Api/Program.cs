@@ -701,14 +701,18 @@ app.MapGet("/api/admin/settlements/reconciliation/history", async (Marketplace.I
 app.MapGet("/api/public/products/{productId:long}/reviews", async (long productId, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     if (!await db.Products.AsNoTracking().AnyAsync(x => x.Id == productId, ct)) return Results.NotFound();
+    var summary = await db.ProductReviews.AsNoTracking()
+        .Where(x => x.ProductId == productId && x.Status == Marketplace.Domain.Catalog.ProductReviewStatus.Approved)
+        .GroupBy(x => x.ProductId)
+        .Select(group => new { AverageRating = group.Average(x => (double)x.Rating), TotalReviews = group.Count() })
+        .SingleOrDefaultAsync(ct);
     var items = await (from review in db.ProductReviews.AsNoTracking()
         join user in db.Users.AsNoTracking() on review.CustomerId equals user.Id
         where review.ProductId == productId && review.Status == Marketplace.Domain.Catalog.ProductReviewStatus.Approved
         orderby review.CreatedAtUtc descending
         select new { review.Id, review.Rating, review.Title, review.Body, reviewer = user.DisplayName, review.CreatedAtUtc })
         .Take(100).ToListAsync(ct);
-    var average = items.Count == 0 ? 0 : Math.Round(items.Average(x => (double)x.Rating), 1);
-    return Results.Ok(new { averageRating = average, totalReviews = items.Count, items });
+    return Results.Ok(new { averageRating = summary is null ? 0 : Math.Round(summary.AverageRating, 1), totalReviews = summary?.TotalReviews ?? 0, items });
 });
 
 app.MapPost("/api/products/{productId:long}/reviews", async (System.Security.Claims.ClaimsPrincipal user, long productId, ProductReviewCreateRequest request, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, Marketplace.Application.Abstractions.IIdGenerator ids, CancellationToken ct) =>
