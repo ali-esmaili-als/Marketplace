@@ -48,24 +48,61 @@ public sealed class OutboxRetentionHostedService : BackgroundService
                 var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
 
                 var archived = await db.Database.ExecuteSqlInterpolatedAsync($@"
-;WITH candidates AS
-(
-    SELECT TOP ({batchSize}) *
-    FROM dbo.OutboxMessages WITH (UPDLOCK, READPAST, ROWLOCK)
-    WHERE Status = N'Processed'
-      AND ProcessedAtUtc IS NOT NULL
-      AND ProcessedAtUtc < {cutoffUtc}
-    ORDER BY ProcessedAtUtc, Id
-)
-DELETE FROM candidates
-OUTPUT
-    deleted.Id, deleted.MessageId, deleted.EventType, deleted.PayloadJson,
-    deleted.OccurredAtUtc, deleted.ProcessedAtUtc, deleted.LockedUntilUtc,
-    deleted.LockToken, deleted.NextAttemptAtUtc, deleted.Attempts,
-    deleted.Status, deleted.LastError
-INTO dbo.OutboxMessageArchive
-    (Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc,
-     LockedUntilUtc, LockToken, NextAttemptAtUtc, Attempts, Status, LastError);",
+SET XACT_ABORT ON;
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    -- OUTPUT INTO cannot target a table with enabled CHECK constraints in SQL Server.
+    -- Capture deleted rows in an unconstrained table variable, then insert into the
+    -- constrained archive table inside the same transaction.
+    DECLARE @Deleted TABLE
+    (
+        Id BIGINT NOT NULL,
+        MessageId UNIQUEIDENTIFIER NOT NULL,
+        EventType NVARCHAR(200) NOT NULL,
+        PayloadJson NVARCHAR(MAX) NOT NULL,
+        OccurredAtUtc DATETIME2(7) NOT NULL,
+        ProcessedAtUtc DATETIME2(7) NOT NULL,
+        LockedUntilUtc DATETIME2(7) NULL,
+        LockToken UNIQUEIDENTIFIER NULL,
+        NextAttemptAtUtc DATETIME2(7) NOT NULL,
+        Attempts INT NOT NULL,
+        Status NVARCHAR(20) NOT NULL,
+        LastError NVARCHAR(2000) NULL
+    );
+
+    ;WITH candidates AS
+    (
+        SELECT TOP ({batchSize}) *
+        FROM dbo.OutboxMessages WITH (UPDLOCK, READPAST, ROWLOCK)
+        WHERE Status = N'Processed'
+          AND ProcessedAtUtc IS NOT NULL
+          AND ProcessedAtUtc < {cutoffUtc}
+        ORDER BY ProcessedAtUtc, Id
+    )
+    DELETE FROM candidates
+    OUTPUT
+        deleted.Id, deleted.MessageId, deleted.EventType, deleted.PayloadJson,
+        deleted.OccurredAtUtc, deleted.ProcessedAtUtc, deleted.LockedUntilUtc,
+        deleted.LockToken, deleted.NextAttemptAtUtc, deleted.Attempts,
+        deleted.Status, deleted.LastError
+    INTO @Deleted;
+
+    INSERT dbo.OutboxMessageArchive
+        (Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc,
+         LockedUntilUtc, LockToken, NextAttemptAtUtc, Attempts, Status, LastError)
+    SELECT Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc,
+           LockedUntilUtc, LockToken, NextAttemptAtUtc, Attempts, Status, LastError
+    FROM @Deleted;
+
+    DECLARE @ArchivedCount INT = @@ROWCOUNT;
+    COMMIT TRANSACTION;
+    SELECT @ArchivedCount;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;",
                     stoppingToken);
 
                 if (archived > 0)
