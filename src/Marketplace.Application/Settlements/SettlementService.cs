@@ -237,7 +237,7 @@ public sealed class SettlementService
             }
 
             _life.AddSettlementReconciliationAudit(SettlementReconciliationAudit.Create(
-                await _ids.NextAsync(token), settlement.Id, adminUserId, transferCompleted, bankReference, note));
+                settlement.Id, adminUserId, transferCompleted, bankReference, note));
 
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id, amount, settlement.Status.ToString(), settlement.Reference);
