@@ -185,3 +185,15 @@ The fresh bootstrap schema constrains persisted status values for `Orders`, `Pay
 The patch validates all five tables before adding trusted SQL Server check constraints. If it stops because invalid status values exist, identify and investigate those rows first; do not bulk-map unknown statuses to a valid value, because that can misrepresent financial history. The patch is safe to re-run after a successful application.
 
 The SQL Server integration suite simulates an older schema by dropping the five constraints, applies the patch, verifies that all constraints are enabled and trusted, re-applies it, and attempts an invalid status write for each protected table. All five writes must be rejected by SQL Server.
+
+
+## Payment authority and active-refund idempotency (patch 015)
+
+The fresh schema uses two filtered unique indexes as the final concurrency guard:
+
+- `UX_PaymentTransactions_Provider_Authority` prevents the same non-null authority from being recorded twice for the same provider.
+- `UX_Refunds_OneActivePerOrder` permits at most one refund in Requested, Approved, or Processing status per order. Failed and Rejected refunds are not active, so a new attempt after a definitive failure remains possible; a completed refund is terminal and does not need an active slot.
+
+For existing databases, apply `database/015_FinancialIdempotencyIndexes.sql` after reviewing duplicates. It deliberately aborts if duplicate authorities or multiple active refunds already exist; do not delete rows merely to make the migration pass. Establish each gateway outcome from provider records and reconcile financial history first.
+
+The SQL Server integration suite drops both indexes to simulate an older schema, applies and re-applies the patch, confirms duplicate authority and duplicate active-refund writes are rejected, and confirms a new refund can be created after the earlier attempt is marked Failed. This database guard complements—not replaces—the application-level active-refund check and serializable transaction.
