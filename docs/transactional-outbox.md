@@ -38,6 +38,17 @@ Each POST contains `messageId`, `eventType`, `occurredAtUtc`, and the event payl
 - Monitor `Pending`, `Processing`, and `DeadLetter` counts before enabling a publisher.
 - Do not manually mark financial outbox rows processed to fix balances. Outbox delivery status is operational metadata and must never mutate the financial ledger or seller balances.
 
+## Operations API and admin UI
+
+All management endpoints require `Admin.Settlement.Process`:
+
+- `GET /api/admin/outbox/summary`: status counts, active event-type counts, and latest failures.
+- `GET /api/admin/outbox/messages`: paged list (maximum 100 per page) with status, event type and UTC date filters.
+- `GET /api/admin/outbox/messages/{id}`: detailed message payload and processing metadata.
+- `POST /api/admin/outbox/messages/{id}/retry`: retries only a `DeadLetter` message, resets its attempt counter and next-attempt time, and appends an `Outbox.MessageRetried` admin audit event. It does not publish synchronously; the dispatcher will pick it up if enabled.
+
+The Angular admin page is at `/admin/outbox` and uses the same permission guard. Payload visibility is restricted to this admin permission; avoid putting credentials, bank account snapshots, access tokens or other secrets in event payloads.
+
 ## Reliability boundaries
 
 The outbox closes the gap between committing a settlement state transition and persisting its event. It does not make a bank transfer exactly-once. For ambiguous bank responses, keep funds reserved and reconcile with the provider's status lookup or idempotency support before deciding whether to release funds or record completion.
