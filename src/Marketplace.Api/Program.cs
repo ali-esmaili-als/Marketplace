@@ -2440,7 +2440,8 @@ app.MapGet("/api/me/profile", async (
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
     CancellationToken ct) =>
 {
-    var account = await db.Users.AsNoTracking().Where(x => x.Id == CurrentUserId(user))
+    var userId = CurrentUserId(user);
+    var account = await db.Users.AsNoTracking().Where(x => x.Id == userId)
         .Select(x => new { x.Id, x.Mobile, x.Email, x.DisplayName, x.IsMobileVerified })
         .SingleOrDefaultAsync(ct);
     return account is null ? Results.NotFound() : Results.Ok(account);
