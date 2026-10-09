@@ -2,7 +2,8 @@ namespace Marketplace.Application.Abstractions;
 
 public sealed record PaymentRedirect(string Provider,string Authority,string Url);
 
-public sealed record PaymentVerification(bool IsSuccessful,string? Reference,string? Error);
+/// <param name="IsOutcomeDefinitive">False when the provider response cannot prove either success or failure. Such outcomes must not mutate payment state.</param>
+public sealed record PaymentVerification(bool IsSuccessful,string? Reference,string? Error,bool IsOutcomeDefinitive=true);
 
 public interface IPaymentGateway
 {
