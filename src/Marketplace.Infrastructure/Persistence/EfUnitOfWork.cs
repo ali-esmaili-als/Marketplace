@@ -1,4 +1,5 @@
 using System.Data;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Marketplace.Application.Abstractions;
 
@@ -16,28 +17,53 @@ public sealed class EfUnitOfWork(MarketplaceDbContext db) : IUnitOfWork
 
     private async Task<T> ExecuteAsync<T>(Func<CancellationToken,Task<T>> action,IsolationLevel isolation,CancellationToken ct)
     {
-        await using var tx=await db.Database.BeginTransactionAsync(isolation,ct);
-        try
+        const int maxDeadlockRetries = 3;
+
+        for (var attempt = 0; ; attempt++)
         {
-            var result=await action(ct);
-            await tx.CommitAsync(ct);
-            return result;
-        }
-        catch
-        {
+            await using var tx = await db.Database.BeginTransactionAsync(isolation, ct);
             try
             {
-                // EF Core does not automatically restore tracked entity values after a failed
-                // transaction. Clear them after rollback so subsequent recovery/retry operations
-                // reload the committed database state instead of reusing rolled-back mutations.
-                await tx.RollbackAsync(CancellationToken.None);
+                var result = await action(ct);
+                await tx.CommitAsync(ct);
+                return result;
             }
-            finally
+            catch (Exception ex)
             {
-                db.ChangeTracker.Clear();
-            }
+                try
+                {
+                    // EF Core does not automatically restore tracked entity values after a failed
+                    // transaction. Clear them after rollback so retries reload committed state.
+                    await tx.RollbackAsync(CancellationToken.None);
+                }
+                catch
+                {
+                    // Preserve the original transaction/action failure.
+                }
+                finally
+                {
+                    db.ChangeTracker.Clear();
+                }
 
-            throw;
+                // SQL Server deadlock victims are safe to retry only by rerunning the complete
+                // database transaction. Never retry just SaveChanges: the reads and domain
+                // decisions must be reevaluated against the new committed state.
+                if (attempt >= maxDeadlockRetries || !IsSqlServerDeadlock(ex))
+                    throw;
+
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * (attempt + 1)), ct);
+            }
         }
+    }
+
+    private static bool IsSqlServerDeadlock(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: 1205 })
+                return true;
+        }
+
+        return false;
     }
 }
