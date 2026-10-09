@@ -197,3 +197,6 @@ The fresh schema uses two filtered unique indexes as the final concurrency guard
 For existing databases, apply `database/015_FinancialIdempotencyIndexes.sql` after reviewing duplicates. It deliberately aborts if duplicate authorities or multiple active refunds already exist; do not delete rows merely to make the migration pass. Establish each gateway outcome from provider records and reconcile financial history first.
 
 The SQL Server integration suite drops both indexes to simulate an older schema, applies and re-applies the patch, confirms duplicate authority and duplicate active-refund writes are rejected, and confirms a new refund can be created after the earlier attempt is marked Failed. This database guard complements—not replaces—the application-level active-refund check and serializable transaction.
+
+
+The read-only financial diagnostics now also include checks 53–54 for duplicate provider/authority pairs and multiple active refund attempts per order. Run these checks before applying patch 015 to legacy databases; they help identify the affected payment/refund records, but do not determine the gateway's final financial outcome by themselves.
