@@ -44,6 +44,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<Delivery> Deliveries => Set<Delivery>();
     public DbSet<DeliveryCode> DeliveryCodes => Set<DeliveryCode>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundReconciliationAudit> RefundReconciliationAudits => Set<RefundReconciliationAudit>();
     public DbSet<Complaint> Complaints => Set<Complaint>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
     public DbSet<InventoryReservation> InventoryReservations => Set<InventoryReservation>();
@@ -231,6 +232,7 @@ public sealed class MarketplaceDbContext : DbContext
         b.Entity<Delivery>(e => { e.ToTable("Deliveries"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.ConfirmationReference).HasMaxLength(200); e.HasIndex(x => x.OrderId).IsUnique(); e.HasIndex(x => new { x.Status, x.ExpiresAtUtc }); });
         b.Entity<DeliveryCode>(e=>{e.ToTable("DeliveryCodes");e.HasKey(x=>x.Id);e.Property(x=>x.CodeHash).HasColumnType("binary(32)").IsRequired();e.HasIndex(x=>x.OrderId).IsUnique();e.HasIndex(x=>new{x.ExpiresAtUtc,x.UsedAtUtc});});
         b.Entity<Refund>(e => { e.ToTable("Refunds"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasConversion<byte>(); e.Property(x => x.ProviderReference).HasMaxLength(200); e.Property(x => x.FailureReason).HasMaxLength(1000); e.HasIndex(x => new { x.OrderId, x.Status }); });
+        b.Entity<RefundReconciliationAudit>(e => { e.ToTable("RefundReconciliationAudits"); e.HasKey(x => x.Id); e.Property(x => x.Note).HasMaxLength(2000).IsRequired(); e.Property(x => x.BankReference).HasMaxLength(200); e.HasIndex(x => new { x.RefundId, x.CreatedAtUtc }); e.HasOne<Refund>().WithMany().HasForeignKey(x => x.RefundId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Complaint>(e => { e.ToTable("Complaints"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasMaxLength(2000).IsRequired(); e.Property(x => x.ResolutionNote).HasMaxLength(4000); e.HasIndex(x => new { x.OrderId, x.Status }); });
         b.Entity<InventoryItem>(e => { e.ToTable("InventoryItems"); e.HasKey(x => x.Id); e.HasIndex(x => x.ProductVariantId).IsUnique(); });
         b.Entity<InventoryReservation>(e => { e.ToTable("InventoryReservations"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.HasIndex(x => new { x.OrderId, x.Status }); e.HasIndex(x => new { x.Status, x.ExpiresAtUtc }); });
