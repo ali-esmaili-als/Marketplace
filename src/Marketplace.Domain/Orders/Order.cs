@@ -28,7 +28,7 @@ public sealed class Order : AggregateRoot<long>
 
     public static Order Create(long id,long customerId,long sellerId,long storeId,long subtotalAmountIrr,long totalAmountIrr,string? requestKey=null,long shippingFeeIrr=0)
     {
-        if(id<=0||customerId<=0||sellerId<=0||storeId<=0||subtotalAmountIrr<=0||shippingFeeIrr<0||totalAmountIrr<=0||totalAmountIrr>checked(subtotalAmountIrr+shippingFeeIrr))
+        if(id<=0||customerId<=0||sellerId<=0||storeId<=0||subtotalAmountIrr<=0||shippingFeeIrr<0||shippingFeeIrr>long.MaxValue-subtotalAmountIrr||totalAmountIrr<=0||totalAmountIrr>subtotalAmountIrr+shippingFeeIrr)
             throw new DomainException("Invalid order.");
         if (!string.IsNullOrWhiteSpace(requestKey) && (requestKey.Trim().Length > 64 || requestKey.Trim().Length < 16)) throw new DomainException("Invalid checkout request key.");
         return new Order { Id=id,CustomerId=customerId,RequestKey=string.IsNullOrWhiteSpace(requestKey)?null:requestKey.Trim(),SellerId=sellerId,StoreId=storeId,SubtotalAmountIRR=subtotalAmountIrr,ShippingFeeIRR=shippingFeeIrr,TotalAmountIRR=totalAmountIrr,SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
