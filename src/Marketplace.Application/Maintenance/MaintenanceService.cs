@@ -16,7 +16,12 @@ public sealed class MaintenanceService
   }
   foreach(var r in await _repo.GetExpiredReservationsAsync(now,ct))
   {
-   try{await _uow.ExecuteInTransactionAsync(async token=>{var inv=await _repo.GetInventoryItemAsync(r.ProductVariantId,token);if(inv is null||r.Status!=Marketplace.Domain.Inventory.InventoryReservationStatus.Active)return 0;inv.Release(r.Quantity);r.Expire(now);await _uow.SaveChangesAsync(token);return 0;},ct);}catch(DomainException){}
+   try
+   {
+    if(await _orders.ExpirePendingPaymentAsync(r.OrderId,now,ct)) continue;
+    await _uow.ExecuteInTransactionAsync(async token=>{var inv=await _repo.GetInventoryItemAsync(r.ProductVariantId,token);if(inv is null||r.Status!=Marketplace.Domain.Inventory.InventoryReservationStatus.Active)return 0;inv.Release(r.Quantity);r.Expire(now);await _uow.SaveChangesAsync(token);return 0;},ct);
+   }
+   catch(DomainException){}
   }
   foreach(var o in await _repo.GetOrdersReadyToCompleteAsync(now,ct))
   {
