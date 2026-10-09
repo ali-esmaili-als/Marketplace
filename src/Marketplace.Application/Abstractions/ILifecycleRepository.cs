@@ -26,6 +26,7 @@ public interface ILifecycleRepository
     Task<Settlement?> GetSettlementAsync(long settlementId,CancellationToken ct=default);
     Task<Settlement?> GetSettlementByRequestKeyAsync(long sellerId,string requestKey,CancellationToken ct=default);
     void AddSettlement(Settlement settlement);
+    void AddOutboxMessage(OutboxMessage message);
     void AddSettlementReconciliationAudit(SettlementReconciliationAudit audit);
     void AddDelivery(Delivery delivery);
     void AddDeliveryCode(DeliveryCode code);
