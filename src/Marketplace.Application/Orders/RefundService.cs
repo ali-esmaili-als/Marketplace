@@ -142,7 +142,7 @@ public sealed class RefundService
             return 0;
         },ct);
     }
-    public Task ReconcileAsync(long refundId,bool transferCompleted,string? bankReference,string note,CancellationToken ct=default)
+    public Task ReconcileAsync(long refundId,long adminUserId,bool transferCompleted,string? bankReference,string note,CancellationToken ct=default)
         =>_uow.ExecuteInTransactionAsync(async token =>
         {
             if(string.IsNullOrWhiteSpace(note))
@@ -155,6 +155,7 @@ public sealed class RefundService
             if(!transferCompleted)
             {
                 refund.Fail(note);
+                _life.AddRefundReconciliationAudit(RefundReconciliationAudit.Create(refund.Id,adminUserId,false,note,null));
                 await _uow.SaveChangesAsync(token);
                 return 0;
             }
@@ -205,6 +206,7 @@ public sealed class RefundService
                 _life.AddCommissionReversal(CommissionReversal.Create(
                     await _ids.NextAsync(token),commission.Id,order.Id,refund.Id,refund.AmountIRR,reversed));
             }
+            _life.AddRefundReconciliationAudit(RefundReconciliationAudit.Create(refund.Id,adminUserId,true,note,bankReference));
             await _uow.SaveChangesAsync(token);
             return 0;
         },ct);
