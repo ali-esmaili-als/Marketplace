@@ -222,7 +222,8 @@ public sealed class OrderQueryRepository(MarketplaceDbContext db) : IOrderQueryR
  public Task<List<Order>> GetCustomerOrdersAsync(long customerId,CancellationToken ct=default)=>db.Orders.Where(x=>x.CustomerId==customerId).OrderByDescending(x=>x.CreatedAtUtc).ToListAsync(ct);
  public Task<List<Order>> GetSellerOrdersAsync(long sellerId,CancellationToken ct=default)=>db.Orders.Where(x=>x.SellerId==sellerId).OrderByDescending(x=>x.CreatedAtUtc).ToListAsync(ct);
  public Task<List<OrderItem>> GetItemsAsync(long orderId,CancellationToken ct=default)=>db.OrderItems.Where(x=>x.OrderId==orderId).OrderBy(x=>x.Id).ToListAsync(ct);
- public Task<Payment?> GetPaymentAsync(long orderId,CancellationToken ct=default)=>db.Payments.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);\n public Task<Refund?> GetRefundByOrderAsync(long orderId,CancellationToken ct=default)=>db.Refunds.Where(x=>x.OrderId==orderId).OrderByDescending(x=>x.RequestedAtUtc).FirstOrDefaultAsync(ct);
+ public Task<Payment?> GetPaymentAsync(long orderId,CancellationToken ct=default)=>db.Payments.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);
+ public Task<Refund?> GetRefundByOrderAsync(long orderId,CancellationToken ct=default)=>db.Refunds.Where(x=>x.OrderId==orderId).OrderByDescending(x=>x.RequestedAtUtc).FirstOrDefaultAsync(ct);
 }
 
 public sealed class MaintenanceRepository(MarketplaceDbContext db) : IMaintenanceRepository
