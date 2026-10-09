@@ -615,3 +615,21 @@ WHERE bt.Type = 1 -- Sale
   AND bt.OrderId IS NOT NULL
 GROUP BY bt.OrderId
 HAVING COUNT_BIG(*) > 1;
+
+
+PRINT '53. Duplicate non-null provider/authority pairs in payment transactions';
+SELECT pt.Provider, pt.Authority, COUNT_BIG(*) AS DuplicateCount,
+       MIN(pt.CreatedAtUtc) AS FirstSeenAtUtc, MAX(pt.CreatedAtUtc) AS LastSeenAtUtc
+FROM dbo.PaymentTransactions AS pt
+WHERE pt.Authority IS NOT NULL
+GROUP BY pt.Provider, pt.Authority
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '54. Multiple active refund attempts exist for the same order';
+SELECT r.OrderId, COUNT_BIG(*) AS ActiveRefundCount,
+       MIN(r.RequestedAtUtc) AS FirstRequestedAtUtc,
+       MAX(r.RequestedAtUtc) AS LastRequestedAtUtc
+FROM dbo.Refunds AS r
+WHERE r.Status < 4 -- Requested, Approved, Processing
+GROUP BY r.OrderId
+HAVING COUNT_BIG(*) > 1;
