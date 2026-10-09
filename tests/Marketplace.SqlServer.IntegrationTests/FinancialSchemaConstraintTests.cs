@@ -318,7 +318,7 @@ public sealed class FinancialSchemaConstraintTests
                 INSERT INTO dbo.BalanceTransactions
                     (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
                      BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
-                VALUES (950011, 950002, 950005, NULL, 1, 1, 108000, 0, 108000, N'INTEGRATION-SALE', SYSUTCDATETIME());
+                VALUES (950011, 950002, 950004, NULL, 1, 1, 90000, 0, 90000, N'INTEGRATION-SALE', SYSUTCDATETIME());
                 """, connection))
             {
                 await seedBalanceAndSaleLedger.ExecuteNonQueryAsync();
@@ -353,7 +353,7 @@ public sealed class FinancialSchemaConstraintTests
                 INSERT INTO dbo.BalanceTransactions
                     (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
                      BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
-                VALUES (950012, 950002, 950005, NULL, 1, 1, 108000, 108000, 216000, N'INTEGRATION-DUPLICATE-SALE', SYSUTCDATETIME());
+                VALUES (950012, 950002, 950004, NULL, 1, 1, 90000, 90000, 180000, N'INTEGRATION-DUPLICATE-SALE', SYSUTCDATETIME());
                 """, connection))
             {
                 await Assert.ThrowsAsync<SqlException>(() => duplicateSaleLedger.ExecuteNonQueryAsync());
