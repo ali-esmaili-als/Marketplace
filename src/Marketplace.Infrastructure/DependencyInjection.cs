@@ -40,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<IPaymentProviderSettings,PaymentProviderSettingsRepository>();
         services.AddScoped<IPaymentProviderSettingsAdmin,PaymentProviderSettingsAdminRepository>();
         services.AddScoped<ISellerPayoutGateway,NotConfiguredSellerPayoutGateway>();
+        services.AddHostedService<Outbox.OutboxDispatcherHostedService>();
         return services;
     }
 }
