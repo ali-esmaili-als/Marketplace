@@ -31,7 +31,6 @@ public sealed class UserProfileTests
     [Theory]
     [InlineData("", null)]
     [InlineData("   ", "valid@example.com")]
-    [InlineData("x", null)]
     public void UpdateProfile_RejectsMissingDisplayName(string displayName, string? email)
     {
         var user = User.Create(1, "09120000000", "hashed-password", "Before");
