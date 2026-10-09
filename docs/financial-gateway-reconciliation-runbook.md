@@ -200,3 +200,15 @@ The SQL Server integration suite drops both indexes to simulate an older schema,
 
 
 The read-only financial diagnostics now also include checks 53–54 for duplicate provider/authority pairs and multiple active refund attempts per order. Run these checks before applying patch 015 to legacy databases; they help identify the affected payment/refund records, but do not determine the gateway's final financial outcome by themselves.
+
+
+## Payment verification timeouts and transaction-state diagnostics
+
+A timeout or transport exception during payment verification is an **unknown provider outcome**, not a definitive rejection. The verification path must leave the payment and its initiated provider transaction unchanged so the same payment/authority can be safely verified again. Only an explicit unsuccessful verification response may take the definitive-failure path. A payment already marked Succeeded is idempotent and must not call the gateway again.
+
+The read-only diagnostics now include:
+
+- **Check 55:** a provider transaction is marked Succeeded while its payment is neither Succeeded nor ReconciliationRequired. The latter status is permitted when the bank confirmed payment but local financial finalization failed and requires reconciliation.
+- **Check 56:** a payment is marked Succeeded but has no successful provider transaction.
+
+For either result, compare the provider's final status/reference with the payment, order, seller ledger, and reconciliation audit before making any correction. Never mark an ambiguous transaction failed solely to make the statuses agree.
