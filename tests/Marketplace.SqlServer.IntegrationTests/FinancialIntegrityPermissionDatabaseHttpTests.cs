@@ -103,6 +103,13 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
                     (Id, SellerId, OrderId, SettlementId, RefundId, Type, Bucket, AmountIRR,
                      BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
                 VALUES (82001, 72001, 75001, NULL, NULL, 1, 2, 900000, 0, 900000, N'SALE-PERMISSION-TEST', @now);
+
+                INSERT dbo.OutboxMessages
+                    (Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc, LockedUntilUtc, LockToken,
+                     NextAttemptAtUtc, Attempts, Status, LastError)
+                VALUES
+                    (91001, '91001000-0000-0000-0000-000000000001', N'Settlement.Requested', N'{""settlementId"":1}', @now, NULL, NULL, NULL, @now, 0, N'Pending', NULL),
+                    (91002, '91002000-0000-0000-0000-000000000002', N'Settlement.Completed', N'{""settlementId"":2}', @now, NULL, NULL, NULL, @now, 8, N'DeadLetter', N'Webhook unavailable');
                 """);
 
             SetEnvironment("Authentication__Jwt__Key", JwtKey);
@@ -171,6 +178,66 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         SetBearerToken(AuthorizedUserId);
         using var response = await Client.GetAsync("/api/admin/financial-integrity/order-trace/75999");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Outbox_monitoring_requires_admin_permission_and_returns_summary_and_paged_messages()
+    {
+        SetBearerToken(CustomerUserId);
+        using var denied = await Client.GetAsync("/api/admin/outbox/summary");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+
+        SetBearerToken(AuthorizedUserId);
+        using var summary = await Client.GetAsync("/api/admin/outbox/summary");
+        Assert.Equal(HttpStatusCode.OK, summary.StatusCode);
+        var summaryJson = await summary.Content.ReadAsStringAsync();
+        Assert.Contains("\"deadLetter\":1", summaryJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"pending\":1", summaryJson, StringComparison.OrdinalIgnoreCase);
+
+        using var list = await Client.GetAsync("/api/admin/outbox/messages");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var listJson = await list.Content.ReadAsStringAsync();
+        Assert.Contains("\"total\":2", listJson, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Settlement.Requested", listJson);
+    }
+
+    [Fact]
+    public async Task Dead_letter_retry_is_audited_and_resets_message_for_delivery()
+    {
+        SetBearerToken(AuthorizedUserId);
+        using var response = await Client.PostAsync("/api/admin/outbox/messages/91002/retry", new StringContent("{}", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var connection = new SqlConnection(_targetConnectionString);
+        await connection.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT Status, Attempts, NextAttemptAtUtc, LockToken
+            FROM dbo.OutboxMessages WHERE Id = 91002;
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("Pending", reader.GetString(0));
+        Assert.Equal(0, reader.GetInt32(1));
+        Assert.True(reader.GetDateTime(2) <= DateTime.UtcNow.AddSeconds(5));
+        Assert.True(await reader.IsDBNullAsync(3));
+        await reader.CloseAsync();
+
+        await using var auditCommand = new SqlCommand("""
+            SELECT COUNT(*) FROM dbo.AdminAuditEvents
+            WHERE Action = N'Outbox.MessageRetried' AND EntityType = N'OutboxMessage' AND EntityKey = N'91002';
+            """, connection);
+        Assert.Equal(1, Convert.ToInt32(await auditCommand.ExecuteScalarAsync()));
+    }
+
+    [Fact]
+    public async Task Outbox_retry_rejects_non_dead_letter_and_missing_messages()
+    {
+        SetBearerToken(AuthorizedUserId);
+        using var pending = await Client.PostAsync("/api/admin/outbox/messages/91001/retry", new StringContent("{}", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Conflict, pending.StatusCode);
+
+        using var missing = await Client.PostAsync("/api/admin/outbox/messages/91999/retry", new StringContent("{}", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
     }
 
     private void SetEnvironment(string key, string value)
