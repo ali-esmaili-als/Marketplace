@@ -262,3 +262,53 @@ SELECT a.RefundId, COUNT_BIG(*) AS AuditCount,
 FROM dbo.RefundReconciliationAudits AS a
 GROUP BY a.RefundId
 HAVING COUNT_BIG(*) > 1;
+
+PRINT '24. Completed refund totals exceed the captured payment amount';
+;WITH CompletedRefundTotals AS
+(
+    SELECT PaymentId, SUM(AmountIRR) AS CompletedRefundAmountIRR,
+           COUNT_BIG(*) AS CompletedRefundCount
+    FROM dbo.Refunds
+    WHERE Status = 4 -- Completed
+    GROUP BY PaymentId
+)
+SELECT p.Id AS PaymentId, p.OrderId, p.AmountIRR AS CapturedPaymentAmountIRR,
+       r.CompletedRefundAmountIRR, r.CompletedRefundCount,
+       r.CompletedRefundAmountIRR - p.AmountIRR AS ExcessRefundAmountIRR
+FROM CompletedRefundTotals AS r
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.CompletedRefundAmountIRR > p.AmountIRR;
+
+PRINT '25. Latest manual reconciliation outcome conflicts with terminal refund status';
+;WITH LatestRefundAudit AS
+(
+    SELECT a.RefundId, a.AdminUserId, a.TransferCompleted, a.BankReference,
+           a.Note, a.CreatedAtUtc, a.Id,
+           ROW_NUMBER() OVER
+           (
+               PARTITION BY a.RefundId
+               ORDER BY a.CreatedAtUtc DESC, a.Id DESC
+           ) AS rn
+    FROM dbo.RefundReconciliationAudits AS a
+)
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.Status AS RefundStatus,
+       a.AdminUserId, a.TransferCompleted AS LatestAuditTransferCompleted,
+       a.BankReference, a.Note, a.CreatedAtUtc AS AuditCreatedAtUtc
+FROM dbo.Refunds AS r
+JOIN LatestRefundAudit AS a ON a.RefundId = r.Id AND a.rn = 1
+WHERE (r.Status = 4 AND a.TransferCompleted = 0) -- Completed but last audit says not sent
+   OR (r.Status = 5 AND a.TransferCompleted = 1); -- Failed but last audit says sent
+
+PRINT '26. Total commission reversals exceed the original commission amount';
+;WITH ReversedCommissionTotals AS
+(
+    SELECT CommissionId, SUM(ReversedCommissionIRR) AS TotalReversedCommissionIRR,
+           COUNT_BIG(*) AS ReversalCount
+    FROM dbo.CommissionReversals
+    GROUP BY CommissionId
+)
+SELECT c.Id AS CommissionId, c.OrderId, c.CommissionAmountIRR,
+       r.TotalReversedCommissionIRR, r.ReversalCount
+FROM ReversedCommissionTotals AS r
+JOIN dbo.Commissions AS c ON c.Id = r.CommissionId
+WHERE r.TotalReversedCommissionIRR > c.CommissionAmountIRR;
