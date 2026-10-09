@@ -261,7 +261,7 @@ CREATE TABLE dbo.Complaints(
 
 CREATE TABLE dbo.InventoryItems(
  Id BIGINT NOT NULL CONSTRAINT PK_InventoryItems PRIMARY KEY, ProductVariantId BIGINT NOT NULL, StockQuantity BIGINT NOT NULL,
- ReservedQuantity BIGINT NOT NULL CONSTRAINT DF_InventoryItems_Reserved DEFAULT(0), LowStockThreshold BIGINT NOT NULL CONSTRAINT DF_InventoryItems_LowStockThreshold DEFAULT(5), IsActive BIT NOT NULL CONSTRAINT DF_InventoryItems_IsActive DEFAULT(1),
+ ReservedQuantity BIGINT NOT NULL CONSTRAINT DF_InventoryItems_Reserved DEFAULT(0), LowStockThreshold BIGINT NOT NULL CONSTRAINT DF_InventoryItems_LowStockThreshold DEFAULT(5), LowStockAlertSent BIT NOT NULL CONSTRAINT DF_InventoryItems_LowStockAlertSent DEFAULT(0), IsActive BIT NOT NULL CONSTRAINT DF_InventoryItems_IsActive DEFAULT(1),
  CONSTRAINT UQ_InventoryItems_Variant UNIQUE(ProductVariantId),
  CONSTRAINT CK_InventoryItems_Qty CHECK(StockQuantity>=0 AND ReservedQuantity>=0 AND ReservedQuantity<=StockQuantity AND LowStockThreshold>=0 AND LowStockThreshold<=1000000000)
 );
@@ -425,6 +425,15 @@ CREATE TABLE dbo.SmsProviderSettings(
  IsVisible BIT NOT NULL CONSTRAINT DF_SmsProviderSettings_IsVisible DEFAULT(1),
  SortOrder INT NOT NULL CONSTRAINT DF_SmsProviderSettings_SortOrder DEFAULT(0), UpdatedAtUtc DATETIME2(7) NOT NULL,
  CONSTRAINT UQ_SmsProviderSettings_Provider UNIQUE(Provider)
+);
+
+CREATE TABLE dbo.SmsAutomationSettings(
+ Id BIGINT NOT NULL CONSTRAINT PK_SmsAutomationSettings PRIMARY KEY,
+ AutomaticSmsEnabled BIT NOT NULL CONSTRAINT DF_SmsAutomationSettings_AutomaticSms DEFAULT(0),
+ LowStockSmsEnabled BIT NOT NULL CONSTRAINT DF_SmsAutomationSettings_LowStock DEFAULT(0),
+ UpdatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT CK_SmsAutomationSettings_LowStock CHECK(LowStockSmsEnabled=0 OR AutomaticSmsEnabled=1),
+ CONSTRAINT CK_SmsAutomationSettings_Singleton CHECK(Id=1)
 );
 
 
@@ -617,6 +626,9 @@ WHEN MATCHED THEN UPDATE SET DisplayName=s.DisplayName,IsVisible=s.IsVisible,Sor
 WHEN NOT MATCHED THEN INSERT(Id,Provider,DisplayName,IsEnabled,IsVisible,SortOrder,UpdatedAtUtc)
 VALUES(s.Id,s.Provider,s.DisplayName,s.IsEnabled,s.IsVisible,s.SortOrder,SYSUTCDATETIME());
 
+IF NOT EXISTS (SELECT 1 FROM dbo.SmsAutomationSettings WHERE Id=1)
+ INSERT dbo.SmsAutomationSettings(Id,AutomaticSmsEnabled,LowStockSmsEnabled,UpdatedAtUtc) VALUES(1,0,0,SYSUTCDATETIME());
+
 COMMIT;
 
 -- Fail the script if any required table was not created.
@@ -672,6 +684,7 @@ INSERT INTO @ExpectedTables(TableName) VALUES
 (N'CouponUsages'),
 (N'Notifications'),
 (N'SmsProviderSettings'),
+(N'SmsAutomationSettings'),
 (N'PaymentReconciliationAudits'),
 (N'RefundReconciliationAudits'),
 (N'SettlementReconciliationAudits'),
