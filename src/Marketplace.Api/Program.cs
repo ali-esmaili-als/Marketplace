@@ -1196,6 +1196,156 @@ app.MapGet("/api/admin/financial-integrity/order-flows", async (
     });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
+    long orderId,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    if (orderId <= 0) return Results.BadRequest(new { title = "Invalid order ID" });
+
+    var order = await db.Orders.AsNoTracking()
+        .Where(x => x.Id == orderId)
+        .Select(x => new
+        {
+            x.Id, x.CustomerId, x.SellerId, x.StoreId, x.SubtotalAmountIRR,
+            x.CampaignDiscountIRR, x.CouponDiscountIRR, x.TotalAmountIRR,
+            x.SellerAmountIRR, Status = (int)x.Status, x.CreatedAtUtc,
+            x.PaidAtUtc, x.DeliveredAtUtc
+        }).SingleOrDefaultAsync(ct);
+    if (order is null) return Results.NotFound(new { title = "Order not found" });
+
+    var payments = await db.Payments.AsNoTracking()
+        .Where(x => x.OrderId == orderId)
+        .OrderBy(x => x.CreatedAtUtc).Take(100)
+        .Select(x => new
+        {
+            paymentId = x.Id, x.OrderId, x.CustomerId, x.AmountIRR,
+            status = (int)x.Status, x.Provider, x.Authority, x.ReferenceNumber,
+            x.CreatedAtUtc, x.PaidAtUtc, x.RefundedAtUtc
+        }).ToListAsync(ct);
+    var paymentIds = payments.Select(x => x.paymentId).ToArray();
+    var paymentTransactions = paymentIds.Length == 0
+        ? new List<object>()
+        : (await db.PaymentTransactions.AsNoTracking()
+            .Where(x => paymentIds.Contains(x.PaymentId))
+            .OrderBy(x => x.CreatedAtUtc).Take(300)
+            .Select(x => new
+            {
+                x.Id, x.PaymentId, x.AmountIRR, status = (int)x.Status,
+                x.Provider, x.Authority, x.Reference, x.CreatedAtUtc
+            }).ToListAsync(ct)).Cast<object>().ToList();
+
+    var refunds = await db.Refunds.AsNoTracking()
+        .Where(x => x.OrderId == orderId)
+        .OrderBy(x => x.RequestedAtUtc).Take(100)
+        .Select(x => new
+        {
+            refundId = x.Id, x.OrderId, x.PaymentId, x.CustomerId, x.AmountIRR,
+            status = (int)x.Status, reason = (int)x.Reason, x.ProviderReference,
+            x.FailureReason, x.RequestedAtUtc, x.CompletedAtUtc
+        }).ToListAsync(ct);
+    var refundIds = refunds.Select(x => x.refundId).ToArray();
+    var reversals = refundIds.Length == 0
+        ? new List<object>()
+        : (await db.CommissionReversals.AsNoTracking()
+            .Where(x => refundIds.Contains(x.RefundId))
+            .OrderBy(x => x.CreatedAtUtc).Take(200)
+            .Select(x => new
+            {
+                x.Id, x.CommissionId, x.OrderId, x.RefundId, x.RefundAmountIRR,
+                x.ReversedCommissionIRR, x.CreatedAtUtc
+            }).ToListAsync(ct)).Cast<object>().ToList();
+
+    var commission = await db.Commissions.AsNoTracking()
+        .Where(x => x.OrderId == orderId)
+        .Select(x => new
+        {
+            x.Id, x.OrderId, x.StoreId, x.SellerId, x.OrderAmountIRR,
+            x.CommissionRate, x.MinimumCommissionIRR, x.CalculatedCommissionIRR,
+            x.CommissionAmountIRR, x.SellerAmountIRR, x.CreatedAtUtc
+        }).SingleOrDefaultAsync(ct);
+
+    var settlements = await db.Settlements.AsNoTracking()
+        .Where(x => x.SellerId == order.SellerId)
+        .OrderByDescending(x => x.RequestedAtUtc).Take(50)
+        .Select(x => new
+        {
+            settlementId = x.Id, x.SellerId, x.AmountIRR, status = (int)x.Status,
+            x.BankNameSnapshot, x.Reference, x.FailureReason, x.RequestedAtUtc,
+            x.CompletedAtUtc
+        }).ToListAsync(ct);
+    var settlementIds = settlements.Select(x => x.settlementId).ToArray();
+
+    var ledger = await db.BalanceTransactions.AsNoTracking()
+        .Where(x => x.OrderId == orderId
+            || (x.RefundId.HasValue && refundIds.Contains(x.RefundId.Value))
+            || (x.SettlementId.HasValue && settlementIds.Contains(x.SettlementId.Value)))
+        .OrderBy(x => x.CreatedAtUtc).Take(500)
+        .Select(x => new
+        {
+            x.Id, x.SellerId, x.OrderId, x.RefundId, x.SettlementId,
+            type = (int)x.Type, bucket = (int)x.Bucket, x.AmountIRR,
+            x.BalanceBeforeIRR, x.BalanceAfterIRR, x.Reference, x.CreatedAtUtc
+        }).ToListAsync(ct);
+    var sellerBalance = await db.SellerBalances.AsNoTracking()
+        .Where(x => x.SellerId == order.SellerId)
+        .Select(x => new
+        {
+            x.SellerId, x.AvailableIRR, x.PendingIRR, x.BlockedIRR,
+            x.ReservedForSettlementIRR, x.LiabilityIRR, x.WithdrawableIRR,
+            x.UpdatedAtUtc
+        }).SingleOrDefaultAsync(ct);
+
+    var findings = new List<object>();
+    if (payments.Count == 0)
+        findings.Add(new { code = "OrderHasNoPayment", severity = "warning", message = "برای این سفارش رکورد پرداختی پیدا نشد." });
+    if (payments.Any(x => x.AmountIRR != order.TotalAmountIRR))
+        findings.Add(new { code = "PaymentAmountMismatch", severity = "error", message = "مبلغ حداقل یکی از پرداخت‌ها با مبلغ سفارش متفاوت است." });
+    if (payments.Any(x => x.status == (int)Marketplace.Domain.Payments.PaymentStatus.Succeeded)
+        && order.Status == (int)Marketplace.Domain.Orders.OrderStatus.PendingPayment)
+        findings.Add(new { code = "SucceededPaymentOrderPending", severity = "error", message = "پرداخت موفق ثبت شده اما سفارش هنوز در انتظار پرداخت است." });
+    if (commission is null)
+        findings.Add(new { code = "CommissionMissing", severity = "warning", message = "رکورد کمیسیون برای سفارش وجود ندارد." });
+    else
+    {
+        if (commission.SellerId != order.SellerId || commission.OrderAmountIRR != order.TotalAmountIRR
+            || commission.SellerAmountIRR != commission.OrderAmountIRR - commission.CommissionAmountIRR)
+            findings.Add(new { code = "CommissionOrderMismatch", severity = "error", message = "مبلغ یا فروشنده ثبت‌شده در کمیسیون با سفارش هم‌خوانی ندارد." });
+        if (!ledger.Any(x => x.OrderId == orderId && x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Sale))
+            findings.Add(new { code = "SaleLedgerMissing", severity = "warning", message = "ثبت فروش مرتبط با سفارش در دفتر مالی پیدا نشد." });
+    }
+    foreach (var refund in refunds.Where(x => x.status == (int)Marketplace.Domain.Refunds.RefundStatus.Completed))
+    {
+        var refundLedgerExists = ledger.Any(x => x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Refund
+            && (x.RefundId == refund.refundId || (x.RefundId is null && x.OrderId == orderId)));
+        if (!refundLedgerExists)
+            findings.Add(new { code = "RefundLedgerMissing", severity = "error", message = $"بازپرداخت #{refund.refundId} تکمیل شده اما ثبت دفتر متناظر پیدا نشد." });
+        if (!reversals.Any(x => ((dynamic)x).RefundId == refund.refundId))
+            findings.Add(new { code = "CommissionReversalMissing", severity = "warning", message = $"برای بازپرداخت #{refund.refundId} برگشت کمیسیون پیدا نشد." });
+    }
+    if (sellerBalance is null)
+        findings.Add(new { code = "SellerBalanceMissing", severity = "warning", message = "رکورد مانده فعلی فروشنده وجود ندارد." });
+
+    return Results.Ok(new
+    {
+        generatedAtUtc = DateTime.UtcNow,
+        scopeNote = "تسویه‌ها و مانده، در سطح تجمیعی فروشنده‌اند؛ نسبت‌دادن یک تسویه به این سفارش بدون لینک دفتر مالی صریح انجام نشده است.",
+        order,
+        payments,
+        paymentTransactions,
+        commission,
+        refunds,
+        commissionReversals = reversals,
+        ledgerTransactions = ledger,
+        sellerBalance,
+        sellerSettlements = settlements,
+        findings,
+        findingCount = findings.Count,
+        itemsTruncated = payments.Count >= 100 || paymentTransactions.Count >= 300
+            || refunds.Count >= 100 || reversals.Count >= 200 || ledger.Count >= 500
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/summary", async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var paymentReview = await db.Payments.AsNoTracking()
