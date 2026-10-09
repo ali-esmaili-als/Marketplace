@@ -63,6 +63,26 @@ public sealed class OutboxMessageTests
     }
 
     [Fact]
+    public void Dead_letter_can_be_retried_and_attempt_counter_is_reset()
+    {
+        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var message = OutboxMessage.Create(1006, "Settlement.Failed", "{}", now);
+        message.MarkProcessing(now, TimeSpan.FromMinutes(1), Guid.NewGuid());
+        message.MarkFailed(now, "unavailable", maxAttempts: 1, retryDelay: TimeSpan.Zero);
+
+        Assert.Equal("DeadLetter", message.Status);
+        message.RetryFromDeadLetter(now.AddMinutes(1));
+
+        Assert.Equal("Pending", message.Status);
+        Assert.Equal(0, message.Attempts);
+        Assert.Equal(now.AddMinutes(1), message.NextAttemptAtUtc);
+        Assert.Null(message.LockToken);
+        Assert.Null(message.LockedUntilUtc);
+        Assert.Null(message.ProcessedAtUtc);
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() => message.RetryFromDeadLetter(now));
+    }
+
+    [Fact]
     public void Lease_token_is_cleared_on_success_and_failure()
     {
         var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
