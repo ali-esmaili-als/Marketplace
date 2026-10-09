@@ -2453,7 +2453,8 @@ app.MapPut("/api/me/profile", async (
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
     CancellationToken ct) =>
 {
-    var account = await db.Users.SingleOrDefaultAsync(x => x.Id == CurrentUserId(user), ct);
+    var userId = CurrentUserId(user);
+    var account = await db.Users.SingleOrDefaultAsync(x => x.Id == userId, ct);
     if (account is null) return Results.NotFound();
     account.UpdateProfile(request.DisplayName, request.Email);
     await db.SaveChangesAsync(ct);
