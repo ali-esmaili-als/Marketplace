@@ -155,8 +155,9 @@ public sealed class FinancialLifecycleWorkflowTests
         var now = DateTime.UtcNow;
         var delivery = DeliveryEntity.Create(58, order.Id, order.SellerId, now.AddDays(1));
         delivery.MarkReady();
-        delivery.ConfirmDelivered("DELIVERY", now);
-        lifecycle.OnDelivered(order, delivery, balance, now, now.AddDays(-1));
+        var deliveredAt = now.AddDays(-2);
+        delivery.ConfirmDelivered("DELIVERY", deliveredAt);
+        lifecycle.OnDelivered(order, delivery, balance, deliveredAt, deliveredAt.AddDays(1));
 
         var unrelatedComplaint = Complaint.Create(59, 999, order.CustomerId, order.SellerId, "Other order");
         unrelatedComplaint.StartReview();
