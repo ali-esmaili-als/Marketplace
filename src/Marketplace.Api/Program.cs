@@ -2435,6 +2435,100 @@ app.MapPost("/api/admin/users/{userId:long}/active", async (
     return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
+app.MapGet("/api/me/addresses", async (
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var addresses = await db.CustomerAddresses.AsNoTracking()
+        .Where(x => x.CustomerId == customerId)
+        .Join(db.DeliveryCities.AsNoTracking(), address => address.CityId, city => city.Id,
+            (address, city) => new { address.Id, address.CityId, CityName = city.Name, ProvinceName = city.ProvinceName,
+                address.RecipientName, address.RecipientMobile, address.AddressLine, address.PostalCode,
+                address.DeliveryNote, address.IsDefault, address.CreatedAtUtc, address.UpdatedAtUtc })
+        .OrderByDescending(x => x.IsDefault).ThenByDescending(x => x.UpdatedAtUtc).ToListAsync(ct);
+    return Results.Ok(addresses);
+}).RequireAuthorization();
+
+app.MapPost("/api/me/addresses", async (
+    System.Security.Claims.ClaimsPrincipal user, CustomerAddressRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    Marketplace.Application.Abstractions.IIdGenerator ids, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    if (!await db.DeliveryCities.AnyAsync(x => x.Id == request.CityId && x.IsActive, ct))
+        return Results.BadRequest(new { detail = "شهر مقصد معتبر یا فعال نیست." });
+    await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+    var existing = await db.CustomerAddresses.Where(x => x.CustomerId == customerId).ToListAsync(ct);
+    if (existing.Count >= 30) return Results.BadRequest(new { detail = "حداکثر ۳۰ نشانی برای هر حساب مجاز است." });
+    var makeDefault = request.IsDefault || existing.Count == 0;
+    if (makeDefault) foreach (var item in existing) item.SetDefault(false);
+    var address = Marketplace.Domain.Shipping.CustomerAddress.Create(
+        await ids.NextAsync(ct), customerId, request.CityId, request.RecipientName, request.RecipientMobile,
+        request.AddressLine, request.PostalCode, request.DeliveryNote, makeDefault);
+    db.CustomerAddresses.Add(address);
+    await db.SaveChangesAsync(ct);
+    await transaction.CommitAsync(ct);
+    return Results.Created($"/api/me/addresses/{address.Id}", new { address.Id });
+}).RequireAuthorization();
+
+app.MapPut("/api/me/addresses/{addressId:long}", async (
+    System.Security.Claims.ClaimsPrincipal user, long addressId, CustomerAddressRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var address = await db.CustomerAddresses.SingleOrDefaultAsync(x => x.Id == addressId && x.CustomerId == customerId, ct);
+    if (address is null) return Results.NotFound();
+    if (!await db.DeliveryCities.AnyAsync(x => x.Id == request.CityId && x.IsActive, ct))
+        return Results.BadRequest(new { detail = "شهر مقصد معتبر یا فعال نیست." });
+    await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+    if (request.IsDefault)
+        foreach (var other in await db.CustomerAddresses.Where(x => x.CustomerId == customerId && x.Id != addressId).ToListAsync(ct))
+            other.SetDefault(false);
+    address.Update(request.CityId, request.RecipientName, request.RecipientMobile, request.AddressLine, request.PostalCode, request.DeliveryNote, request.IsDefault);
+    await db.SaveChangesAsync(ct);
+    await transaction.CommitAsync(ct);
+    return Results.NoContent();
+}).RequireAuthorization();
+
+app.MapPost("/api/me/addresses/{addressId:long}/default", async (
+    System.Security.Claims.ClaimsPrincipal user, long addressId,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+    var address = await db.CustomerAddresses.SingleOrDefaultAsync(x => x.Id == addressId && x.CustomerId == customerId, ct);
+    if (address is null) return Results.NotFound();
+    foreach (var other in await db.CustomerAddresses.Where(x => x.CustomerId == customerId && x.Id != addressId).ToListAsync(ct))
+        other.SetDefault(false);
+    address.SetDefault(true);
+    await db.SaveChangesAsync(ct);
+    await transaction.CommitAsync(ct);
+    return Results.NoContent();
+}).RequireAuthorization();
+
+app.MapDelete("/api/me/addresses/{addressId:long}", async (
+    System.Security.Claims.ClaimsPrincipal user, long addressId,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+    var address = await db.CustomerAddresses.SingleOrDefaultAsync(x => x.Id == addressId && x.CustomerId == customerId, ct);
+    if (address is null) return Results.NotFound();
+    var wasDefault = address.IsDefault;
+    db.CustomerAddresses.Remove(address);
+    if (wasDefault)
+    {
+        var replacement = await db.CustomerAddresses.Where(x => x.CustomerId == customerId && x.Id != addressId)
+            .OrderByDescending(x => x.UpdatedAtUtc).FirstOrDefaultAsync(ct);
+        replacement?.SetDefault(true);
+    }
+    await db.SaveChangesAsync(ct);
+    await transaction.CommitAsync(ct);
+    return Results.NoContent();
+}).RequireAuthorization();
+
 app.MapGet("/api/me/profile", async (
     System.Security.Claims.ClaimsPrincipal user,
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
@@ -2466,7 +2560,7 @@ app.Run();
 public sealed record CustomerProfileUpdateRequest(string DisplayName, string? Email);
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
-public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey);
+public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey,long? AddressId = null);\npublic sealed record CustomerAddressRequest(long CityId,string RecipientName,string RecipientMobile,string AddressLine,string PostalCode,string? DeliveryNote,bool IsDefault);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record StoreShippingRateRequest(long CityId, long ShippingFeeIRR, int MinDeliveryDays, int MaxDeliveryDays);
 public sealed record StoreShippingRatesRequest(StoreShippingRateRequest[] Rates);
