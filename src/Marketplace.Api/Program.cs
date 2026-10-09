@@ -698,6 +698,57 @@ app.MapGet("/api/admin/settlements/reconciliation/history", async (Marketplace.I
     return Results.Ok(items);
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/public/products/{productId:long}/reviews", async (long productId, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Products.AsNoTracking().AnyAsync(x => x.Id == productId, ct)) return Results.NotFound();
+    var items = await (from review in db.ProductReviews.AsNoTracking()
+        join user in db.Users.AsNoTracking() on review.CustomerId equals user.Id
+        where review.ProductId == productId && review.Status == Marketplace.Domain.Catalog.ProductReviewStatus.Approved
+        orderby review.CreatedAtUtc descending
+        select new { review.Id, review.Rating, review.Title, review.Body, reviewer = user.DisplayName, review.CreatedAtUtc })
+        .Take(100).ToListAsync(ct);
+    var average = items.Count == 0 ? 0 : Math.Round(items.Average(x => (double)x.Rating), 1);
+    return Results.Ok(new { averageRating = average, totalReviews = items.Count, items });
+});
+
+app.MapPost("/api/products/{productId:long}/reviews", async (System.Security.Claims.ClaimsPrincipal user, long productId, ProductReviewCreateRequest request, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, Marketplace.Application.Abstractions.IIdGenerator ids, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    if (!await db.Products.AsNoTracking().AnyAsync(x => x.Id == productId, ct)) return Results.NotFound(new { detail = "محصول پیدا نشد." });
+    var eligible = await db.Orders.AsNoTracking().AnyAsync(order =>
+        order.Id == request.OrderId && order.CustomerId == customerId &&
+        (order.Status == Marketplace.Domain.Orders.OrderStatus.Delivered || order.Status == Marketplace.Domain.Orders.OrderStatus.Completed) &&
+        db.OrderItems.Any(item => item.OrderId == order.Id && item.ProductId == productId), ct);
+    if (!eligible) return Results.BadRequest(new { detail = "ثبت نظر فقط برای محصولی امکان‌پذیر است که در سفارش تحویل‌شده شما وجود داشته باشد." });
+    if (await db.ProductReviews.AnyAsync(x => x.CustomerId == customerId && x.ProductId == productId, ct))
+        return Results.Conflict(new { detail = "برای این محصول قبلاً نظر ثبت کرده‌اید." });
+    var review = Marketplace.Domain.Catalog.ProductReview.Create(await ids.NextAsync(ct), productId, customerId, request.OrderId, request.Rating, request.Title, request.Body);
+    db.ProductReviews.Add(review);
+    await db.SaveChangesAsync(ct);
+    return Results.Created($"/api/products/{productId}/reviews", new { review.Id, status = review.Status.ToString(), review.CreatedAtUtc });
+}).RequirePermission("Order.ReadOwn");
+
+app.MapGet("/api/admin/product-reviews", async (int? status, int? take, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var query = from review in db.ProductReviews.AsNoTracking()
+        join user in db.Users.AsNoTracking() on review.CustomerId equals user.Id
+        join product in db.Products.AsNoTracking() on review.ProductId equals product.Id
+        select new { review.Id, review.ProductId, productName = product.Name, review.CustomerId, customerName = user.DisplayName, review.OrderId, review.Rating, review.Title, review.Body, review.Status, review.CreatedAtUtc, review.ModeratedAtUtc, review.ModeratorUserId, review.ModerationNote };
+    if (status.HasValue && status.Value is >= 1 and <= 3) query = query.Where(x => (int)x.Status == status.Value);
+    return Results.Ok(await query.OrderBy(x => x.Status).ThenByDescending(x => x.CreatedAtUtc).Take(Math.Clamp(take ?? 100, 1, 200)).ToListAsync(ct));
+}).RequirePermission("Admin.Order.Read");
+
+app.MapPut("/api/admin/product-reviews/{reviewId:long}/moderation", async (System.Security.Claims.ClaimsPrincipal user, long reviewId, ProductReviewModerationRequest request, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var review = await db.ProductReviews.SingleOrDefaultAsync(x => x.Id == reviewId, ct);
+    if (review is null) return Results.NotFound();
+    var moderatorId = CurrentUserId(user);
+    if (request.Approve) review.Approve(moderatorId);
+    else review.Reject(moderatorId, request.Note ?? string.Empty);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).RequirePermission("Admin.Order.Read");
+
 app.MapGet("/api/orders/checkout/quote",async(System.Security.Claims.ClaimsPrincipal user,long destinationCityId,string? couponCode,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>
     Results.Ok(await service.QuoteAsync(CurrentUserId(user),destinationCityId,couponCode,ct)))
     .RequirePermission("Order.Create");
@@ -2224,6 +2275,8 @@ public sealed record FinancialLedgerFinding(long SellerId,string FindingType,str
 public sealed record FinancialOrderFlowFinding(string FindingType,long OrderId,long EntityId,long? RefundId,long? SellerId,long? ExpectedSellerId,long AmountIRR,long? ExpectedAmountIRR,long? CommissionAmountIRR,long? SellerAmountIRR,DateTime CreatedAtUtc);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
+ public sealed record ProductReviewCreateRequest(long OrderId,int Rating,string Title,string Body);
+ public sealed record ProductReviewModerationRequest(bool Approve,string? Note);
  public sealed record SmsAutomationConfigureRequest(bool AutomaticSmsEnabled,bool LowStockSmsEnabled);
 public sealed record OtpRequest(string Mobile);
 public sealed record OtpVerifyRequest(string Mobile, string Otp);
