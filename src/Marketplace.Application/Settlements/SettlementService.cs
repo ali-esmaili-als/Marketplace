@@ -34,14 +34,14 @@ public sealed class SettlementService
             if(!account.IsVerified) throw new DomainException("Seller bank account is not verified.");
             if(amountIRR<=0 || amountIRR>balance.WithdrawableIRR) throw new DomainException("Settlement amount exceeds withdrawable balance.");
 
+            var reservedBefore=balance.ReservedForSettlementIRR;
             balance.ReserveForSettlement(amountIRR);
             var settlement=Settlement.Create(await _ids.NextAsync(token),seller.Id,amountIRR,account.Id,account.BankName,account.Iban,account.AccountHolderName);
             _life.AddSettlement(settlement);
 
-            var before=balance.WithdrawableIRR+amountIRR;
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),seller.Id,null,settlement.Id,
-                BalanceTransactionType.Settlement,amountIRR,before,balance.WithdrawableIRR,"SETTLEMENT_REQUESTED",BalanceBucket.ReservedForSettlement));
+                BalanceTransactionType.Settlement,amountIRR,reservedBefore,balance.ReservedForSettlementIRR,"SETTLEMENT_REQUESTED",BalanceBucket.ReservedForSettlement));
 
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id,amountIRR,settlement.Status.ToString(),null);
@@ -116,18 +116,23 @@ public sealed class SettlementService
             if(!result.Success)
             {
                 settlement.Fail(result.Error??"Payout failed.");
+                var reservedBefore=balance.ReservedForSettlementIRR;
                 balance.FailSettlement(amount);
+                _life.AddBalanceTransaction(BalanceTransaction.Create(
+                    await _ids.NextAsync(token),sellerId,null,settlement.Id,
+                    BalanceTransactionType.SettlementFailed,amount,reservedBefore,balance.ReservedForSettlementIRR,
+                    result.Error ?? "SETTLEMENT_FAILED",BalanceBucket.ReservedForSettlement));
                 await _uow.SaveChangesAsync(token);
                 return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),null);
             }
 
             settlement.Complete(result.Reference);
-            var before=balance.WithdrawableIRR;
+            var before=balance.AvailableIRR;
             balance.CompleteSettlement(amount);
             balance.RemoveAvailable(amount);
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),sellerId,null,settlement.Id,
-                BalanceTransactionType.Settlement,amount,before,balance.WithdrawableIRR,result.Reference,BalanceBucket.Available));
+                BalanceTransactionType.Settlement,amount,before,balance.AvailableIRR,result.Reference,BalanceBucket.Available));
 
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),result.Reference);
