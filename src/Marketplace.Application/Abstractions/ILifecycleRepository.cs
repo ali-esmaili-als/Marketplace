@@ -29,6 +29,7 @@ public interface ILifecycleRepository
     void AddDeliveryCode(DeliveryCode code);
     void AddComplaint(Complaint complaint);
     void AddRefund(Refund refund);
+    void AddRefundReconciliationAudit(RefundReconciliationAudit audit);
     void AddBalanceHold(SellerBalanceHold hold);
     void AddBalanceTransaction(BalanceTransaction transaction);
     void AddCommissionReversal(CommissionReversal reversal);
