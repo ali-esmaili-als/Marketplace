@@ -494,4 +494,56 @@ public sealed class OrderLifecycleServiceTests
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+
+
+    [Fact]
+    public async Task Complaint_cannot_be_opened_by_another_customer()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(821, 822, 823, 824, 100_000, 100_000);
+        order.MarkPaid(now.AddMinutes(-5));
+        order.MarkReady();
+        order.MarkDelivered(now, now.AddHours(2));
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<long>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<long>> action, CancellationToken token) => action(token));
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.OpenComplaintAsync(order.Id, 999_999, "Not my order"));
+
+        lifecycle.Verify(x => x.AddComplaint(It.IsAny<Complaint>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Complaint_cannot_be_opened_twice_for_the_same_order()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(831, 832, 833, 834, 100_000, 100_000);
+        order.MarkPaid(now.AddMinutes(-5));
+        order.MarkReady();
+        order.MarkDelivered(now, now.AddHours(2));
+        var existing = Complaint.Create(835, order.Id, order.CustomerId, order.SellerId, "Existing complaint");
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetOpenComplaintByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<long>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<long>> action, CancellationToken token) => action(token));
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.OpenComplaintAsync(order.Id, order.CustomerId, "Another complaint"));
+
+        lifecycle.Verify(x => x.AddComplaint(It.IsAny<Complaint>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
 }
