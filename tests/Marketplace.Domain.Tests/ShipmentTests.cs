@@ -1,3 +1,4 @@
+using System;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Shipping;
 using Xunit;
@@ -33,20 +34,20 @@ public sealed class ShipmentTests
         shipment.ChangeStatus(ShipmentStatus.OutForDelivery, now.AddMinutes(3));
         shipment.ChangeStatus(ShipmentStatus.CarrierDelivered, now.AddMinutes(4));
 
-        Assert.Throws<DomainException>(() => shipment.ChangeStatus(ShipmentStatus.InTransit, now.AddMinutes(5)));
+        Assert.Throws<DomainException>(() => { shipment.ChangeStatus(ShipmentStatus.InTransit, now.AddMinutes(5)); });
     }
 
     [Fact]
     public void Invalid_tracking_urls_are_rejected()
     {
-        Assert.Throws<DomainException>(() => Shipment.Create(1, 2, 3, "Carrier", "TRK-123", "javascript:alert(1)", DateTime.UtcNow));
+        Assert.Throws<DomainException>(() => { Shipment.Create(1, 2, 3, "Carrier", "TRK-123", "javascript:alert(1)", DateTime.UtcNow); });
     }
 
     [Fact]
     public void Tracking_event_requires_description_and_valid_time()
     {
         var now = DateTime.UtcNow;
-        Assert.Throws<DomainException>(() => ShipmentTrackingEvent.Create(1, 2, ShipmentStatus.Registered, " ", null, 3, now));
-        Assert.Throws<DomainException>(() => ShipmentTrackingEvent.Create(1, 2, ShipmentStatus.Registered, "ثبت شد", null, 3, now.AddMinutes(10)));
+        Assert.Throws<DomainException>(() => { ShipmentTrackingEvent.Create(1, 2, ShipmentStatus.Registered, " ", null, 3, now); });
+        Assert.Throws<DomainException>(() => { ShipmentTrackingEvent.Create(1, 2, ShipmentStatus.Registered, "ثبت شد", null, 3, now.AddMinutes(10)); });
     }
 }
