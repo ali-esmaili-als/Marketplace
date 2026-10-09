@@ -42,6 +42,8 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<PaymentReconciliationAudit> PaymentReconciliationAudits => Set<PaymentReconciliationAudit>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Delivery> Deliveries => Set<Delivery>();
+    public DbSet<Marketplace.Domain.Shipping.Shipment> Shipments => Set<Marketplace.Domain.Shipping.Shipment>();
+    public DbSet<Marketplace.Domain.Shipping.ShipmentTrackingEvent> ShipmentTrackingEvents => Set<Marketplace.Domain.Shipping.ShipmentTrackingEvent>();
     public DbSet<DeliveryCode> DeliveryCodes => Set<DeliveryCode>();
     public DbSet<Refund> Refunds => Set<Refund>();
     public DbSet<RefundReconciliationAudit> RefundReconciliationAudits => Set<RefundReconciliationAudit>();
@@ -234,6 +236,26 @@ public sealed class MarketplaceDbContext : DbContext
         b.Entity<PaymentTransaction>(e => { e.ToTable("PaymentTransactions", t => t.HasCheckConstraint("CK_PaymentTransactions_Amount", "AmountIRR > 0")); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Provider).HasMaxLength(100).IsRequired(); e.Property(x => x.Authority).HasMaxLength(200); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.PaymentId, x.Status }); e.HasIndex(x => new { x.Provider, x.Authority }).IsUnique().HasFilter("[Authority] IS NOT NULL"); });
         b.Entity<Delivery>(e => { e.ToTable("Deliveries"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.ConfirmationReference).HasMaxLength(200); e.HasIndex(x => x.OrderId).IsUnique(); e.HasIndex(x => new { x.Status, x.ExpiresAtUtc }); });
         b.Entity<DeliveryCode>(e=>{e.ToTable("DeliveryCodes");e.HasKey(x=>x.Id);e.Property(x=>x.CodeHash).HasColumnType("binary(32)").IsRequired();e.HasIndex(x=>x.OrderId).IsUnique();e.HasIndex(x=>new{x.ExpiresAtUtc,x.UsedAtUtc});});
+        b.Entity<Marketplace.Domain.Shipping.Shipment>(e =>
+        {
+            e.ToTable("Shipments", t => t.HasCheckConstraint("CK_Shipments_Tracking", "LEN(CarrierName) > 0 AND LEN(TrackingNumber) > 0"));
+            e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.CarrierName).HasMaxLength(150).IsRequired();
+            e.Property(x => x.TrackingNumber).HasMaxLength(150).IsRequired();
+            e.Property(x => x.TrackingUrl).HasMaxLength(1000);
+            e.HasIndex(x => x.OrderId).IsUnique();
+            e.HasIndex(x => new { x.SellerId, x.Status, x.UpdatedAtUtc });
+            e.HasOne<Order>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<Marketplace.Domain.Shipping.ShipmentTrackingEvent>(e =>
+        {
+            e.ToTable("ShipmentTrackingEvents", t => t.HasCheckConstraint("CK_ShipmentTrackingEvents_Description", "LEN(Description) > 0"));
+            e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.Description).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.Location).HasMaxLength(200);
+            e.HasIndex(x => new { x.ShipmentId, x.OccurredAtUtc, x.Id });
+            e.HasOne<Marketplace.Domain.Shipping.Shipment>().WithMany().HasForeignKey(x => x.ShipmentId).OnDelete(DeleteBehavior.Restrict);
+        });
         b.Entity<Refund>(e => { e.ToTable("Refunds", t => t.HasCheckConstraint("CK_Refunds_Amount", "AmountIRR > 0")); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasConversion<byte>(); e.Property(x => x.ProviderReference).HasMaxLength(200); e.Property(x => x.FailureReason).HasMaxLength(1000); e.HasIndex(x => new { x.OrderId, x.Status }); e.HasIndex(x => x.OrderId).IsUnique().HasFilter("[Status] < 4"); });
         b.Entity<RefundReconciliationAudit>(e => { e.ToTable("RefundReconciliationAudits"); e.HasKey(x => x.Id); e.Property(x => x.Id).UseIdentityColumn(); e.Property(x => x.Note).HasMaxLength(2000).IsRequired(); e.Property(x => x.BankReference).HasMaxLength(200); e.HasIndex(x => new { x.RefundId, x.CreatedAtUtc }); e.HasOne<Refund>().WithMany().HasForeignKey(x => x.RefundId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Complaint>(e => { e.ToTable("Complaints"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Reason).HasMaxLength(2000).IsRequired(); e.Property(x => x.ResolutionNote).HasMaxLength(4000); e.HasIndex(x => new { x.OrderId, x.Status }); });
