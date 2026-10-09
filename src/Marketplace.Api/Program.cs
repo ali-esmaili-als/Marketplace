@@ -1317,6 +1317,7 @@ public sealed record SettlementReconciliationRequest(bool TransferCompleted,stri
 public sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
+public sealed record FinancialIntegrityCaseStatusRequest(string Kind,string EntityKey,string Status,string Note);
 public sealed record FinancialLedgerFinding(long SellerId,string FindingType,string Bucket,long? CurrentBalanceIRR,long? LedgerBalanceAfterIRR,long? DifferenceIRR,long? LatestLedgerTransactionId,DateTime? LatestLedgerAtUtc,long? ActiveSettlementTotalIRR);
 public sealed record FinancialOrderFlowFinding(string FindingType,long OrderId,long EntityId,long? RefundId,long? SellerId,long? ExpectedSellerId,long AmountIRR,long? ExpectedAmountIRR,long? CommissionAmountIRR,long? SellerAmountIRR,DateTime CreatedAtUtc);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
