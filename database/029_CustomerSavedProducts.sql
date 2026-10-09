@@ -12,7 +12,7 @@ BEGIN
         CONSTRAINT CK_SavedProducts_Ids CHECK (CustomerId > 0 AND ProductId > 0),
         CONSTRAINT UQ_SavedProducts_Customer_Product UNIQUE (CustomerId, ProductId),
         CONSTRAINT FK_SavedProducts_Users FOREIGN KEY (CustomerId)
-            REFERENCES dbo.Users(Id) ON DELETE CASCADE,
+            REFERENCES dbo.Users(Id),
         CONSTRAINT FK_SavedProducts_Products FOREIGN KEY (ProductId)
             REFERENCES dbo.Products(Id) ON DELETE CASCADE
     );
