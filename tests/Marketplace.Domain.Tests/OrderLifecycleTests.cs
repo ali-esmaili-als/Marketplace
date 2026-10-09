@@ -29,6 +29,24 @@ public sealed class OrderLifecycleTests
     }
 
     [Fact]
+    public void DuplicateSuccessfulPayment_DoesNotCreditSellerBalanceTwice()
+    {
+        var order = Order.Create(11, 12, 13, 14, 2_000_000, 2_000_000);
+        var payment = Payment.Create(15, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("BANK-REF");
+        var balance = SellerBalance.Create(16, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+
+        lifecycle.OnPaymentSucceeded(order, payment, balance, 17);
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnPaymentSucceeded(order, payment, balance, 18));
+
+        Assert.Equal(OrderStatus.Paid, order.Status);
+        Assert.Equal(2_000_000, balance.PendingIRR);
+    }
+
+    [Fact]
     public void DeliveredOrder_BlocksSellerShareUntilComplaintWindowEnds()
     {
         var order=Order.Create(1,10,20,30,1_000_000,1_000_000);
