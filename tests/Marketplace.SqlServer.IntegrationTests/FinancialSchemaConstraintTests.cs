@@ -344,6 +344,151 @@ public sealed class FinancialSchemaConstraintTests
                 Assert.Equal(70000L, Convert.ToInt64(await verifyReservedFunds.ExecuteScalarAsync()));
             }
 
+            // Exercise both terminal settlement outcomes against the actual SQL Server schema.
+            // These rows intentionally mirror the application ledger contract and are then
+            // checked with the same cross-table invariants used by operational diagnostics.
+            await using (var seedSuccessfulSettlement = new SqlCommand("""
+                INSERT INTO dbo.SellerBankAccounts
+                    (Id, SellerId, BankName, Iban, AccountHolderName, IsDefault, IsVerified, CreatedAtUtc)
+                VALUES (950026, 950002, N'Integration Bank', N'IR0000000000000000000000000001', N'Integration Seller', 1, 1, SYSUTCDATETIME());
+
+                INSERT INTO dbo.Settlements
+                    (Id, SellerId, AmountIRR, Status, BankAccountId, BankNameSnapshot, IbanSnapshot,
+                     AccountHolderNameSnapshot, RequestedAtUtc)
+                VALUES
+                    (950027, 950002, 70000, 1, 950026, N'Integration Bank',
+                     N'IR0000000000000000000000000001', N'Integration Seller', SYSUTCDATETIME());
+
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, SettlementId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES
+                    (950028, 950002, 950027, 4, 4, 70000, 0, 70000, N'reservation', SYSUTCDATETIME());
+
+                UPDATE dbo.SellerBalances
+                SET AvailableIRR = 30000, ReservedForSettlementIRR = 0, UpdatedAtUtc = SYSUTCDATETIME()
+                WHERE SellerId = 950002;
+
+                UPDATE dbo.Settlements
+                SET Status = 3, Reference = N'integration-bank-reference', CompletedAtUtc = SYSUTCDATETIME()
+                WHERE Id = 950027;
+
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, SettlementId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES
+                    (950029, 950002, 950027, 4, 1, 70000, 100000, 30000, N'integration-bank-reference', SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedSuccessfulSettlement.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifySuccessfulSettlement = new SqlCommand("""
+                SELECT
+                    CASE WHEN s.Status = 3
+                              AND b.AvailableIRR = 30000
+                              AND b.ReservedForSettlementIRR = 0
+                              AND EXISTS
+                                  (SELECT 1 FROM dbo.BalanceTransactions bt
+                                   WHERE bt.SettlementId = s.Id AND bt.SellerId = s.SellerId
+                                     AND bt.Type = 4 AND bt.Bucket = 1
+                                     AND bt.AmountIRR = s.AmountIRR
+                                     AND bt.BalanceBeforeIRR = 100000 AND bt.BalanceAfterIRR = 30000)
+                              AND (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions bt
+                                   WHERE bt.SettlementId = s.Id AND bt.Type = 4 AND bt.Bucket = 1) = 1
+                         THEN 1 ELSE 0 END
+                FROM dbo.Settlements s
+                INNER JOIN dbo.SellerBalances b ON b.SellerId = s.SellerId
+                WHERE s.Id = 950027;
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifySuccessfulSettlement.ExecuteScalarAsync()));
+            }
+
+            await using (var seedFailedSettlement = new SqlCommand("""
+                INSERT INTO dbo.Users (Id, Mobile, PasswordHash, DisplayName, CreatedAtUtc)
+                VALUES (950030, N'+989120000002', N'test-hash', N'Integration Seller Two', SYSUTCDATETIME());
+                INSERT INTO dbo.Sellers (Id, UserId, Status, CreatedAtUtc)
+                VALUES (950031, 950030, 1, SYSUTCDATETIME());
+                INSERT INTO dbo.SellerBankAccounts
+                    (Id, SellerId, BankName, Iban, AccountHolderName, IsDefault, IsVerified, CreatedAtUtc)
+                VALUES (950032, 950031, N'Integration Bank', N'IR0000000000000000000000000002', N'Integration Seller Two', 1, 1, SYSUTCDATETIME());
+                INSERT INTO dbo.SellerBalances
+                    (Id, SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
+                VALUES (950033, 950031, 100000, 0, 0, 25000, 0, SYSUTCDATETIME());
+                INSERT INTO dbo.Settlements
+                    (Id, SellerId, AmountIRR, Status, BankAccountId, BankNameSnapshot, IbanSnapshot,
+                     AccountHolderNameSnapshot, RequestedAtUtc)
+                VALUES
+                    (950034, 950031, 25000, 1, 950032, N'Integration Bank',
+                     N'IR0000000000000000000000000002', N'Integration Seller Two', SYSUTCDATETIME());
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, SettlementId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES
+                    (950035, 950031, 950034, 4, 4, 25000, 0, 25000, N'reservation', SYSUTCDATETIME());
+
+                UPDATE dbo.SellerBalances
+                SET ReservedForSettlementIRR = 0, UpdatedAtUtc = SYSUTCDATETIME()
+                WHERE SellerId = 950031;
+
+                UPDATE dbo.Settlements
+                SET Status = 4, FailureReason = N'definitive bank rejection', CompletedAtUtc = SYSUTCDATETIME()
+                WHERE Id = 950034;
+
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, SettlementId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES
+                    (950036, 950031, 950034, 14, 4, 25000, 25000, 0, N'definitive bank rejection', SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedFailedSettlement.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyFailedSettlement = new SqlCommand("""
+                SELECT
+                    CASE WHEN s.Status = 4
+                              AND b.AvailableIRR = 100000
+                              AND b.ReservedForSettlementIRR = 0
+                              AND EXISTS
+                                  (SELECT 1 FROM dbo.BalanceTransactions bt
+                                   WHERE bt.SettlementId = s.Id AND bt.SellerId = s.SellerId
+                                     AND bt.Type = 14 AND bt.Bucket = 4
+                                     AND bt.AmountIRR = s.AmountIRR
+                                     AND bt.BalanceBeforeIRR = 25000 AND bt.BalanceAfterIRR = 0)
+                              AND NOT EXISTS
+                                  (SELECT 1 FROM dbo.BalanceTransactions bt
+                                   WHERE bt.SettlementId = s.Id AND bt.Type = 4 AND bt.Bucket = 1)
+                         THEN 1 ELSE 0 END
+                FROM dbo.Settlements s
+                INNER JOIN dbo.SellerBalances b ON b.SellerId = s.SellerId
+                WHERE s.Id = 950034;
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyFailedSettlement.ExecuteScalarAsync()));
+            }
+
+            // Reconciliation invariants: active settlements must equal reserved funds,
+            // and terminal settlements must not be missing their matching final ledger record.
+            await using (var verifyNoSettlementDrift = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.Settlements s
+                LEFT JOIN dbo.SellerBalances b ON b.SellerId = s.SellerId
+                WHERE s.Id IN (950027, 950034)
+                  AND
+                  (
+                      b.SellerId IS NULL
+                      OR (s.Status = 3 AND NOT EXISTS
+                          (SELECT 1 FROM dbo.BalanceTransactions bt
+                           WHERE bt.SettlementId = s.Id AND bt.SellerId = s.SellerId
+                             AND bt.Type = 4 AND bt.Bucket = 1 AND bt.AmountIRR = s.AmountIRR))
+                      OR (s.Status = 4 AND NOT EXISTS
+                          (SELECT 1 FROM dbo.BalanceTransactions bt
+                           WHERE bt.SettlementId = s.Id AND bt.SellerId = s.SellerId
+                             AND bt.Type = 14 AND bt.AmountIRR = s.AmountIRR))
+                  );
+                """, connection))
+            {
+                Assert.Equal(0, Convert.ToInt32(await verifyNoSettlementDrift.ExecuteScalarAsync()));
+            }
+
             await using (var identityCheck = new SqlCommand("""
                 SELECT COUNT(*)
                 FROM sys.identity_columns ic
