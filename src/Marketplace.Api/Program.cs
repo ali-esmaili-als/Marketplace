@@ -440,6 +440,14 @@ app.MapPost("/api/seller/orders/{orderId:long}/delivery/expire",async(System.Sec
 
 app.MapPost("/api/orders/{orderId:long}/complaints",async(System.Security.Claims.ClaimsPrincipal user,long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{var id=await service.ComplaintAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok(new{id});}).RequirePermission("Order.Create");
 
+app.MapGet("/api/admin/payments/reconciliation",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
+    Results.Ok(await db.Payments.AsNoTracking()
+        .Where(x=>x.Status==Marketplace.Domain.Payments.PaymentStatus.ReconciliationRequired)
+        .OrderBy(x=>x.CreatedAtUtc)
+        .Take(200)
+        .Select(x=>new { paymentId=x.Id,orderId=x.OrderId,customerId=x.CustomerId,amountIRR=x.AmountIRR,provider=x.Provider,reference=x.ReferenceNumber,createdAtUtc=x.CreatedAtUtc })
+        .ToListAsync(ct))).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/refunds",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
     Results.Ok(await (from r in db.Refunds.AsNoTracking()
                       join o in db.Orders.AsNoTracking() on r.OrderId equals o.Id
