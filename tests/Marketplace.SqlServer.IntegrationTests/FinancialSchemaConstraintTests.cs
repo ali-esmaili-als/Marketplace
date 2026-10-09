@@ -450,6 +450,13 @@ public sealed class FinancialSchemaConstraintTests
             {
                 Assert.Equal(1L, Convert.ToInt64(await verifyOneActiveRefund.ExecuteScalarAsync()));
             }
+            // Release the retry fixture's active slot so the separate concurrency race below
+            // can use its own order without being affected by this migration test.
+            await using (var retirePriorRetryRefund = new SqlCommand(
+                "UPDATE dbo.Refunds SET Status = 5, FailureReason = N'Fixture retired before idempotency migration test' WHERE Id = 950021;", connection))
+            {
+                await retirePriorRetryRefund.ExecuteNonQueryAsync();
+            }
 
             // Simulate an older schema without the two database-level idempotency indexes.
             await using (var dropIdempotencyIndexes = new SqlCommand("""
@@ -497,7 +504,7 @@ public sealed class FinancialSchemaConstraintTests
             await using (var duplicatePaymentAuthority = new SqlCommand("""
                 INSERT INTO dbo.PaymentTransactions
                     (Id, PaymentId, AmountIRR, Status, Provider, Authority, Reference, CreatedAtUtc)
-                VALUES (949982, 950007, 1000, 1, N'IntegrationGateway', N'DUPLICATE-AUTHORITY', NULL, SYSUTCDATETIME());
+                VALUES (949982, 950006, 1000, 1, N'IntegrationGateway', N'DUPLICATE-AUTHORITY', NULL, SYSUTCDATETIME());
                 """, connection))
             {
                 await Assert.ThrowsAsync<SqlException>(() => duplicatePaymentAuthority.ExecuteNonQueryAsync());
@@ -506,7 +513,7 @@ public sealed class FinancialSchemaConstraintTests
             await using (var firstActiveRefund = new SqlCommand("""
                 INSERT INTO dbo.Refunds
                     (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
-                VALUES (949983, 950005, 950007, 950001, 1000, 1, 1, SYSUTCDATETIME());
+                VALUES (949983, 950004, 950006, 950001, 1000, 1, 1, SYSUTCDATETIME());
                 """, connection))
             {
                 await firstActiveRefund.ExecuteNonQueryAsync();
@@ -515,7 +522,7 @@ public sealed class FinancialSchemaConstraintTests
             await using (var duplicateActiveRefund = new SqlCommand("""
                 INSERT INTO dbo.Refunds
                     (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
-                VALUES (949984, 950005, 950007, 950001, 1000, 1, 3, SYSUTCDATETIME());
+                VALUES (949984, 950004, 950006, 950001, 1000, 1, 3, SYSUTCDATETIME());
                 """, connection))
             {
                 await Assert.ThrowsAsync<SqlException>(() => duplicateActiveRefund.ExecuteNonQueryAsync());
@@ -532,11 +539,12 @@ public sealed class FinancialSchemaConstraintTests
             await using (var retryRefundAfterDefinitiveFailure = new SqlCommand("""
                 INSERT INTO dbo.Refunds
                     (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
-                VALUES (949985, 950005, 950007, 950001, 1000, 1, 1, SYSUTCDATETIME());
+                VALUES (949985, 950004, 950006, 950001, 1000, 1, 1, SYSUTCDATETIME());
                 """, connection))
             {
                 await retryRefundAfterDefinitiveFailure.ExecuteNonQueryAsync();
             }
+
 
             // A filtered unique index closes the race between concurrent complaint submissions.
             // Once a complaint is resolved, its active slot is released.
