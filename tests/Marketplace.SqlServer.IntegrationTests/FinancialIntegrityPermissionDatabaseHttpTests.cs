@@ -206,7 +206,8 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
     {
         SetBearerToken(AuthorizedUserId);
         using var response = await Client.PostAsync("/api/admin/outbox/messages/91002/retry", new StringContent("{}", Encoding.UTF8, "application/json"));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"Retry returned {(int)response.StatusCode}: {responseBody}");
 
         await using var connection = new SqlConnection(_targetConnectionString);
         await connection.OpenAsync();
