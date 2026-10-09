@@ -320,92 +320,6 @@ public sealed class FinancialSchemaConstraintTests
                 await Assert.ThrowsAsync<SqlException>(() => invalidSettlementStatus.ExecuteNonQueryAsync());
             }
 
-            // Simulate an older schema without the two database-level idempotency indexes.
-            await using (var dropIdempotencyIndexes = new SqlCommand("""
-                DROP INDEX UX_PaymentTransactions_Provider_Authority ON dbo.PaymentTransactions;
-                DROP INDEX UX_Refunds_OneActivePerOrder ON dbo.Refunds;
-                """, connection))
-            {
-                await dropIdempotencyIndexes.ExecuteNonQueryAsync();
-            }
-
-            var idempotencyPatchPath = Path.Combine(AppContext.BaseDirectory, "database", "015_FinancialIdempotencyIndexes.sql");
-            Assert.True(File.Exists(idempotencyPatchPath), $"Financial idempotency patch was not copied to test output: {idempotencyPatchPath}");
-            var idempotencyPatch = await File.ReadAllTextAsync(idempotencyPatchPath);
-            await using (var applyIdempotencyPatch = new SqlCommand(idempotencyPatch, connection) { CommandTimeout = 120 })
-            {
-                await applyIdempotencyPatch.ExecuteNonQueryAsync();
-            }
-
-            await using (var verifyIdempotencyIndexes = new SqlCommand("""
-                SELECT COUNT(*)
-                FROM sys.indexes
-                WHERE object_id IN (OBJECT_ID(N'dbo.PaymentTransactions'), OBJECT_ID(N'dbo.Refunds'))
-                  AND name IN (N'UX_PaymentTransactions_Provider_Authority', N'UX_Refunds_OneActivePerOrder')
-                  AND is_unique = 1 AND has_filter = 1;
-                """, connection))
-            {
-                Assert.Equal(2, Convert.ToInt32(await verifyIdempotencyIndexes.ExecuteScalarAsync()));
-            }
-
-            // Re-running the migration is safe.
-            await using (var reapplyIdempotencyPatch = new SqlCommand(idempotencyPatch, connection) { CommandTimeout = 120 })
-            {
-                await reapplyIdempotencyPatch.ExecuteNonQueryAsync();
-            }
-
-            await using (var firstPaymentAuthority = new SqlCommand("""
-                INSERT INTO dbo.PaymentTransactions
-                    (Id, PaymentId, AmountIRR, Status, Provider, Authority, Reference, CreatedAtUtc)
-                VALUES (949981, 949981, 1000, 1, N'IntegrationGateway', N'DUPLICATE-AUTHORITY', NULL, SYSUTCDATETIME());
-                """, connection))
-            {
-                await firstPaymentAuthority.ExecuteNonQueryAsync();
-            }
-
-            await using (var duplicatePaymentAuthority = new SqlCommand("""
-                INSERT INTO dbo.PaymentTransactions
-                    (Id, PaymentId, AmountIRR, Status, Provider, Authority, Reference, CreatedAtUtc)
-                VALUES (949982, 949982, 1000, 1, N'IntegrationGateway', N'DUPLICATE-AUTHORITY', NULL, SYSUTCDATETIME());
-                """, connection))
-            {
-                await Assert.ThrowsAsync<SqlException>(() => duplicatePaymentAuthority.ExecuteNonQueryAsync());
-            }
-
-            await using (var firstActiveRefund = new SqlCommand("""
-                INSERT INTO dbo.Refunds
-                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
-                VALUES (949983, 949983, 949983, 949983, 1000, 1, 1, SYSUTCDATETIME());
-                """, connection))
-            {
-                await firstActiveRefund.ExecuteNonQueryAsync();
-            }
-
-            await using (var duplicateActiveRefund = new SqlCommand("""
-                INSERT INTO dbo.Refunds
-                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
-                VALUES (949984, 949983, 949984, 949984, 1000, 1, 3, SYSUTCDATETIME());
-                """, connection))
-            {
-                await Assert.ThrowsAsync<SqlException>(() => duplicateActiveRefund.ExecuteNonQueryAsync());
-            }
-
-            // A terminal failed refund is intentionally excluded from the filtered index,
-            // so a legitimate retry can create a new active attempt for that order.
-            await using (var markFirstRefundFailed = new SqlCommand(
-                "UPDATE dbo.Refunds SET Status = 5 WHERE Id = 949983;", connection))
-            {
-                await markFirstRefundFailed.ExecuteNonQueryAsync();
-            }
-
-            await using (var retryRefundAfterDefinitiveFailure = new SqlCommand("""
-                INSERT INTO dbo.Refunds
-                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
-                VALUES (949985, 949983, 949985, 949985, 1000, 1, 1, SYSUTCDATETIME());
-                """, connection))
-            {
-                await retryRefundAfterDefinitiveFailure.ExecuteNonQueryAsync();
-            }
 
             await using var invalidInsert = new SqlCommand("""
                 INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
@@ -535,6 +449,93 @@ public sealed class FinancialSchemaConstraintTests
                 """, connection))
             {
                 Assert.Equal(1L, Convert.ToInt64(await verifyOneActiveRefund.ExecuteScalarAsync()));
+            }
+
+            // Simulate an older schema without the two database-level idempotency indexes.
+            await using (var dropIdempotencyIndexes = new SqlCommand("""
+                DROP INDEX UX_PaymentTransactions_Provider_Authority ON dbo.PaymentTransactions;
+                DROP INDEX UX_Refunds_OneActivePerOrder ON dbo.Refunds;
+                """, connection))
+            {
+                await dropIdempotencyIndexes.ExecuteNonQueryAsync();
+            }
+
+            var idempotencyPatchPath = Path.Combine(AppContext.BaseDirectory, "database", "015_FinancialIdempotencyIndexes.sql");
+            Assert.True(File.Exists(idempotencyPatchPath), $"Financial idempotency patch was not copied to test output: {idempotencyPatchPath}");
+            var idempotencyPatch = await File.ReadAllTextAsync(idempotencyPatchPath);
+            await using (var applyIdempotencyPatch = new SqlCommand(idempotencyPatch, connection) { CommandTimeout = 120 })
+            {
+                await applyIdempotencyPatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyIdempotencyIndexes = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM sys.indexes
+                WHERE object_id IN (OBJECT_ID(N'dbo.PaymentTransactions'), OBJECT_ID(N'dbo.Refunds'))
+                  AND name IN (N'UX_PaymentTransactions_Provider_Authority', N'UX_Refunds_OneActivePerOrder')
+                  AND is_unique = 1 AND has_filter = 1;
+                """, connection))
+            {
+                Assert.Equal(2, Convert.ToInt32(await verifyIdempotencyIndexes.ExecuteScalarAsync()));
+            }
+
+            // Re-running the migration is safe.
+            await using (var reapplyIdempotencyPatch = new SqlCommand(idempotencyPatch, connection) { CommandTimeout = 120 })
+            {
+                await reapplyIdempotencyPatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var firstPaymentAuthority = new SqlCommand("""
+                INSERT INTO dbo.PaymentTransactions
+                    (Id, PaymentId, AmountIRR, Status, Provider, Authority, Reference, CreatedAtUtc)
+                VALUES (949981, 950006, 1000, 1, N'IntegrationGateway', N'DUPLICATE-AUTHORITY', NULL, SYSUTCDATETIME());
+                """, connection))
+            {
+                await firstPaymentAuthority.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicatePaymentAuthority = new SqlCommand("""
+                INSERT INTO dbo.PaymentTransactions
+                    (Id, PaymentId, AmountIRR, Status, Provider, Authority, Reference, CreatedAtUtc)
+                VALUES (949982, 950007, 1000, 1, N'IntegrationGateway', N'DUPLICATE-AUTHORITY', NULL, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicatePaymentAuthority.ExecuteNonQueryAsync());
+            }
+
+            await using (var firstActiveRefund = new SqlCommand("""
+                INSERT INTO dbo.Refunds
+                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (949983, 950005, 950007, 950001, 1000, 1, 1, SYSUTCDATETIME());
+                """, connection))
+            {
+                await firstActiveRefund.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicateActiveRefund = new SqlCommand("""
+                INSERT INTO dbo.Refunds
+                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (949984, 950005, 950007, 950001, 1000, 1, 3, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicateActiveRefund.ExecuteNonQueryAsync());
+            }
+
+            // A terminal failed refund is intentionally excluded from the filtered index,
+            // so a legitimate retry can create a new active attempt for that order.
+            await using (var markFirstRefundFailed = new SqlCommand(
+                "UPDATE dbo.Refunds SET Status = 5 WHERE Id = 949983;", connection))
+            {
+                await markFirstRefundFailed.ExecuteNonQueryAsync();
+            }
+
+            await using (var retryRefundAfterDefinitiveFailure = new SqlCommand("""
+                INSERT INTO dbo.Refunds
+                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (949985, 950005, 950007, 950001, 1000, 1, 1, SYSUTCDATETIME());
+                """, connection))
+            {
+                await retryRefundAfterDefinitiveFailure.ExecuteNonQueryAsync();
             }
 
             // A filtered unique index closes the race between concurrent complaint submissions.
