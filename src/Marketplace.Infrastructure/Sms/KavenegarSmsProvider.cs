@@ -34,4 +34,18 @@ public sealed class KavenegarSmsProvider(HttpClient http, IConfiguration configu
         configuration[key] is { Length: > 0 } value
             ? value
             : throw new InvalidOperationException($"{key} is required.");
+    public async Task SendMessageAsync(string mobile, string message, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(message) || message.Length > 1000) throw new ArgumentException("SMS message must contain 1-1000 characters.", nameof(message));
+        var apiKey = Required("Authentication:Otp:Kavenegar:ApiKey");
+        var sender = configuration["Notifications:Sms:Kavenegar:Sender"] ?? configuration["Authentication:Otp:Kavenegar:Sender"];
+        if (string.IsNullOrWhiteSpace(sender)) throw new InvalidOperationException("Notifications:Sms:Kavenegar:Sender is required for automatic SMS.");
+        var url = $"https://api.kavenegar.com/v1/{Uri.EscapeDataString(apiKey)}/sms/send.json?receptor={Uri.EscapeDataString(mobile)}&sender={Uri.EscapeDataString(sender)}&message={Uri.EscapeDataString(message)}";
+        using var response = await http.GetAsync(url, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Kavenegar rejected the SMS. HTTP {(int)response.StatusCode}: {body}");
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.TryGetProperty("return", out var result) && result.TryGetProperty("status", out var status) && status.GetInt32() != 200)
+            throw new InvalidOperationException($"Kavenegar rejected the SMS: {body}");
+    }
 }
