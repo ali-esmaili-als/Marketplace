@@ -25,7 +25,7 @@ public sealed class OrderLifecycleService
         _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _notifications=notifications;
     }
 
-    public Task PaymentSucceededAsync(long orderId,string reference,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task PaymentSucceededAsync(long orderId,string reference,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var p=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
@@ -60,7 +60,7 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
-    public Task<bool> ExpirePendingPaymentAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task<bool> ExpirePendingPaymentAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         if(o.Status!=OrderStatus.PendingPayment) return false;
 
@@ -90,7 +90,7 @@ public sealed class OrderLifecycleService
         return true;
     },ct);
 
-    public Task MarkReadyForDeliveryAsync(long orderId,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task MarkReadyForDeliveryAsync(long orderId,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
         if (o.Status == OrderStatus.Paid) o.StartPreparing();
@@ -120,7 +120,7 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
-    public Task MarkDeliveredAsync(long orderId,string deliveryCode,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task MarkDeliveredAsync(long orderId,string deliveryCode,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
@@ -151,7 +151,7 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
-    public Task ExpireDeliveryAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task ExpireDeliveryAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
@@ -176,7 +176,7 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
-    public Task<long> OpenComplaintAsync(long orderId,long customerId,string reason,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task<long> OpenComplaintAsync(long orderId,long customerId,string reason,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         if(o.CustomerId!=customerId)throw new DomainException("Customer does not own this order.");
         if(o.Status!=OrderStatus.Delivered||o.ComplaintExpiresAtUtc is null||DateTime.UtcNow>o.ComplaintExpiresAtUtc.Value)
@@ -189,7 +189,7 @@ public sealed class OrderLifecycleService
         return c.Id;
     },ct);
 
-    public Task ResolveComplaintAsync(long complaintId,bool customerWon,string note,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task ResolveComplaintAsync(long complaintId,bool customerWon,string note,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var c=await _life.GetComplaintAsync(complaintId,token)??throw new DomainException("Complaint not found.");
         var o=await _orders.GetAsync(c.OrderId,token)??throw new DomainException("Order not found.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
@@ -215,7 +215,7 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
-    public Task CloseCompletedOrderAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+    public Task CloseCompletedOrderAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         if(await _life.GetOpenComplaintByOrderAsync(orderId,token)!=null)throw new DomainException("Order has an active complaint.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
