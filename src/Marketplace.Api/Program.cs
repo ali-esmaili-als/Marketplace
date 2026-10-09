@@ -706,6 +706,102 @@ app.MapGet("/api/admin/financial-integrity/reviews", async (
         .ToListAsync(ct))
 ).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/financial-integrity/cases", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var events = await db.AdminAuditEvents.AsNoTracking()
+        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged")
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .Take(2000)
+        .Select(x => new { x.Id, x.ActorUserId, x.EntityType, x.EntityKey, x.DetailsJson, x.CorrelationId, x.CreatedAtUtc })
+        .ToListAsync(ct);
+
+    var cases = events
+        .GroupBy(x => new { x.EntityType, x.EntityKey })
+        .Select(g =>
+        {
+            var latest = g.First();
+            string status;
+            string note;
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(latest.DetailsJson);
+                status = document.RootElement.TryGetProperty("status", out var statusElement) ? statusElement.GetString() ?? "Open" : "Open";
+                note = document.RootElement.TryGetProperty("note", out var noteElement) ? noteElement.GetString() ?? "" : "";
+            }
+            catch
+            {
+                status = "Open";
+                note = "جزئیات رویداد قابل خواندن نیست";
+            }
+
+            return new
+            {
+                caseId = latest.EntityType + ":" + latest.EntityKey,
+                kind = latest.EntityType,
+                entityKey = latest.EntityKey,
+                status,
+                note,
+                actorUserId = latest.ActorUserId,
+                auditId = latest.Id,
+                latest.CorrelationId,
+                updatedAtUtc = latest.CreatedAtUtc,
+                historyCount = g.Count()
+            };
+        })
+        .OrderBy(x => x.status == "Resolved" || x.status == "FalsePositive" ? 1 : 0)
+        .ThenByDescending(x => x.updatedAtUtc)
+        .Take(500)
+        .ToList();
+
+    return Results.Ok(new { generatedAtUtc = DateTime.UtcNow, cases, itemsTruncated = events.Count == 2000 });
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapPost("/api/admin/financial-integrity/cases", async (
+    FinancialIntegrityCaseStatusRequest request,
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    var allowedKinds = new[] { "PaymentOrderMismatch", "PaymentReview", "RefundProcessing", "SettlementOnHold" };
+    var allowedStatuses = new[] { "Open", "InProgress", "AwaitingEvidence", "Resolved", "FalsePositive" };
+    if (!allowedKinds.Contains(request.Kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial case type.");
+    if (!allowedStatuses.Contains(request.Status, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial case status.");
+    if (!long.TryParse(request.EntityKey, out var entityId) || entityId <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
+    if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length > 800)
+        throw new Marketplace.Domain.Common.DomainException("A case status note of at most 800 characters is required.");
+
+    var exists = request.Kind switch
+    {
+        "PaymentOrderMismatch" or "PaymentReview" => await db.Payments.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "RefundProcessing" => await db.Refunds.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "SettlementOnHold" => await db.Settlements.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        _ => false
+    };
+    if (!exists) return Results.NotFound(new { detail = "Financial record not found." });
+
+    var detailsJson = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        kind = request.Kind,
+        entityId,
+        status = request.Status,
+        note = request.Note.Trim(),
+        workflowOnly = true
+    });
+    var correlationId = http.TraceIdentifier;
+    var audit = Marketplace.Domain.Auditing.AdminAuditEvent.Create(
+        CurrentUserId(user), "FinancialIntegrity.CaseStatusChanged", request.Kind,
+        entityId.ToString(System.Globalization.CultureInfo.InvariantCulture), detailsJson, correlationId);
+    db.AdminAuditEvents.Add(audit);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { auditId = audit.Id, kind = request.Kind, entityKey = entityId.ToString(), status = request.Status, updatedAtUtc = audit.CreatedAtUtc, workflowOnly = true });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/ledger", async (
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
     CancellationToken ct) =>
