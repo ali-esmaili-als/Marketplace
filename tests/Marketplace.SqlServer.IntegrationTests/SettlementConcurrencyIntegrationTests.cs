@@ -126,6 +126,86 @@ public sealed class SettlementConcurrencyIntegrationTests
         finally { await DropAsync(db, master); }
     }
 
+    [Fact]
+    public async Task Ambiguous_payout_is_held_until_reconciliation_releases_reservation()
+    {
+        var (db, cs, master) = await CreateAsync();
+        try
+        {
+            await SeedAsync(cs, 1_000_000);
+            await SeedRequestedSettlementAsync(cs, 81001, 500_000);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => ProcessAsync(cs, new ThrowingPayoutGateway()));
+
+            await AssertSettlementStateAsync(cs, expectedStatus: 6, expectedAvailable: 1_000_000,
+                expectedReserved: 500_000, expectedAuditCount: 0);
+
+            var result = await ReconcileAsync(cs, transferCompleted: false, bankReference: null,
+                note: "Bank confirmed no transfer after timeout.");
+
+            Assert.Equal("Failed", result.Status);
+            await AssertSettlementStateAsync(cs, expectedStatus: 4, expectedAvailable: 1_000_000,
+                expectedReserved: 0, expectedAuditCount: 1);
+        }
+        finally { await DropAsync(db, master); }
+    }
+
+    private static async Task SeedRequestedSettlementAsync(string cs, long settlementId, long amount)
+    {
+        await using var connection = new SqlConnection(cs);
+        await connection.OpenAsync();
+        await using var command = new SqlCommand("""
+            INSERT dbo.Settlements
+                (Id,SellerId,RequestKey,AmountIRR,Status,BankAccountId,BankNameSnapshot,IbanSnapshot,AccountHolderNameSnapshot,RequestedAtUtc)
+            VALUES (@id,72001,N'timeout-case',@amount,1,74001,N'Test Bank',N'IR000000000000000000000000',N'Race Seller',SYSUTCDATETIME());
+            UPDATE dbo.SellerBalances SET ReservedForSettlementIRR=@amount WHERE SellerId=72001;
+            """, connection);
+        command.Parameters.AddWithValue("@id", settlementId);
+        command.Parameters.AddWithValue("@amount", amount);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task AssertSettlementStateAsync(
+        string cs, byte expectedStatus, long expectedAvailable, long expectedReserved, long expectedAuditCount)
+    {
+        await using var connection = new SqlConnection(cs);
+        await connection.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT s.Status,b.AvailableIRR,b.ReservedForSettlementIRR,
+                   (SELECT COUNT_BIG(*) FROM dbo.SettlementReconciliationAudits WHERE SettlementId=s.Id)
+            FROM dbo.Settlements s JOIN dbo.SellerBalances b ON b.SellerId=s.SellerId
+            WHERE s.Id=81001;
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(expectedStatus, reader.GetByte(0));
+        Assert.Equal(expectedAvailable, reader.GetInt64(1));
+        Assert.Equal(expectedReserved, reader.GetInt64(2));
+        Assert.Equal(expectedAuditCount, reader.GetInt64(3));
+    }
+
+    private static async Task<SettlementResult> ReconcileAsync(
+        string cs, bool transferCompleted, string? bankReference, string note)
+    {
+        var options = new DbContextOptionsBuilder<MarketplaceDbContext>().UseSqlServer(cs).Options;
+        await using var db = new MarketplaceDbContext(options);
+        var service = new SettlementService(
+            new LifecycleRepository(db),
+            new EfUnitOfWork(db),
+            new SqlIdGenerator(db),
+            new NotConfiguredSellerPayoutGateway(),
+            new SellerManagementRepository(db));
+        return await service.ReconcileAsync(81001, 71001, transferCompleted, bankReference, note);
+    }
+
+    private sealed class ThrowingPayoutGateway : ISellerPayoutGateway
+    {
+        public Task<(bool Success, string? Reference, string? Error)> TransferAsync(
+            string bankName, string iban, string accountHolderName, long amountIRR, CancellationToken ct = default)
+            => throw new InvalidOperationException("Simulated ambiguous payout timeout.");
+    }
+
     private static async Task<SettlementResult> ProcessAsync(string cs, ISellerPayoutGateway gateway)
     {
         var options = new DbContextOptionsBuilder<MarketplaceDbContext>().UseSqlServer(cs).Options;
