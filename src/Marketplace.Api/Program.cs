@@ -1905,6 +1905,25 @@ app.MapPut("/api/sellers/me/variants/{variantId:long}",async(System.Security.Cla
  var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.UpdateVariantAsync(seller.Id,variantId,request.SKU,request.VariantKey,request.PriceIRR,request.IsActive,ct); return Results.NoContent();
 }).RequirePermission("Seller.Catalog.Manage");
 
+app.MapGet("/api/sellers/me/inventory/overview",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,string? filter,int? take,CancellationToken ct)=>{
+ var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
+ var inventoryQuery=from store in db.Stores
+  join product in db.Products on store.Id equals product.StoreId
+  join variant in db.ProductVariants on product.Id equals variant.ProductId
+  join inventory in db.InventoryItems on variant.Id equals inventory.ProductVariantId
+  where store.SellerId==seller.Id
+  select new { storeId=store.Id,storeName=store.Name,productId=product.Id,productName=product.Name,variantId=variant.Id,sku=variant.SKU,variantKey=variant.VariantKey,stockQuantity=inventory.StockQuantity,reservedQuantity=inventory.ReservedQuantity,availableQuantity=inventory.StockQuantity-inventory.ReservedQuantity,lowStockThreshold=inventory.LowStockThreshold,isLowStock=inventory.StockQuantity>inventory.ReservedQuantity&&inventory.StockQuantity-inventory.ReservedQuantity<=inventory.LowStockThreshold };
+ var totalVariants=await inventoryQuery.CountAsync(ct);
+ var lowStockCount=await inventoryQuery.CountAsync(x=>x.isLowStock,ct);
+ var outOfStockCount=await inventoryQuery.CountAsync(x=>x.availableQuantity==0,ct);
+ var selected=(filter??"all").Trim().ToLowerInvariant();
+ if(selected=="low") inventoryQuery=inventoryQuery.Where(x=>x.isLowStock);
+ else if(selected=="out") inventoryQuery=inventoryQuery.Where(x=>x.availableQuantity==0);
+ else selected="all";
+ var items=await inventoryQuery.OrderBy(x=>x.availableQuantity).ThenBy(x=>x.productName).ThenBy(x=>x.sku).Take(Math.Clamp(take??100,1,200)).ToListAsync(ct);
+ return Results.Ok(new { totalVariants,lowStockCount,outOfStockCount,filter=selected,items });
+}).RequirePermission("Seller.Catalog.Manage");
+
 app.MapGet("/api/sellers/me/variants/{variantId:long}/stock",async(System.Security.Claims.ClaimsPrincipal user,long variantId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();var stock=await service.GetStockAsync(seller.Id,variantId,ct);return Results.Ok(new { stockQuantity=stock.StockQuantity,reservedQuantity=stock.ReservedQuantity,availableQuantity=stock.AvailableQuantity,lowStockThreshold=stock.LowStockThreshold,isLowStock=stock.IsLowStock });}).RequirePermission("Seller.Catalog.Manage");
 app.MapPut("/api/sellers/me/variants/{variantId:long}/stock",async(System.Security.Claims.ClaimsPrincipal user,long variantId,StockRequest request,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,Marketplace.Infrastructure.Notifications.LowStockSmsService lowStockSms,CancellationToken ct)=>{
  var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.SetStockAsync(seller.Id,variantId,request.Quantity,request.Reason,ct); await lowStockSms.NotifyIfLowAsync(variantId,ct); return Results.NoContent();
