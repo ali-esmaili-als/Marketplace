@@ -130,6 +130,9 @@ public sealed class OrderLifecycleServiceTests
         var lifecycle = new Mock<ILifecycleRepository>();
         var uow = new Mock<IUnitOfWork>();
         var ids = new Mock<IIdGenerator>();
+        var nextId = 1000L;
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken _) => Task.FromResult(Interlocked.Increment(ref nextId)));
         var notifications = new Mock<INotificationRepository>();
         orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
         payments.Setup(x => x.GetByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
@@ -435,8 +438,12 @@ public sealed class OrderLifecycleServiceTests
                 It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
         uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var nextId = 2000L;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken _) => Task.FromResult(Interlocked.Increment(ref nextId)));
         var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
-            lifecycle.Object, uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+            lifecycle.Object, uow.Object, ids.Object, new Mock<INotificationRepository>().Object);
 
         await service.ResolveComplaintAsync(complaint.Id, true, "Evidence confirms item was damaged");
 
