@@ -771,9 +771,12 @@ app.MapGet("/api/orders/checkout/quote",async(System.Security.Claims.ClaimsPrinc
     Results.Ok(await service.QuoteAsync(CurrentUserId(user),destinationCityId,couponCode,ct)))
     .RequirePermission("Order.Create");
 
-app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
+app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Infrastructure.Notifications.LowStockSmsService lowStockSms,CancellationToken ct)=>{
     if(string.IsNullOrWhiteSpace(request.RequestKey)||request.RequestKey.Length<16||request.RequestKey.Length>64) return Results.BadRequest(new { detail="A valid checkout request key is required." });
-    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,request.RequestKey,ct); return Results.Ok(result);
+    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,request.RequestKey,ct);
+    var variants=await db.OrderItems.AsNoTracking().Where(x=>x.OrderId==result.OrderId&&x.VariantId.HasValue).Select(x=>x.VariantId!.Value).Distinct().ToListAsync(ct);
+    foreach(var variantId in variants) await lowStockSms.NotifyIfLowAsync(variantId,ct);
+    return Results.Ok(result);
 }).RequirePermission("Order.Create");
 
 app.MapGet("/api/payments/test-return", async (long paymentId, string authority, string? result,
