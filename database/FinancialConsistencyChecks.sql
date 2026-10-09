@@ -495,3 +495,67 @@ WHERE o.Status IN (2, 3, 4, 5, 6, 7, 8, 9) -- Paid through terminal financial st
         AND h.AmountIRR = o.SellerAmountIRR
   );
 
+
+
+PRINT '45. Delivered-or-later orders with an active hold but no matching complaint-hold ledger entry';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId, h.AmountIRR,
+       o.Status AS OrderStatus, h.Status AS HoldStatus
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE h.Status = 1
+  AND o.Status IN (5, 7, 8, 9) -- Delivered, RefundRequested, Refunded, Completed
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.BalanceTransactions AS bt
+      WHERE bt.OrderId = h.OrderId
+        AND bt.SellerId = h.SellerId
+        AND bt.Type = 10 -- ComplaintHold
+        AND bt.Bucket = 3 -- Blocked
+        AND bt.AmountIRR = h.AmountIRR
+  );
+
+PRINT '46. Released seller holds missing their matching blocked-balance release ledger';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId, h.AmountIRR,
+       h.Status AS HoldStatus, h.CompletedAtUtc, o.Status AS OrderStatus
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE h.Status = 2 -- Released
+  AND o.Status = 9 -- Completed
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.BalanceTransactions AS bt
+      WHERE bt.OrderId = h.OrderId
+        AND bt.SellerId = h.SellerId
+        AND bt.Type = 11 -- ComplaintHoldReleased
+        AND bt.Bucket = 3 -- Blocked
+        AND bt.AmountIRR = h.AmountIRR
+  );
+
+PRINT '47. Consumed seller holds missing their matching blocked-balance consumption ledger';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId, h.AmountIRR,
+       h.Status AS HoldStatus, h.CompletedAtUtc, o.Status AS OrderStatus
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE h.Status = 3 -- Consumed
+  AND o.Status = 8 -- Refunded
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.BalanceTransactions AS bt
+      WHERE bt.OrderId = h.OrderId
+        AND bt.SellerId = h.SellerId
+        AND bt.Type = 12 -- ComplaintHoldConsumed
+        AND bt.Bucket = 3 -- Blocked
+        AND bt.AmountIRR = h.AmountIRR
+  );
+
+PRINT '48. Complaint resolution state missing or contradicting its resolution evidence';
+SELECT c.Id AS ComplaintId, c.OrderId, c.Status AS ComplaintStatus,
+       c.ResolutionNote, c.ResolvedAtUtc, c.CreatedAtUtc
+FROM dbo.Complaints AS c
+WHERE (c.Status IN (3, 4) AND
+       (LEN(LTRIM(RTRIM(ISNULL(c.ResolutionNote, N'')))) = 0 OR c.ResolvedAtUtc IS NULL))
+   OR (c.Status IN (1, 2) AND
+       (c.ResolutionNote IS NOT NULL OR c.ResolvedAtUtc IS NOT NULL));
