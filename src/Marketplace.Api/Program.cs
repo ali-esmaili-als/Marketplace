@@ -470,10 +470,31 @@ app.MapPost("/api/settlements/{settlementId:long}/process",async(long settlement
     return result.Status=="Completed" ? Results.Ok(result) : Results.BadRequest(result);
 }).RequirePermission("Admin.Settlement.Process");
 
-app.MapPost("/api/admin/settlements/{settlementId:long}/reconcile", async (long settlementId, SettlementReconciliationRequest request, Marketplace.Application.Settlements.SettlementService service, CancellationToken ct) =>
+app.MapPost("/api/admin/settlements/{settlementId:long}/reconcile", async (long settlementId, System.Security.Claims.ClaimsPrincipal user, SettlementReconciliationRequest request, Marketplace.Application.Settlements.SettlementService service, CancellationToken ct) =>
 {
-    var result = await service.ReconcileAsync(settlementId, request.TransferCompleted, request.BankReference, request.Note, ct);
+    var result = await service.ReconcileAsync(settlementId, CurrentUserId(user), request.TransferCompleted, request.BankReference, request.Note, ct);
     return Results.Ok(result);
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapGet("/api/admin/settlements/reconciliation/history", async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var items = await (
+        from audit in db.SettlementReconciliationAudits.AsNoTracking()
+        join settlement in db.Settlements.AsNoTracking() on audit.SettlementId equals settlement.Id
+        orderby audit.CreatedAtUtc descending
+        select new
+        {
+            audit.Id,
+            audit.SettlementId,
+            settlement.SellerId,
+            settlement.AmountIRR,
+            audit.AdminUserId,
+            audit.TransferCompleted,
+            audit.Note,
+            audit.BankReference,
+            audit.CreatedAtUtc
+        }).Take(200).ToListAsync(ct);
+    return Results.Ok(items);
 }).RequirePermission("Admin.Settlement.Process");
 
 app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
