@@ -76,6 +76,86 @@ public sealed class SettlementConcurrencyIntegrationTests
         finally { await DropAsync(db, master); }
     }
 
+    [Fact]
+    public async Task Concurrent_processing_claims_only_once_and_deducts_balance_once()
+    {
+        var (db, cs, master) = await CreateAsync();
+        try
+        {
+            await SeedAsync(cs, 1_000_000);
+            await using (var connection = new SqlConnection(cs))
+            {
+                await connection.OpenAsync();
+                await using var command = new SqlCommand("""
+                    INSERT dbo.Settlements
+                        (Id,SellerId,RequestKey,AmountIRR,Status,BankAccountId,BankNameSnapshot,IbanSnapshot,AccountHolderNameSnapshot,RequestedAtUtc)
+                    VALUES (81001,72001,N'process-race',500000,1,74001,N'Test Bank',N'IR000000000000000000000000',N'Race Seller',SYSUTCDATETIME());
+                    UPDATE dbo.SellerBalances SET ReservedForSettlementIRR=500000 WHERE SellerId=72001;
+                    """, connection);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var gateway = new BlockingPayoutGateway();
+            var first = Task.Run(() => ProcessAsync(cs, gateway));
+            await gateway.Entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+
+            await Assert.ThrowsAsync<DomainException>(() => ProcessAsync(cs, gateway));
+            Assert.Equal(1, gateway.CallCount);
+
+            gateway.Release.TrySetResult();
+            var result = await first;
+            Assert.Equal("Completed", result.Status);
+            Assert.Equal("BANK-REF-81001", result.Reference);
+
+            await using var verifyConnection = new SqlConnection(cs);
+            await verifyConnection.OpenAsync();
+            await using var verify = new SqlCommand("""
+                SELECT s.Status, b.AvailableIRR, b.ReservedForSettlementIRR,
+                       (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions WHERE SettlementId=81001)
+                FROM dbo.Settlements s
+                JOIN dbo.SellerBalances b ON b.SellerId=s.SellerId
+                WHERE s.Id=81001;
+                """, verifyConnection);
+            await using var reader = await verify.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal((byte)3, reader.GetByte(0));
+            Assert.Equal(500_000L, reader.GetInt64(1));
+            Assert.Equal(0L, reader.GetInt64(2));
+            Assert.Equal(1L, reader.GetInt64(3));
+        }
+        finally { await DropAsync(db, master); }
+    }
+
+    private static async Task<SettlementResult> ProcessAsync(string cs, ISellerPayoutGateway gateway)
+    {
+        var options = new DbContextOptionsBuilder<MarketplaceDbContext>().UseSqlServer(cs).Options;
+        await using var db = new MarketplaceDbContext(options);
+        var service = new SettlementService(
+            new LifecycleRepository(db),
+            new EfUnitOfWork(db),
+            new SqlIdGenerator(db),
+            gateway,
+            new SellerManagementRepository(db));
+        return await service.ProcessAsync(81001);
+    }
+
+    private sealed class BlockingPayoutGateway : ISellerPayoutGateway
+    {
+        private int _callCount;
+        public int CallCount => Volatile.Read(ref _callCount);
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<(bool Success, string? Reference, string? Error)> TransferAsync(
+            string bankName, string iban, string accountHolderName, long amountIRR, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _callCount);
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(ct);
+            return (true, "BANK-REF-81001", null);
+        }
+    }
+
     private static async Task<(string Database, string Target, string Master)> CreateAsync()
     {
         var configured = Environment.GetEnvironmentVariable("MARKETPLACE_SQLSERVER");
