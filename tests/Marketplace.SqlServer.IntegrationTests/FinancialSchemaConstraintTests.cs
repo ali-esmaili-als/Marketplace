@@ -231,6 +231,95 @@ public sealed class FinancialSchemaConstraintTests
                 await Assert.ThrowsAsync<SqlException>(() => invalidBalanceBucket.ExecuteNonQueryAsync());
             }
 
+            // Simulate an existing database without the five core payment lifecycle status checks.
+            await using (var dropPaymentLifecycleChecks = new SqlCommand("""
+                ALTER TABLE dbo.Orders DROP CONSTRAINT CK_Orders_Status;
+                ALTER TABLE dbo.Payments DROP CONSTRAINT CK_Payments_Status;
+                ALTER TABLE dbo.PaymentTransactions DROP CONSTRAINT CK_PaymentTransactions_Status;
+                ALTER TABLE dbo.Refunds DROP CONSTRAINT CK_Refunds_Status;
+                ALTER TABLE dbo.Settlements DROP CONSTRAINT CK_Settlements_Status;
+                """, connection))
+            {
+                await dropPaymentLifecycleChecks.ExecuteNonQueryAsync();
+            }
+
+            var paymentLifecyclePatchPath = Path.Combine(AppContext.BaseDirectory, "database", "014_PaymentRefundSettlementStatusConstraints.sql");
+            Assert.True(File.Exists(paymentLifecyclePatchPath), $"Payment lifecycle status patch was not copied to test output: {paymentLifecyclePatchPath}");
+            var paymentLifecyclePatch = await File.ReadAllTextAsync(paymentLifecyclePatchPath);
+            await using (var applyPaymentLifecyclePatch = new SqlCommand(paymentLifecyclePatch, connection) { CommandTimeout = 120 })
+            {
+                await applyPaymentLifecyclePatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyPaymentLifecycleChecks = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM sys.check_constraints
+                WHERE name IN
+                (
+                    N'CK_Orders_Status',
+                    N'CK_Payments_Status',
+                    N'CK_PaymentTransactions_Status',
+                    N'CK_Refunds_Status',
+                    N'CK_Settlements_Status'
+                )
+                AND is_disabled = 0 AND is_not_trusted = 0;
+                """, connection))
+            {
+                Assert.Equal(5, Convert.ToInt32(await verifyPaymentLifecycleChecks.ExecuteScalarAsync()));
+            }
+
+            // Safe reapplication must leave the schema unchanged.
+            await using (var reapplyPaymentLifecyclePatch = new SqlCommand(paymentLifecyclePatch, connection) { CommandTimeout = 120 })
+            {
+                await reapplyPaymentLifecyclePatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var invalidOrderStatus = new SqlCommand("""
+                INSERT INTO dbo.Orders
+                    (Id, CustomerId, SellerId, StoreId, SubtotalAmountIRR, CampaignDiscountIRR,
+                     CouponDiscountIRR, TotalAmountIRR, SellerAmountIRR, Status, CreatedAtUtc)
+                VALUES (949991, 949991, 949991, 949991, 1000, 0, 0, 1000, 1000, 99, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidOrderStatus.ExecuteNonQueryAsync());
+            }
+
+            await using (var invalidPaymentStatus = new SqlCommand("""
+                INSERT INTO dbo.Payments (Id, OrderId, CustomerId, AmountIRR, Status, CreatedAtUtc)
+                VALUES (949992, 949992, 949992, 1000, 99, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidPaymentStatus.ExecuteNonQueryAsync());
+            }
+
+            await using (var invalidPaymentTransactionStatus = new SqlCommand("""
+                INSERT INTO dbo.PaymentTransactions (Id, PaymentId, AmountIRR, Status, Provider, CreatedAtUtc)
+                VALUES (949993, 949993, 1000, 99, N'IntegrationGateway', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidPaymentTransactionStatus.ExecuteNonQueryAsync());
+            }
+
+            await using (var invalidRefundStatus = new SqlCommand("""
+                INSERT INTO dbo.Refunds
+                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (949994, 949994, 949994, 949994, 1000, 1, 99, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidRefundStatus.ExecuteNonQueryAsync());
+            }
+
+            await using (var invalidSettlementStatus = new SqlCommand("""
+                INSERT INTO dbo.Settlements
+                    (Id, SellerId, AmountIRR, Status, BankAccountId, BankNameSnapshot, IbanSnapshot,
+                     AccountHolderNameSnapshot, RequestedAtUtc)
+                VALUES (949995, 949995, 1000, 99, 949995, N'Integration Bank',
+                     N'IR0000000000000000000000000009', N'Integration Seller', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidSettlementStatus.ExecuteNonQueryAsync());
+            }
+
             await using var invalidInsert = new SqlCommand("""
                 INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
                 VALUES (940001, 940001, 5, 6, 1);
