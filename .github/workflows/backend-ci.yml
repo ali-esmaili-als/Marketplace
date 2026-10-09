@@ -1,0 +1,29 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [develop, rebuild/develop-clean]
+  pull_request:
+    branches: [develop, rebuild/develop-clean]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore Marketplace.sln
+      - name: Build
+        run: dotnet build Marketplace.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Marketplace.sln --configuration Release --no-build --logger "trx;LogFileName=marketplace-tests.trx"
