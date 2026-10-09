@@ -1,5 +1,7 @@
+using System;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Delivery;
+using DeliveryEntity = Marketplace.Domain.Delivery.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Lifecycle;
 using Marketplace.Domain.Orders;
@@ -99,7 +101,7 @@ public sealed class PaymentAndDeliveryRegressionTests
         order.SetDeliveryExpiry(expiresAt);
         order.MarkReady();
 
-        var delivery = Delivery.Create(5, order.Id, order.SellerId, expiresAt);
+        var delivery = DeliveryEntity.Create(5, order.Id, order.SellerId, expiresAt);
         delivery.MarkReady();
         var balance = SellerBalance.Create(6, order.SellerId);
         balance.AddPending(order.SellerAmountIRR);
@@ -116,7 +118,7 @@ public sealed class PaymentAndDeliveryRegressionTests
     [Fact]
     public void DeliveryCannotBeConfirmedAfterExpiry()
     {
-        var delivery = Delivery.Create(1, 2, 3, DateTime.UtcNow.AddMinutes(1));
+        var delivery = DeliveryEntity.Create(1, 2, 3, DateTime.UtcNow.AddMinutes(1));
         delivery.MarkReady();
 
         Assert.Throws<DomainException>(() =>
