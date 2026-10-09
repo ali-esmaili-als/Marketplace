@@ -1,4 +1,6 @@
 using System.Data.Common;
+using Microsoft.Data.SqlClient;
+using System.IO;
 using Marketplace.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -7,6 +9,72 @@ namespace Marketplace.SqlServer.IntegrationTests;
 
 public sealed class FinancialSchemaConstraintTests
 {
+    [Fact]
+    public async Task Complete_bootstrap_script_creates_real_schema_and_enforces_inventory_constraints()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("MARKETPLACE_SQLSERVER");
+        Assert.False(string.IsNullOrWhiteSpace(connectionString),
+            "MARKETPLACE_SQLSERVER must point to the SQL Server integration-test instance.");
+
+        const string databaseName = "MarketplaceBootstrapIntegrationTests";
+        var masterBuilder = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = "master" };
+        await using (var master = new SqlConnection(masterBuilder.ConnectionString))
+        {
+            await master.OpenAsync();
+            await using var reset = new SqlCommand($"""
+                IF DB_ID(N'{databaseName}') IS NOT NULL
+                BEGIN
+                    ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [{databaseName}];
+                END;
+                CREATE DATABASE [{databaseName}];
+                """, master);
+            await reset.ExecuteNonQueryAsync();
+        }
+
+        var targetBuilder = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = databaseName };
+        try
+        {
+            var scriptPath = Path.Combine(AppContext.BaseDirectory, "database", "Marketplace_Complete.sql");
+            Assert.True(File.Exists(scriptPath), $"Bootstrap SQL script was not copied to test output: {scriptPath}");
+            var script = await File.ReadAllTextAsync(scriptPath);
+
+            await using var connection = new SqlConnection(targetBuilder.ConnectionString);
+            await connection.OpenAsync();
+            await using (var applySchema = new SqlCommand(script, connection) { CommandTimeout = 120 })
+            {
+                await applySchema.ExecuteNonQueryAsync();
+            }
+
+            await using (var constraintCheck = new SqlCommand("""
+                SELECT COUNT(*) FROM sys.check_constraints
+                WHERE name = N'CK_InventoryItems_Qty' AND parent_object_id = OBJECT_ID(N'dbo.InventoryItems');
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await constraintCheck.ExecuteScalarAsync()));
+            }
+
+            await using var invalidInsert = new SqlCommand("""
+                INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
+                VALUES (940001, 940001, 5, 6, 1);
+                """, connection);
+            await Assert.ThrowsAsync<SqlException>(() => invalidInsert.ExecuteNonQueryAsync());
+        }
+        finally
+        {
+            await using var master = new SqlConnection(masterBuilder.ConnectionString);
+            await master.OpenAsync();
+            await using var cleanup = new SqlCommand($"""
+                IF DB_ID(N'{databaseName}') IS NOT NULL
+                BEGIN
+                    ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [{databaseName}];
+                END;
+                """, master);
+            await cleanup.ExecuteNonQueryAsync();
+        }
+    }
+
     [Fact]
     public async Task Sql_server_enforces_financial_check_constraints_and_unique_seller_balance()
     {
