@@ -224,3 +224,18 @@ These findings must be reconciled against the gateway's authoritative transactio
 
 
 The payment and provider-transaction domain entities now reject blank bank references before entering Succeeded state. This prevents new invalid records through normal domain transitions; checks 58–59 remain useful for legacy data, direct SQL writes, and incidents where older application versions bypassed this validation. The rejection occurs before mutating status, reference, or paid timestamp, so callers can safely correct the input without leaving a partially transitioned aggregate.
+
+
+## Payment verification timeout and buyer recovery
+
+A payment verification request that times out is not a definitive rejection. The verification application service leaves the persisted payment and its latest transaction unchanged when the gateway throws before returning a verification result. In particular, a redirected payment remains redirected; the customer must not interpret an HTTP timeout as proof that no charge occurred.
+
+Operational and client behavior:
+
+1. Keep the original payment ID and authority. Do not create a replacement payment solely because verification timed out.
+2. Re-fetch the order/payment status from the Marketplace API. If the gateway outcome is still unknown, keep showing the current non-success state and provide a safe status refresh.
+3. Show a payment reference only when the API returns a persisted reference for a successful or refunded payment; do not synthesize a bank reference from the authority in the client.
+4. If a subsequent authoritative verification confirms success, the lifecycle service finalizes the payment and financial effects idempotently. If the gateway returns an explicit definitive rejection, the current verification contract treats that result as failure.
+5. If the provider cannot distinguish definitive rejection from an uncertain result in its response, do not map the uncertain response to a definitive rejection. The gateway adapter contract must expose that distinction before such a provider is enabled for production.
+
+The existing automated timeout tests use mocked gateways and persistence. They establish that an exception/timeout does not mutate payment/transaction state, but they do not prove a real provider's semantics. Validate each production provider's definitive-rejection and ambiguous-response mapping against its official protocol and sandbox before enabling it.
