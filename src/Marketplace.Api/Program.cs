@@ -325,7 +325,7 @@ app.MapGet("/api/public/stores/{storeId:long}/{storeSlug}/products/{productSlug}
               && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active && category.IsActive
         select new
         {
-            p.Id, p.StoreId, SellerId = s.SellerId, StoreName = s.Name, StoreSlug = s.Slug,
+            p.Id, p.StoreId, SellerId = s.SellerId, StoreName = s.Name, StoreSlug = s.Slug, ThemeCode = s.ThemeCode,
             p.CategoryId, CategoryName = category.Name, p.Name, p.Slug, p.Description,
             p.BasePriceIRR, p.HasVariants, p.CreatedAtUtc
         }).SingleOrDefaultAsync(ct);
