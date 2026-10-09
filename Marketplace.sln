@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Marketplace.Infrastructure"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Marketplace.Domain.Tests", "tests\Marketplace.Domain.Tests\Marketplace.Domain.Tests.csproj", "{F3C8A1D6-7E25-4B90-AC54-1D9F6E2B3087}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Marketplace.SqlServer.IntegrationTests", "tests\Marketplace.SqlServer.IntegrationTests\Marketplace.SqlServer.IntegrationTests.csproj", "{B2E4F6A8-1C3D-4E5F-9A7B-6D8C0E2F4A61}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,5 +40,9 @@ Global
 		{F3C8A1D6-7E25-4B90-AC54-1D9F6E2B3087}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F3C8A1D6-7E25-4B90-AC54-1D9F6E2B3087}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F3C8A1D6-7E25-4B90-AC54-1D9F6E2B3087}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B2E4F6A8-1C3D-4E5F-9A7B-6D8C0E2F4A61}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B2E4F6A8-1C3D-4E5F-9A7B-6D8C0E2F4A61}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B2E4F6A8-1C3D-4E5F-9A7B-6D8C0E2F4A61}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B2E4F6A8-1C3D-4E5F-9A7B-6D8C0E2F4A61}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
