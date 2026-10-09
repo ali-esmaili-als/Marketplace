@@ -54,6 +54,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<Commission> Commissions => Set<Commission>();
     public DbSet<CommissionReversal> CommissionReversals => Set<CommissionReversal>();
     public DbSet<Settlement> Settlements => Set<Settlement>();
+    public DbSet<SettlementReconciliationAudit> SettlementReconciliationAudits => Set<SettlementReconciliationAudit>();
     public DbSet<PaymentProviderSetting> PaymentProviderSettings => Set<PaymentProviderSetting>();
     public DbSet<DeliveryCity> DeliveryCities => Set<DeliveryCity>();
     public DbSet<StoreShippingCity> StoreShippingCities => Set<StoreShippingCity>();
@@ -241,6 +242,7 @@ public sealed class MarketplaceDbContext : DbContext
         b.Entity<BalanceTransaction>(e => { e.ToTable("BalanceTransactions"); e.HasKey(x => x.Id); e.Property(x => x.Type).HasConversion<byte>(); e.Property(x=>x.Bucket).HasConversion<byte>(); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.CreatedAtUtc }); e.HasIndex(x => new { x.OrderId, x.Type }); });
         b.Entity<Commission>(e => { e.ToTable("Commissions"); e.HasKey(x => x.Id); e.Property(x => x.CommissionRate).HasPrecision(9,4); e.HasIndex(x => x.OrderId).IsUnique(); });
         b.Entity<CommissionReversal>(e => { e.ToTable("CommissionReversals"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.CommissionId, x.RefundId }).IsUnique(); });
+        b.Entity<SettlementReconciliationAudit>(e => { e.ToTable("SettlementReconciliationAudits"); e.HasKey(x => x.Id); e.Property(x => x.Note).HasMaxLength(2000).IsRequired(); e.Property(x => x.BankReference).HasMaxLength(200); e.HasIndex(x => new { x.SettlementId, x.CreatedAtUtc }); e.HasOne<Settlement>().WithMany().HasForeignKey(x => x.SettlementId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Settlement>(e =>
         {
             e.ToTable("Settlements"); e.HasKey(x => x.Id);
