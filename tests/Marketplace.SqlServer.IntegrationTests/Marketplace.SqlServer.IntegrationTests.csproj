@@ -12,5 +12,6 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <ProjectReference Include="..\..\src\Marketplace.Infrastructure\Marketplace.Infrastructure.csproj" />
+    <None Include="..\..\database\Marketplace_Complete.sql" Link="database\Marketplace_Complete.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
