@@ -137,6 +137,7 @@ public sealed class MarketplaceDbContext : DbContext
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Slug).HasMaxLength(250).IsRequired();
             e.Property(x => x.Description).HasMaxLength(2000);
+            e.Property(x => x.ThemeCode).HasMaxLength(20).IsRequired().HasDefaultValue("classic");
             e.HasIndex(x => new { x.SellerId, x.Slug }).IsUnique();
             e.HasIndex(x => x.SellerId);
         });
