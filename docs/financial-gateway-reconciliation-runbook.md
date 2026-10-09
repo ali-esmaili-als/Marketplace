@@ -212,3 +212,12 @@ The read-only diagnostics now include:
 - **Check 56:** a payment is marked Succeeded but has no successful provider transaction.
 
 For either result, compare the provider's final status/reference with the payment, order, seller ledger, and reconciliation audit before making any correction. Never mark an ambiguous transaction failed solely to make the statuses agree.
+
+
+The payment diagnostics also include checks 57–59:
+
+- **Check 57:** a successful provider transaction's amount differs from the immutable payment amount.
+- **Check 58:** a provider transaction is marked successful but has no bank reference.
+- **Check 59:** a payment is marked Succeeded without both its final reference and paid timestamp.
+
+These findings must be reconciled against the gateway's authoritative transaction record. Do not edit the amount, reference, or timestamps simply to silence a diagnostic; preserve provider evidence and use the payment reconciliation workflow if local finalization did not complete. The SQL Server integration test deliberately seeds each divergence and verifies that the corresponding read-only predicates find it.
