@@ -418,3 +418,80 @@ FROM dbo.DeliveryCodes AS c
 LEFT JOIN dbo.Deliveries AS d ON d.OrderId = c.OrderId
 WHERE (c.UsedAtUtc IS NOT NULL AND (d.Id IS NULL OR d.Status <> 3))
    OR (d.Status = 3 AND c.UsedAtUtc IS NULL);
+
+PRINT '37. Complaints whose customer or seller does not match the order';
+SELECT c.Id AS ComplaintId, c.OrderId,
+       c.CustomerId AS ComplaintCustomerId, o.CustomerId AS OrderCustomerId,
+       c.SellerId AS ComplaintSellerId, o.SellerId AS OrderSellerId,
+       c.Status AS ComplaintStatus, o.Status AS OrderStatus
+FROM dbo.Complaints AS c
+JOIN dbo.Orders AS o ON o.Id = c.OrderId
+WHERE c.CustomerId <> o.CustomerId
+   OR c.SellerId <> o.SellerId;
+
+PRINT '38. Active complaints attached to orders outside the delivered state';
+SELECT c.Id AS ComplaintId, c.OrderId, c.CustomerId, c.SellerId,
+       c.Status AS ComplaintStatus, c.CreatedAtUtc,
+       o.Status AS OrderStatus, o.ComplaintExpiresAtUtc
+FROM dbo.Complaints AS c
+JOIN dbo.Orders AS o ON o.Id = c.OrderId
+WHERE c.Status IN (1, 2) -- Open, UnderReview
+  AND o.Status <> 5; -- Delivered; refund/close must follow complaint resolution
+
+PRINT '39. Customer-won complaints without an order awaiting or completing refund';
+SELECT c.Id AS ComplaintId, c.OrderId, c.Status AS ComplaintStatus,
+       c.ResolvedAtUtc, o.Status AS OrderStatus
+FROM dbo.Complaints AS c
+JOIN dbo.Orders AS o ON o.Id = c.OrderId
+WHERE c.Status = 3 -- CustomerWon
+  AND o.Status NOT IN (7, 8); -- RefundRequested or Refunded
+
+PRINT '40. Seller-won complaints without completed order or released seller hold';
+SELECT c.Id AS ComplaintId, c.OrderId, c.Status AS ComplaintStatus,
+       o.Status AS OrderStatus, h.Id AS HoldId, h.Status AS HoldStatus,
+       h.AmountIRR AS HoldAmountIRR, o.SellerAmountIRR
+FROM dbo.Complaints AS c
+JOIN dbo.Orders AS o ON o.Id = c.OrderId
+LEFT JOIN dbo.SellerBalanceHolds AS h ON h.OrderId = o.Id
+WHERE c.Status = 4 -- SellerWon
+  AND (o.Status <> 9 OR h.Id IS NULL OR h.Status <> 2); -- Completed, Released
+
+PRINT '41. Active seller holds attached to terminal orders';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId, h.AmountIRR,
+       h.Status AS HoldStatus, o.Status AS OrderStatus
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE h.Status = 1 -- Active
+  AND o.Status IN (8, 9, 10); -- Refunded, Completed, Cancelled
+
+PRINT '42. Terminal seller hold state conflicts with order outcome';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId, h.AmountIRR,
+       h.Status AS HoldStatus, o.Status AS OrderStatus
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE (h.Status = 2 AND o.Status NOT IN (9)) -- Released should mean Completed
+   OR (h.Status = 3 AND o.Status <> 8); -- Consumed should mean Refunded
+
+PRINT '43. Orders with multiple active complaints';
+SELECT c.OrderId, COUNT_BIG(*) AS ActiveComplaintCount,
+       MIN(c.CreatedAtUtc) AS FirstComplaintAtUtc,
+       MAX(c.CreatedAtUtc) AS LastComplaintAtUtc
+FROM dbo.Complaints AS c
+WHERE c.Status IN (1, 2) -- Open, UnderReview
+GROUP BY c.OrderId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '44. Financially progressed orders without a seller hold';
+SELECT o.Id AS OrderId, o.SellerId, o.SellerAmountIRR,
+       o.Status AS OrderStatus, o.PaidAtUtc, o.DeliveredAtUtc
+FROM dbo.Orders AS o
+WHERE o.Status IN (2, 3, 4, 5, 6, 7, 8, 9) -- Paid through terminal financial states
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.SellerBalanceHolds AS h
+      WHERE h.OrderId = o.Id
+        AND h.SellerId = o.SellerId
+        AND h.AmountIRR = o.SellerAmountIRR
+  );
+
