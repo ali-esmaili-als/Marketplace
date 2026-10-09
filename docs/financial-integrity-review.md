@@ -10,8 +10,14 @@ The admin financial-integrity endpoints are read-only diagnostics unless the end
 - `GET /api/admin/financial-integrity/ledger`: compares each seller balance bucket with the latest ledger snapshot for that seller/bucket, identifies non-zero buckets without ledger history, missing SellerBalance rows, and mismatches between the reserved balance and active settlement totals. Returns up to 200 findings plus total counts and a truncation flag.
 - `POST /api/admin/financial-integrity/reviews`: records an administrator's review note in `AdminAuditEvents`.
 - `GET /api/admin/financial-integrity/reviews`: returns up to 200 most recent review notes.
+- `GET /api/admin/financial-integrity/cases`: returns the latest append-only case status for each `(kind, entity ID)` pair, up to 500 cases, based on the latest 2,000 status events.
+- `POST /api/admin/financial-integrity/cases`: appends a case status event. Supported statuses are `Open`, `InProgress`, `AwaitingEvidence`, `Resolved`, and `FalsePositive`; every change requires a note.
 
 All endpoints require `Admin.Settlement.Process`.
+## Financial case workflow
+
+Case status events are stored in `AdminAuditEvents` with action `FinancialIntegrity.CaseStatusChanged`. The API appends a new event for every status change; it does not overwrite earlier audit history. The latest event for a kind/entity pair is the current workflow status. `Resolved` means the investigation workflow was marked complete, not that the underlying financial mismatch was automatically corrected or that a bank transfer was independently verified. `FalsePositive` records the administrator's assessment and likewise does not alter payments, refunds, settlements, seller balances, or ledger entries. The UI must keep diagnostic findings visible until the underlying diagnostic condition no longer exists. The case list is bounded to the latest 2,000 status events before grouping and returns at most 500 cases; `itemsTruncated` warns when the event bound is reached.
+
 
 For an existing database, apply `database/018_RefundLedgerIdentity.sql` before running the updated `database/FinancialConsistencyChecks.sql`. Fresh databases created from `database/Marketplace_Complete.sql` already include the new nullable `RefundId` column, foreign key, and filtered unique index. The migration intentionally does not infer `RefundId` for historical ledger rows.
 
