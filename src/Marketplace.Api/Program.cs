@@ -660,6 +660,92 @@ app.MapPost("/api/seller/orders/{orderId:long}/delivery/confirm",async(System.Se
 
 app.MapPost("/api/seller/orders/{orderId:long}/delivery/expire",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{await service.ExpireAsync(CurrentUserId(user),orderId,ct);return Results.Ok();}).RequirePermission("Order.Delivery.Confirm");
 
+
+app.MapPost("/api/seller/orders/{orderId:long}/shipment", async (
+    System.Security.Claims.ClaimsPrincipal user, long orderId, ShipmentCreateRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, Marketplace.Application.Abstractions.IIdGenerator ids,
+    CancellationToken ct) =>
+{
+    await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+    var sellerUserId = CurrentUserId(user);
+    var seller = await db.Sellers.SingleOrDefaultAsync(x => x.UserId == sellerUserId, ct) ?? throw new UnauthorizedAccessException();
+    var order = await db.Orders.SingleOrDefaultAsync(x => x.Id == orderId, ct) ?? throw new Marketplace.Domain.Common.DomainException("Order not found.");
+    if (order.SellerId != seller.Id) throw new Marketplace.Domain.Common.DomainException("You do not own this order.");
+    if (order.Status is not (Marketplace.Domain.Orders.OrderStatus.Paid or Marketplace.Domain.Orders.OrderStatus.Preparing or Marketplace.Domain.Orders.OrderStatus.ReadyForDelivery))
+        throw new Marketplace.Domain.Common.DomainException("A shipment can only be registered for a paid order that has not been delivered or cancelled.");
+    if (await db.Shipments.AnyAsync(x => x.OrderId == orderId, ct))
+        return Results.Conflict(new { detail = "A shipment is already registered for this order. Update its tracking status instead." });
+    var now = DateTime.UtcNow;
+    var shipment = Marketplace.Domain.Shipping.Shipment.Create(await ids.NextAsync(ct), order.Id, seller.Id, request.CarrierName, request.TrackingNumber, request.TrackingUrl, now);
+    var trackingEvent = Marketplace.Domain.Shipping.ShipmentTrackingEvent.Create(await ids.NextAsync(ct), shipment.Id, shipment.Status, "اطلاعات مرسوله ثبت شد.", null, sellerUserId, now);
+    var notification = Marketplace.Domain.Notifications.Notification.Create(await ids.NextAsync(ct), order.CustomerId, Marketplace.Domain.Notifications.NotificationChannel.InApp, "مرسوله سفارش ثبت شد", $"اطلاعات ارسال سفارش شماره {order.Id} ثبت شد. کد رهگیری: {shipment.TrackingNumber}", "Order", order.Id);
+    notification.MarkSent();
+    db.Shipments.Add(shipment);
+    db.ShipmentTrackingEvents.Add(trackingEvent);
+    db.Notifications.Add(notification);
+    await db.SaveChangesAsync(ct);
+    await tx.CommitAsync(ct);
+    return Results.Created($"/api/orders/{order.Id}/shipment", new { shipment.Id, shipment.OrderId, shipment.CarrierName, shipment.TrackingNumber, shipment.TrackingUrl, status = shipment.Status.ToString(), shipment.CreatedAtUtc, events = new[] { new { trackingEvent.Status, trackingEvent.Description, trackingEvent.Location, trackingEvent.OccurredAtUtc } } });
+}).RequirePermission("Order.Delivery.Confirm");
+
+app.MapPost("/api/seller/orders/{orderId:long}/shipment/status", async (
+    System.Security.Claims.ClaimsPrincipal user, long orderId, ShipmentStatusUpdateRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, Marketplace.Application.Abstractions.IIdGenerator ids,
+    CancellationToken ct) =>
+{
+    if (!Enum.IsDefined(request.Status)) throw new Marketplace.Domain.Common.DomainException("Invalid shipment status.");
+    if (string.IsNullOrWhiteSpace(request.Description)) throw new Marketplace.Domain.Common.DomainException("Tracking description is required.");
+    await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+    var sellerUserId = CurrentUserId(user);
+    var seller = await db.Sellers.SingleOrDefaultAsync(x => x.UserId == sellerUserId, ct) ?? throw new UnauthorizedAccessException();
+    var order = await db.Orders.SingleOrDefaultAsync(x => x.Id == orderId, ct) ?? throw new Marketplace.Domain.Common.DomainException("Order not found.");
+    if (order.SellerId != seller.Id) throw new Marketplace.Domain.Common.DomainException("You do not own this order.");
+    var shipment = await db.Shipments.SingleOrDefaultAsync(x => x.OrderId == orderId && x.SellerId == seller.Id, ct) ?? throw new Marketplace.Domain.Common.DomainException("Shipment not found.");
+    var occurredAt = request.OccurredAtUtc ?? DateTime.UtcNow;
+    var latest = await db.ShipmentTrackingEvents.Where(x => x.ShipmentId == shipment.Id).OrderByDescending(x => x.OccurredAtUtc).ThenByDescending(x => x.Id).Select(x => (DateTime?)x.OccurredAtUtc).FirstOrDefaultAsync(ct);
+    if (latest.HasValue && occurredAt < latest.Value) throw new Marketplace.Domain.Common.DomainException("Tracking event time cannot precede the previous event.");
+    var now = DateTime.UtcNow;
+    shipment.ChangeStatus(request.Status, now);
+    var trackingEvent = Marketplace.Domain.Shipping.ShipmentTrackingEvent.Create(await ids.NextAsync(ct), shipment.Id, request.Status, request.Description, request.Location, sellerUserId, occurredAt);
+    var customerText = request.Status == Marketplace.Domain.Shipping.ShipmentStatus.CarrierDelivered
+        ? $"شرکت حمل‌ونقل وضعیت تحویل سفارش شماره {order.Id} را ثبت کرده است. برای تأیید نهایی تحویل و آزادسازی وجه، فرایند تأیید سفارش همچنان لازم است."
+        : $"وضعیت ارسال سفارش شماره {order.Id} به «{request.Status}» تغییر کرد.";
+    var notification = Marketplace.Domain.Notifications.Notification.Create(await ids.NextAsync(ct), order.CustomerId, Marketplace.Domain.Notifications.NotificationChannel.InApp, "به‌روزرسانی رهگیری سفارش", customerText, "Order", order.Id);
+    notification.MarkSent();
+    db.ShipmentTrackingEvents.Add(trackingEvent);
+    db.Notifications.Add(notification);
+    await db.SaveChangesAsync(ct);
+    await tx.CommitAsync(ct);
+    return Results.Ok(new { shipment.Id, shipment.OrderId, status = shipment.Status.ToString(), shipment.TrackingNumber, shipment.UpdatedAtUtc, eventId = trackingEvent.Id });
+}).RequirePermission("Order.Delivery.Confirm");
+
+app.MapGet("/api/orders/{orderId:long}/shipment", async (
+    System.Security.Claims.ClaimsPrincipal user, long orderId, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    if (!await db.Orders.AsNoTracking().AnyAsync(x => x.Id == orderId && x.CustomerId == customerId, ct))
+        throw new Marketplace.Domain.Common.DomainException("Order not found.");
+    var shipment = await db.Shipments.AsNoTracking().SingleOrDefaultAsync(x => x.OrderId == orderId, ct);
+    if (shipment is null) return Results.NotFound(new { detail = "Shipment has not been registered yet." });
+    var events = await db.ShipmentTrackingEvents.AsNoTracking().Where(x => x.ShipmentId == shipment.Id).OrderBy(x => x.OccurredAtUtc).ThenBy(x => x.Id)
+        .Select(x => new { x.Id, status = x.Status.ToString(), x.Description, x.Location, x.OccurredAtUtc }).ToListAsync(ct);
+    return Results.Ok(new { shipment.Id, shipment.OrderId, shipment.CarrierName, shipment.TrackingNumber, shipment.TrackingUrl, status = shipment.Status.ToString(), shipment.CreatedAtUtc, shipment.UpdatedAtUtc, shipment.ShippedAtUtc, shipment.CarrierDeliveredAtUtc, events });
+}).RequirePermission("Order.ReadOwn");
+
+app.MapGet("/api/seller/orders/{orderId:long}/shipment", async (
+    System.Security.Claims.ClaimsPrincipal user, long orderId, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    Marketplace.Application.Abstractions.ISellerManagementRepository sellers, CancellationToken ct) =>
+{
+    var seller = await sellers.GetSellerByUserIdAsync(CurrentUserId(user), ct) ?? throw new UnauthorizedAccessException();
+    if (!await db.Orders.AsNoTracking().AnyAsync(x => x.Id == orderId && x.SellerId == seller.Id, ct))
+        throw new Marketplace.Domain.Common.DomainException("Order not found.");
+    var shipment = await db.Shipments.AsNoTracking().SingleOrDefaultAsync(x => x.OrderId == orderId && x.SellerId == seller.Id, ct);
+    if (shipment is null) return Results.NotFound(new { detail = "Shipment has not been registered yet." });
+    var events = await db.ShipmentTrackingEvents.AsNoTracking().Where(x => x.ShipmentId == shipment.Id).OrderBy(x => x.OccurredAtUtc).ThenBy(x => x.Id)
+        .Select(x => new { x.Id, status = x.Status.ToString(), x.Description, x.Location, x.OccurredAtUtc }).ToListAsync(ct);
+    return Results.Ok(new { shipment.Id, shipment.OrderId, shipment.CarrierName, shipment.TrackingNumber, shipment.TrackingUrl, status = shipment.Status.ToString(), shipment.CreatedAtUtc, shipment.UpdatedAtUtc, shipment.ShippedAtUtc, shipment.CarrierDeliveredAtUtc, events });
+}).RequirePermission("Order.ReadOwn");
+
 app.MapPost("/api/orders/{orderId:long}/complaints",async(System.Security.Claims.ClaimsPrincipal user,long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{var id=await service.ComplaintAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok(new{id});}).RequirePermission("Order.Create");
 
 app.MapPost("/api/admin/financial-integrity/reviews", async (
@@ -2039,6 +2125,8 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
+public sealed record ShipmentCreateRequest(string CarrierName, string TrackingNumber, string? TrackingUrl);
+public sealed record ShipmentStatusUpdateRequest(Marketplace.Domain.Shipping.ShipmentStatus Status, string Description, string? Location, DateTime? OccurredAtUtc);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR,string? RequestKey);
 public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
