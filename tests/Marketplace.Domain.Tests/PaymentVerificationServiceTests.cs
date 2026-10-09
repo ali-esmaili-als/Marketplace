@@ -109,6 +109,38 @@ public sealed class PaymentVerificationServiceTests
         factory.VerifyAll();
     }
 
+
+    [Fact]
+    public async Task Verify_AmbiguousProviderResponseKeepsPaymentAndTransactionUnchanged()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        var transaction = PaymentTransaction.Create(11, payment.Id, payment.AmountIRR, "TestBank", "AUTH-10");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        payments.Setup(x => x.GetLatestTransactionAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(transaction);
+        var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
+        gateway.Setup(x => x.VerifyAsync("AUTH-10", 500_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentVerification(false, null, "Provider status is still pending.", false));
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        factory.Setup(x => x.GetAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(gateway.Object);
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+        var service = CreateService(payments, factory, uow);
+
+        var result = await service.VerifyAsync(30, 10, "AUTH-10");
+
+        Assert.False(result.Paid);
+        Assert.True(result.OutcomeUnknown);
+        Assert.Equal("Provider status is still pending.", result.Error);
+        Assert.Equal(PaymentStatus.Redirected, payment.Status);
+        Assert.Null(payment.ReferenceNumber);
+        Assert.Equal(PaymentTransactionStatus.Initiated, transaction.Status);
+        payments.Verify(x => x.GetLatestTransactionAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        uow.VerifyNoOtherCalls();
+        factory.VerifyAll();
+    }
+
     [Fact]
     public async Task Verify_ExplicitRejectionDoesNotReportFailureIfConcurrentCallbackAlreadySucceeded()
     {
