@@ -139,7 +139,7 @@ public sealed class SettlementService
         },ct);
     }
 
-    public async Task<SettlementResult> ReconcileAsync(long settlementId, bool transferCompleted, string? bankReference, string note, CancellationToken ct=default)
+    public async Task<SettlementResult> ReconcileAsync(long settlementId, long adminUserId, bool transferCompleted, string? bankReference, string note, CancellationToken ct=default)
     {
         if (string.IsNullOrWhiteSpace(note))
             throw new DomainException("A reconciliation note is required.");
@@ -186,6 +186,9 @@ public sealed class SettlementService
                     balance.ReservedForSettlementIRR, auditReference,
                     BalanceBucket.ReservedForSettlement));
             }
+
+            _life.AddSettlementReconciliationAudit(SettlementReconciliationAudit.Create(
+                await _ids.NextAsync(token), settlement.Id, adminUserId, transferCompleted, bankReference, note));
 
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id, amount, settlement.Status.ToString(), settlement.Reference);
