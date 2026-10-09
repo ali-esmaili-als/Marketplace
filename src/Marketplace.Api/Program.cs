@@ -207,6 +207,36 @@ app.MapPost("/api/sellers/me/attributes/{attributeId:long}/values",async(System.
 app.MapPost("/api/sellers/me/products/{productId:long}/attributes/{attributeId:long}",async(System.Security.Claims.ClaimsPrincipal user,long productId,long attributeId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();await service.AssignAttributeAsync(seller.Id,productId,attributeId,ct);return Results.NoContent();}).RequirePermission("Seller.Catalog.Manage");
 app.MapPost("/api/sellers/me/variants/{variantId:long}/attribute-values/{attributeValueId:long}",async(System.Security.Claims.ClaimsPrincipal user,long variantId,long attributeValueId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();await service.AssignVariantValueAsync(seller.Id,variantId,attributeValueId,ct);return Results.NoContent();}).RequirePermission("Seller.Catalog.Manage");
 app.MapGet("/api/categories",async(long? parentId,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>Results.Ok(await service.GetChildrenAsync(parentId,ct)));
+app.MapGet("/api/public/stores", async (int? take, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var limit = Math.Clamp(take ?? 60, 1, 100);
+    var stores = await (
+        from s in db.Stores.AsNoTracking()
+        join seller in db.Sellers.AsNoTracking() on s.SellerId equals seller.Id
+        where s.Status == Marketplace.Domain.Sellers.StoreStatus.Active
+              && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active
+        orderby s.CreatedAtUtc descending
+        select new
+        {
+            s.Id, s.Name, s.Slug, s.Description, s.CreatedAtUtc,
+            ProductCount = db.Products.Count(p => p.StoreId == s.Id && p.Status == Marketplace.Domain.Catalog.ProductStatus.Active)
+        }).Take(limit).ToListAsync(ct);
+    return Results.Ok(stores);
+});
+
+app.MapGet("/api/public/stores/{slug}", async (string slug, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var store = await (
+        from s in db.Stores.AsNoTracking()
+        join seller in db.Sellers.AsNoTracking() on s.SellerId equals seller.Id
+        where s.Slug == slug
+              && s.Status == Marketplace.Domain.Sellers.StoreStatus.Active
+              && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active
+        select new { s.Id, s.Name, s.Slug, s.Description, s.CreatedAtUtc }
+    ).SingleOrDefaultAsync(ct);
+    return store is null ? Results.NotFound() : Results.Ok(store);
+});
+
 app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeId,int? take,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>{
     var limit=Math.Clamp(take??60,1,100);
     var query=from p in db.Products.AsNoTracking()
@@ -220,7 +250,7 @@ app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeI
                     && (!storeId.HasValue||p.StoreId==storeId.Value)
                     && (string.IsNullOrWhiteSpace(q)||p.Name.Contains(q)||p.Description!.Contains(q)||s.Name.Contains(q))
               orderby p.CreatedAtUtc descending
-              select new { p.Id,p.StoreId,SellerId=s.SellerId,StoreName=s.Name,p.CategoryId,CategoryName=c.Name,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants };
+              select new { p.Id,p.StoreId,SellerId=s.SellerId,StoreName=s.Name,StoreSlug=s.Slug,p.CategoryId,CategoryName=c.Name,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants };
     var products=await query.Take(limit).ToListAsync(ct);
     var ids=products.Select(x=>x.Id).ToArray();
     var variants=await (from v in db.ProductVariants.AsNoTracking()
@@ -235,7 +265,7 @@ app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeI
         select new { pw.ProductId,WarrantyId=w.Id,w.Name,w.PriceIRR,pw.IsDefault })
         .ToListAsync(ct);
     return Results.Ok(products.Select(p=>new {
-        p.Id,p.StoreId,p.SellerId,p.StoreName,p.CategoryId,p.CategoryName,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants,
+        p.Id,p.StoreId,p.SellerId,p.StoreName,p.StoreSlug,p.CategoryId,p.CategoryName,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants,
         Variants=variants.Where(v=>v.ProductId==p.Id).Select(v=>new {v.Id,v.SKU,v.VariantKey,PriceIRR=v.PriceIRR??p.BasePriceIRR,v.AvailableQuantity}),
         Warranties=warranties.Where(w=>w.ProductId==p.Id).Select(w=>new {id=w.WarrantyId,w.Name,w.PriceIRR,w.IsDefault})
     }));
