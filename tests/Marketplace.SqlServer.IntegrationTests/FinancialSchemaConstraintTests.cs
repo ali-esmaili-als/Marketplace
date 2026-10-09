@@ -227,6 +227,81 @@ public sealed class FinancialSchemaConstraintTests
                 await Assert.ThrowsAsync<SqlException>(() => duplicateSaleLedger.ExecuteNonQueryAsync());
             }
 
+            // Race independent SQL connections against each filtered unique index. A sequential
+            // duplicate insert only proves the constraint exists; this also exercises competing writers.
+            async Task<bool[]> RaceTwoInsertsAsync(string firstSql, string secondSql)
+            {
+                var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                async Task<bool> AttemptAsync(string sql)
+                {
+                    await using var contender = new SqlConnection(targetBuilder.ConnectionString);
+                    await contender.OpenAsync();
+                    await start.Task;
+                    try
+                    {
+                        await using var command = new SqlCommand(sql, contender);
+                        await command.ExecuteNonQueryAsync();
+                        return true;
+                    }
+                    catch (SqlException)
+                    {
+                        return false;
+                    }
+                }
+
+                var first = AttemptAsync(firstSql);
+                var second = AttemptAsync(secondSql);
+                start.SetResult();
+                return await Task.WhenAll(first, second);
+            }
+
+            var refundRace = await RaceTwoInsertsAsync(
+                """
+                INSERT INTO dbo.Refunds (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (950017, 950005, 950007, 950001, 10000, 1, 1, SYSUTCDATETIME());
+                """,
+                """
+                INSERT INTO dbo.Refunds (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (950018, 950005, 950007, 950001, 12000, 1, 2, SYSUTCDATETIME());
+                """);
+            Assert.Equal(1, refundRace.Count(succeeded => succeeded));
+
+            var authorityRace = await RaceTwoInsertsAsync(
+                """
+                INSERT INTO dbo.PaymentTransactions (Id, PaymentId, AmountIRR, Status, Provider, Authority, CreatedAtUtc)
+                VALUES (950019, 950006, 100000, 1, N'ConcurrentGateway', N'concurrent-authority', SYSUTCDATETIME());
+                """,
+                """
+                INSERT INTO dbo.PaymentTransactions (Id, PaymentId, AmountIRR, Status, Provider, Authority, CreatedAtUtc)
+                VALUES (950020, 950007, 120000, 1, N'ConcurrentGateway', N'concurrent-authority', SYSUTCDATETIME());
+                """);
+            Assert.Equal(1, authorityRace.Count(succeeded => succeeded));
+
+            var holdRace = await RaceTwoInsertsAsync(
+                """
+                INSERT INTO dbo.SellerBalanceHolds (Id, SellerId, OrderId, AmountIRR, Reason, Status, CreatedAtUtc)
+                VALUES (950021, 950002, 950005, 108000, N'Concurrent hold A', 1, SYSUTCDATETIME());
+                """,
+                """
+                INSERT INTO dbo.SellerBalanceHolds (Id, SellerId, OrderId, AmountIRR, Reason, Status, CreatedAtUtc)
+                VALUES (950022, 950002, 950005, 108000, N'Concurrent hold B', 1, SYSUTCDATETIME());
+                """);
+            Assert.Equal(1, holdRace.Count(succeeded => succeeded));
+
+            var saleLedgerRace = await RaceTwoInsertsAsync(
+                """
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, CreatedAtUtc)
+                VALUES (950023, 950002, 950005, 1, 1, 108000, 0, 108000, SYSUTCDATETIME());
+                """,
+                """
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, CreatedAtUtc)
+                VALUES (950024, 950002, 950005, 1, 1, 108000, 0, 108000, SYSUTCDATETIME());
+                """);
+            Assert.Equal(1, saleLedgerRace.Count(succeeded => succeeded));
+
             await using (var identityCheck = new SqlCommand("""
                 SELECT COUNT(*)
                 FROM sys.identity_columns ic
