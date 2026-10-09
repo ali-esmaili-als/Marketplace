@@ -16,6 +16,7 @@ public sealed class OutboxMessage : Entity<long>
     public DateTime OccurredAtUtc { get; private set; }
     public DateTime? ProcessedAtUtc { get; private set; }
     public DateTime? LockedUntilUtc { get; private set; }
+    public Guid? LockToken { get; private set; }
     public DateTime NextAttemptAtUtc { get; private set; }
     public int Attempts { get; private set; }
     public string Status { get; private set; } = "Pending";
@@ -45,12 +46,13 @@ public sealed class OutboxMessage : Entity<long>
         => (Status == "Pending" || Status == "Processing" && LockedUntilUtc <= nowUtc)
            && NextAttemptAtUtc <= nowUtc;
 
-    public void MarkProcessing(DateTime nowUtc, TimeSpan lease)
+    public void MarkProcessing(DateTime nowUtc, TimeSpan lease, Guid? lockToken = null)
     {
         if (!IsClaimable(nowUtc)) throw new DomainException("Outbox message is not claimable.");
         Status = "Processing";
         Attempts++;
         LockedUntilUtc = nowUtc.Add(lease);
+        LockToken = lockToken;
         LastError = null;
     }
 
@@ -60,6 +62,7 @@ public sealed class OutboxMessage : Entity<long>
         Status = "Processed";
         ProcessedAtUtc = nowUtc;
         LockedUntilUtc = null;
+        LockToken = null;
         LastError = null;
     }
 
@@ -68,6 +71,7 @@ public sealed class OutboxMessage : Entity<long>
         if (Status != "Processing") throw new DomainException("Only a processing outbox message can fail.");
         LastError = string.IsNullOrWhiteSpace(error) ? "Unknown delivery error." : error[..Math.Min(error.Length, 2000)];
         LockedUntilUtc = null;
+        LockToken = null;
         if (Attempts >= maxAttempts)
         {
             Status = "DeadLetter";
