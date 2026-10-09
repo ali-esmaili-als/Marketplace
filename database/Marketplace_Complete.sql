@@ -271,7 +271,7 @@ CREATE TABLE dbo.SettlementReconciliationAudits(
 );
 CREATE TABLE dbo.BalanceTransactions(
  Id BIGINT NOT NULL CONSTRAINT PK_BalanceTransactions PRIMARY KEY, SellerId BIGINT NOT NULL, OrderId BIGINT NULL,
- SettlementId BIGINT NULL, Type TINYINT NOT NULL, Bucket TINYINT NOT NULL CONSTRAINT DF_BalanceTransactions_Bucket DEFAULT(1),
+ SettlementId BIGINT NULL, RefundId BIGINT NULL, Type TINYINT NOT NULL, Bucket TINYINT NOT NULL CONSTRAINT DF_BalanceTransactions_Bucket DEFAULT(1),
  AmountIRR BIGINT NOT NULL, BalanceBeforeIRR BIGINT NOT NULL, BalanceAfterIRR BIGINT NOT NULL, Reference NVARCHAR(200) NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
  CONSTRAINT CK_BalanceTransactions_Amounts CHECK(AmountIRR>=0 AND BalanceBeforeIRR>=0 AND BalanceAfterIRR>=0), CONSTRAINT CK_BalanceTransactions_Type CHECK(Type BETWEEN 1 AND 14), CONSTRAINT CK_BalanceTransactions_Bucket CHECK(Bucket BETWEEN 1 AND 5)
 );
@@ -401,7 +401,8 @@ ALTER TABLE dbo.Settlements ADD CONSTRAINT FK_Settlements_Sellers FOREIGN KEY(Se
                              CONSTRAINT FK_Settlements_BankAccounts FOREIGN KEY(BankAccountId) REFERENCES dbo.SellerBankAccounts(Id);
 ALTER TABLE dbo.BalanceTransactions ADD CONSTRAINT FK_BalanceTransactions_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id),
                                      CONSTRAINT FK_BalanceTransactions_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id),
-                                     CONSTRAINT FK_BalanceTransactions_Settlements FOREIGN KEY(SettlementId) REFERENCES dbo.Settlements(Id);
+                                     CONSTRAINT FK_BalanceTransactions_Settlements FOREIGN KEY(SettlementId) REFERENCES dbo.Settlements(Id),
+                                     CONSTRAINT FK_BalanceTransactions_Refunds FOREIGN KEY(RefundId) REFERENCES dbo.Refunds(Id);
 ALTER TABLE dbo.Commissions ADD CONSTRAINT FK_Commissions_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id),
                             CONSTRAINT FK_Commissions_Stores FOREIGN KEY(StoreId) REFERENCES dbo.Stores(Id),
                             CONSTRAINT FK_Commissions_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id);
@@ -461,6 +462,7 @@ CREATE UNIQUE INDEX UX_SellerBalanceHolds_OrderId ON dbo.SellerBalanceHolds(Orde
 CREATE INDEX IX_BalanceTransactions_Seller_Created ON dbo.BalanceTransactions(SellerId,CreatedAtUtc);
 CREATE INDEX IX_BalanceTransactions_Order_Type ON dbo.BalanceTransactions(OrderId,Type);
 CREATE UNIQUE INDEX UX_BalanceTransactions_Order_Sale ON dbo.BalanceTransactions(OrderId) WHERE OrderId IS NOT NULL AND Type = 1;
+CREATE UNIQUE INDEX UX_BalanceTransactions_RefundId ON dbo.BalanceTransactions(RefundId) WHERE RefundId IS NOT NULL;
 CREATE INDEX IX_SettlementReconciliationAudits_Settlement_Created ON dbo.SettlementReconciliationAudits(SettlementId,CreatedAtUtc);
 CREATE UNIQUE INDEX UX_Settlements_Seller_RequestKey ON dbo.Settlements(SellerId,RequestKey) WHERE RequestKey IS NOT NULL;
 CREATE INDEX IX_Settlements_Seller_Status ON dbo.Settlements(SellerId,Status);
