@@ -105,7 +105,7 @@ public sealed class PaymentVerificationServiceTests
         Assert.Equal(PaymentTransactionStatus.Initiated, transaction.Status);
         payments.Verify(x => x.GetLatestTransactionAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
         uow.VerifyNoOtherCalls();
-        gateway.VerifyAll();
+        gateway.Verify(x => x.VerifyAsync("AUTH-10", 500_000, It.IsAny<CancellationToken>()), Times.Once);
         factory.VerifyAll();
     }
 
