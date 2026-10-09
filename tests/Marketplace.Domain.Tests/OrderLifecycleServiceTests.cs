@@ -677,4 +677,81 @@ public sealed class OrderLifecycleServiceTests
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+
+
+    [Fact]
+    public async Task Closing_order_with_active_complaint_keeps_seller_hold_blocked()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(901, 902, 903, 904, 420_000, 420_000);
+        order.MarkPaid(now.AddDays(-5));
+        order.MarkReady();
+        order.MarkDelivered(now.AddDays(-3), now.AddDays(-1));
+        var balance = SellerBalance.Create(905, order.SellerId);
+        balance.AddAvailable(order.SellerAmountIRR);
+        balance.Block(order.SellerAmountIRR);
+        var hold = SellerBalanceHold.Create(906, order.SellerId, order.Id, order.SellerAmountIRR, "Complaint review hold");
+        var complaint = Complaint.Create(907, order.Id, order.CustomerId, order.SellerId, "Buyer complaint still under review");
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetOpenComplaintByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(complaint);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.CloseCompletedOrderAsync(order.Id, now));
+
+        Assert.Equal(OrderStatus.Delivered, order.Status);
+        Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
+        Assert.Equal(0, balance.AvailableIRR);
+        Assert.Equal(BalanceHoldStatus.Active, hold.Status);
+        lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        lifecycle.Verify(x => x.GetActiveHoldByOrderAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Closing_order_rejects_mismatched_hold_without_mutating_balance_or_order()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(911, 912, 913, 914, 520_000, 520_000);
+        order.MarkPaid(now.AddDays(-5));
+        order.MarkReady();
+        order.MarkDelivered(now.AddDays(-3), now.AddDays(-1));
+        var balance = SellerBalance.Create(915, order.SellerId);
+        balance.AddAvailable(order.SellerAmountIRR);
+        balance.Block(order.SellerAmountIRR);
+        var wrongOrderHold = SellerBalanceHold.Create(916, order.SellerId, 999_999, order.SellerAmountIRR, "Mismatched hold");
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetOpenComplaintByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Complaint?)null);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
+        lifecycle.Setup(x => x.GetActiveHoldByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(wrongOrderHold);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.CloseCompletedOrderAsync(order.Id, now));
+
+        Assert.Equal(OrderStatus.Delivered, order.Status);
+        Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
+        Assert.Equal(0, balance.AvailableIRR);
+        Assert.Equal(BalanceHoldStatus.Active, wrongOrderHold.Status);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
 }
