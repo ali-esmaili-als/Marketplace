@@ -559,3 +559,59 @@ WHERE (c.Status IN (3, 4) AND
        (LEN(LTRIM(RTRIM(ISNULL(c.ResolutionNote, N'')))) = 0 OR c.ResolvedAtUtc IS NULL))
    OR (c.Status IN (1, 2) AND
        (c.ResolutionNote IS NOT NULL OR c.ResolvedAtUtc IS NOT NULL));
+
+
+PRINT '49. Seller balance bucket differs from its latest ledger snapshot';
+;WITH CurrentBuckets AS
+(
+    SELECT sb.SellerId, v.Bucket, v.BalanceIRR
+    FROM dbo.SellerBalances AS sb
+    CROSS APPLY (VALUES
+        (1, sb.AvailableIRR),
+        (2, sb.PendingIRR),
+        (3, sb.BlockedIRR),
+        (4, sb.ReservedForSettlementIRR),
+        (5, sb.LiabilityIRR)
+    ) AS v(Bucket, BalanceIRR)
+)
+SELECT cb.SellerId, cb.Bucket, cb.BalanceIRR AS CurrentBalanceIRR,
+       latest.BalanceAfterIRR AS LatestLedgerBalanceIRR,
+       latest.TransactionId, latest.TransactionType, latest.CreatedAtUtc
+FROM CurrentBuckets AS cb
+OUTER APPLY
+(
+    SELECT TOP (1) bt.Id AS TransactionId, bt.Type AS TransactionType,
+           bt.BalanceAfterIRR, bt.CreatedAtUtc
+    FROM dbo.BalanceTransactions AS bt
+    WHERE bt.SellerId = cb.SellerId AND bt.Bucket = cb.Bucket
+    ORDER BY bt.CreatedAtUtc DESC, bt.Id DESC
+) AS latest
+WHERE (latest.TransactionId IS NULL AND cb.BalanceIRR <> 0)
+   OR (latest.TransactionId IS NOT NULL AND latest.BalanceAfterIRR <> cb.BalanceIRR);
+
+PRINT '50. Balance transactions reference an order owned by a different seller';
+SELECT bt.Id AS BalanceTransactionId, bt.SellerId AS LedgerSellerId,
+       bt.OrderId, o.SellerId AS OrderSellerId, bt.Type, bt.Bucket, bt.AmountIRR
+FROM dbo.BalanceTransactions AS bt
+JOIN dbo.Orders AS o ON o.Id = bt.OrderId
+WHERE bt.OrderId IS NOT NULL
+  AND bt.SellerId <> o.SellerId;
+
+PRINT '51. Balance transactions reference a settlement owned by a different seller';
+SELECT bt.Id AS BalanceTransactionId, bt.SellerId AS LedgerSellerId,
+       bt.SettlementId, s.SellerId AS SettlementSellerId,
+       bt.Type, bt.Bucket, bt.AmountIRR
+FROM dbo.BalanceTransactions AS bt
+JOIN dbo.Settlements AS s ON s.Id = bt.SettlementId
+WHERE bt.SettlementId IS NOT NULL
+  AND bt.SellerId <> s.SellerId;
+
+PRINT '52. Multiple sale ledger entries exist for the same order';
+SELECT bt.OrderId, COUNT_BIG(*) AS SaleLedgerCount,
+       MIN(bt.CreatedAtUtc) AS FirstSaleLedgerAtUtc,
+       MAX(bt.CreatedAtUtc) AS LastSaleLedgerAtUtc
+FROM dbo.BalanceTransactions AS bt
+WHERE bt.Type = 1 -- Sale
+  AND bt.OrderId IS NOT NULL
+GROUP BY bt.OrderId
+HAVING COUNT_BIG(*) > 1;
