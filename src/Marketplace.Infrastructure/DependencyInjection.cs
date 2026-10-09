@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddScoped<ITokenService,Identity.JwtTokenService>();
         services.AddScoped<IPasswordHasher<UserEntity>,PasswordHasher<UserEntity>>();
         services.AddScoped<IPaymentGateway,NotConfiguredPaymentGateway>();
+        services.AddSingleton<PaymentProviderSecretResolver>();
         services.AddScoped<IPaymentGatewayFactory,PaymentGatewayFactory>();
         services.AddScoped<IPaymentProviderSettings,PaymentProviderSettingsRepository>();
         services.AddScoped<IPaymentProviderSettingsAdmin,PaymentProviderSettingsAdminRepository>();

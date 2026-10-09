@@ -16,7 +16,8 @@ public sealed class PaymentGatewayFactory(
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
-    IHostEnvironment environment) : IPaymentGatewayFactory
+    IHostEnvironment environment,
+    PaymentProviderSecretResolver secretResolver) : IPaymentGatewayFactory
 {
     public async Task<IReadOnlyList<PaymentProviderInfo>> GetAvailableAsync(CancellationToken ct=default)
     {
@@ -44,7 +45,9 @@ public sealed class PaymentGatewayFactory(
         if(!setting.IsEnabled || (requireVisible && !setting.IsVisible))
             throw new DomainException("Payment provider is not currently available.");
 
-        var config=BankGatewayAdapterBase.Parse(setting.ConfigurationJson);
+        // Resolve environment-backed credentials only in memory immediately before adapter creation.
+        var resolvedConfiguration = secretResolver.Resolve(setting.ConfigurationJson);
+        var config=BankGatewayAdapterBase.Parse(resolvedConfiguration);
         return provider switch
         {
             PaymentProviderCode.TestBank=>new TestBankPaymentGateway(configuration["Payment:TestReturnBaseUrl"] ?? (httpContextAccessor.HttpContext is { } context ? $"{context.Request.Scheme}://{context.Request.Host}" : null)),
