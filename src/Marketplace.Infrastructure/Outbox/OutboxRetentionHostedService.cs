@@ -47,7 +47,7 @@ public sealed class OutboxRetentionHostedService : BackgroundService
                 var db = scope.ServiceProvider.GetRequiredService<MarketplaceDbContext>();
                 var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
 
-                var archived = await db.Database.ExecuteSqlInterpolatedAsync($@"
+                var archived = await db.Database.SqlQuery<int>($@"
 SET XACT_ABORT ON;
 BEGIN TRY
     BEGIN TRANSACTION;
@@ -103,7 +103,7 @@ BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
     THROW;
 END CATCH;",
-                    stoppingToken);
+                    ).SingleAsync(stoppingToken);
 
                 if (archived > 0)
                     _logger.LogInformation("Archived {ArchivedCount} processed Outbox messages older than {CutoffUtc}.",
