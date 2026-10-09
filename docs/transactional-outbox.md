@@ -47,9 +47,11 @@ All management endpoints require `Admin.Settlement.Process`:
 - Default health thresholds in `Outbox:Health`: pending older than 15 minutes, expired lease older than 2 minutes, and alert when at least one dead-letter exists. Tune these values for the expected workload; health checks never modify message or financial state.
 - `GET /api/admin/outbox/messages`: paged list (maximum 100 per page) with status, event type and UTC date filters.
 - `GET /api/admin/outbox/messages/{id}`: detailed message payload and processing metadata.
+- `GET /api/admin/outbox/archive`: read-only, paginated archive search by event type and archive-time UTC range.
+- `GET /api/admin/outbox/archive/{id}`: full details for an archived message. Archive records cannot be retried from this API.
 - `POST /api/admin/outbox/messages/{id}/retry`: retries only a `DeadLetter` message, resets its attempt counter and next-attempt time, and appends an `Outbox.MessageRetried` admin audit event. It does not publish synchronously; the dispatcher will pick it up if enabled.
 
-The Angular admin page is at `/admin/outbox` and uses the same permission guard. Payload visibility is restricted to this admin permission; avoid putting credentials, bank account snapshots, access tokens or other secrets in event payloads.
+The Angular admin page is at `/admin/outbox` and uses the same permission guard. It includes a separate read-only archive browser with event/date filters, pagination, and payload details; archived messages cannot be retried or changed from the UI. Payload visibility is restricted to this admin permission; avoid putting credentials, bank account snapshots, access tokens or other secrets in event payloads.
 
 ## Processed-message retention and archive
 
@@ -60,7 +62,7 @@ A separate `OutboxRetentionHostedService` supports bounded archival of old, succ
 - `BatchSize=500` (bounded to 1–5000 rows)
 - `IntervalMinutes=60` (bounded to 5–1440 minutes)
 
-Before enabling it, deploy `database/021_OutboxRetentionArchive.sql` to an existing database; new databases already contain `dbo.OutboxMessageArchive` in `Marketplace_Complete.sql`. The worker atomically moves only rows with `Status='Processed'` and a non-null `ProcessedAtUtc` older than the retention cutoff. A bounded SQL delete/output statement writes the full message record to the archive table in the same statement; if archive insertion fails, the source deletion fails too. Pending, Processing, and DeadLetter messages are never archived by this worker. Archive records are retained indefinitely by this first version; archive expiration is intentionally not automated until a separate legal/compliance retention policy is defined.
+Before enabling it, deploy `database/021_OutboxRetentionArchive.sql` to an existing database; new databases already contain `dbo.OutboxMessageArchive` in `Marketplace_Complete.sql`. The worker atomically moves only rows with `Status='Processed'` and a non-null `ProcessedAtUtc` older than the retention cutoff. It captures a bounded delete into an unconstrained SQL table variable, then inserts the captured rows into the constrained archive table inside the same transaction; if archive insertion fails, the source deletion rolls back too. Pending, Processing, and DeadLetter messages are never archived by this worker. Archive records are retained indefinitely by this first version; archive expiration is intentionally not automated until a separate legal/compliance retention policy is defined.
 
 This worker does not call the webhook, retry messages, alter status on source messages, or touch orders, settlements, balances, commissions, refunds, or ledger records. Keep retention disabled until the archive migration is deployed and the workload/backup policy has been reviewed.
 
