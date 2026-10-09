@@ -821,9 +821,9 @@ app.MapGet("/api/admin/financial-integrity/order-flows", async (
         join order in db.Orders.AsNoTracking() on refund.OrderId equals order.Id
         where refund.Status == Marketplace.Domain.Refunds.RefundStatus.Completed
             && !db.BalanceTransactions.AsNoTracking().Any(bt =>
-                bt.OrderId == refund.OrderId
-                && bt.SellerId == order.SellerId
-                && bt.Type == Marketplace.Domain.Finance.BalanceTransactionType.Refund)
+                bt.Type == Marketplace.Domain.Finance.BalanceTransactionType.Refund
+                && (bt.RefundId == refund.Id
+                    || (bt.RefundId == null && bt.OrderId == refund.OrderId && bt.SellerId == order.SellerId)))
         select new FinancialOrderFlowFinding(
             "CompletedRefundMissingLedger", refund.OrderId, refund.Id, refund.Id,
             order.SellerId, order.SellerId, refund.AmountIRR, null, null, null,
