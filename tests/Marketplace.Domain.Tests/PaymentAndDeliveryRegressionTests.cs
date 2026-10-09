@@ -84,6 +84,20 @@ public sealed class PaymentAndDeliveryRegressionTests
     }
 
     [Fact]
+    public void DeliveryCode_LocksAfterFiveIncorrectAttempts()
+    {
+        var code = DeliveryCode.Create(1, 2, "123456", DateTime.UtcNow.AddHours(1));
+        var now = DateTime.UtcNow;
+
+        for (var i = 0; i < 5; i++)
+            Assert.False(code.Verify("000000", now.AddSeconds(i)));
+
+        Assert.Equal(5, code.FailedAttempts);
+        Assert.False(code.Verify("123456", now.AddSeconds(6)));
+        Assert.Null(code.UsedAtUtc);
+    }
+
+    [Fact]
     public void DeliveryCode_CannotBeUsedAfterExpiry()
     {
         var code = DeliveryCode.Create(1, 2, "123456", DateTime.UtcNow.AddMinutes(1));
