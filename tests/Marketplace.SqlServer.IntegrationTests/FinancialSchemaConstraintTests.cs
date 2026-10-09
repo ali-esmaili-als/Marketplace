@@ -184,7 +184,17 @@ public sealed class FinancialSchemaConstraintTests
                 WHERE Id = 950008;
                 """, connection))
             {
-                Assert.Equal(1, await failFirstRefund.ExecuteNonQueryAsync());
+                await failFirstRefund.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyFailedRefund = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.Refunds
+                WHERE Id = 950008 AND Status = 5
+                  AND FailureReason = N'Provider confirmed not refunded';
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyFailedRefund.ExecuteScalarAsync()));
             }
 
             await using (var retryRefund = new SqlCommand("""
