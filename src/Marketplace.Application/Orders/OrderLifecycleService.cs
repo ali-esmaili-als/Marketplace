@@ -46,6 +46,10 @@ public sealed class OrderLifecycleService
             var delivery=Delivery.Create(await _ids.NextAsync(token),o.Id,o.SellerId,expires);
             o.SetDeliveryExpiry(expires);
             _life.AddDelivery(delivery);
+            // A paid order must keep its inventory reserved for the entire delivery window.
+            var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
+            foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
+                reservation.ExtendExpiry(expires.AddMinutes(1));
         }
 
         _life.AddBalanceTransaction(BalanceTransaction.Create(
