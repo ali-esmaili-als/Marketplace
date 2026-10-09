@@ -117,6 +117,7 @@ public sealed class FinancialSchemaConstraintTests
                     SELECT N'CK_Settlements_Amount', N'CHECK' UNION ALL
                     SELECT N'UX_PaymentTransactions_Provider_Authority', N'INDEX' UNION ALL
                     SELECT N'UX_Refunds_OneActivePerOrder', N'INDEX' UNION ALL
+                    SELECT N'UX_Complaints_OneActivePerOrder', N'INDEX' UNION ALL
                     SELECT N'UX_SellerBalanceHolds_OrderId', N'INDEX' UNION ALL
                     SELECT N'UX_BalanceTransactions_Order_Sale', N'INDEX'
                 )
@@ -130,7 +131,7 @@ public sealed class FinancialSchemaConstraintTests
                         (SELECT 1 FROM sys.indexes i WHERE i.name = r.ObjectName AND i.is_unique = 1));
                 """, connection))
             {
-                Assert.Equal(11, Convert.ToInt32(await contractCheck.ExecuteScalarAsync()));
+                Assert.Equal(12, Convert.ToInt32(await contractCheck.ExecuteScalarAsync()));
             }
 
             await using (var fkCheck = new SqlCommand("""
@@ -223,6 +224,53 @@ public sealed class FinancialSchemaConstraintTests
                 """, connection))
             {
                 Assert.Equal(1L, Convert.ToInt64(await verifyOneActiveRefund.ExecuteScalarAsync()));
+            }
+
+            // A filtered unique index closes the race between concurrent complaint submissions.
+            // Once a complaint is resolved, its active slot is released.
+            await using (var seedActiveComplaint = new SqlCommand("""
+                INSERT INTO dbo.Complaints
+                    (Id, OrderId, CustomerId, SellerId, Status, Reason, CreatedAtUtc)
+                VALUES (950040, 950004, 950001, 950002, 1, N'Integration complaint', SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedActiveComplaint.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicateActiveComplaint = new SqlCommand("""
+                INSERT INTO dbo.Complaints
+                    (Id, OrderId, CustomerId, SellerId, Status, Reason, CreatedAtUtc)
+                VALUES (950041, 950004, 950001, 950002, 2, N'Duplicate active complaint', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicateActiveComplaint.ExecuteNonQueryAsync());
+            }
+
+            await using (var resolveFirstComplaint = new SqlCommand("""
+                UPDATE dbo.Complaints
+                SET Status = 3, ResolutionNote = N'Resolved for integration test', ResolvedAtUtc = SYSUTCDATETIME()
+                WHERE Id = 950040;
+                """, connection))
+            {
+                await resolveFirstComplaint.ExecuteNonQueryAsync();
+            }
+
+            await using (var openNextComplaint = new SqlCommand("""
+                INSERT INTO dbo.Complaints
+                    (Id, OrderId, CustomerId, SellerId, Status, Reason, CreatedAtUtc)
+                VALUES (950042, 950004, 950001, 950002, 1, N'Next active complaint', SYSUTCDATETIME());
+                """, connection))
+            {
+                await openNextComplaint.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyActiveComplaintSlot = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.Complaints
+                WHERE OrderId = 950004 AND Status IN (1, 2);
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyActiveComplaintSlot.ExecuteScalarAsync()));
             }
 
             await using (var seedPaymentTransaction = new SqlCommand("""
