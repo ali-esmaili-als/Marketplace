@@ -51,6 +51,45 @@ public sealed class FinancialSchemaConstraintTests
             "SELECT COUNT(*) AS [Value] FROM dbo.SellerBalances WHERE SellerId = 910001")
             .SingleAsync();
         Assert.Equal(1, count);
+
+        // Inventory invariants must be enforced by SQL Server, not only by domain methods.
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
+            VALUES (920001, 920001, 5, 0, 1);
+            """);
+
+        await AssertDatabaseConstraintAsync(db, """
+            INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
+            VALUES (920002, 920002, 5, 6, 1);
+            """);
+
+        await AssertDatabaseConstraintAsync(db, """
+            INSERT INTO dbo.InventoryReservations
+                (Id, ProductVariantId, OrderId, Quantity, Status, ExpiresAtUtc, CreatedAtUtc)
+            VALUES (920003, 920001, 920003, 0, 1, DATEADD(hour, 1, SYSUTCDATETIME()), SYSUTCDATETIME());
+            """);
+
+        // Two independent sessions compete for four units from stock of five.
+        // The conditional UPDATE is atomic: only one reservation may succeed.
+        async Task<int> TryReserveAsync()
+        {
+            await using var contender = new MarketplaceDbContext(options);
+            return await contender.Database.ExecuteSqlRawAsync("""
+                UPDATE dbo.InventoryItems
+                SET ReservedQuantity = ReservedQuantity + 4
+                WHERE Id = 920001
+                  AND IsActive = 1
+                  AND StockQuantity - ReservedQuantity >= 4;
+                """);
+        }
+
+        var reservationResults = await Task.WhenAll(TryReserveAsync(), TryReserveAsync());
+        Assert.Equal(1, reservationResults.Sum());
+
+        var reserved = await db.Database.SqlQueryRaw<long>(
+            "SELECT ReservedQuantity AS [Value] FROM dbo.InventoryItems WHERE Id = 920001")
+            .SingleAsync();
+        Assert.Equal(4L, reserved);
     }
 
     private static async Task AssertDatabaseConstraintAsync(MarketplaceDbContext db, string sql)
