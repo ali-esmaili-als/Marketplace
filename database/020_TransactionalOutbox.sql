@@ -26,6 +26,9 @@ BEGIN
     );
 END;
 
+IF COL_LENGTH(N'dbo.OutboxMessages', N'LockToken') IS NULL
+    ALTER TABLE dbo.OutboxMessages ADD LockToken UNIQUEIDENTIFIER NULL;
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.OutboxMessages') AND name=N'IX_OutboxMessages_Poll')
     CREATE INDEX IX_OutboxMessages_Poll ON dbo.OutboxMessages(Status,NextAttemptAtUtc,Id)
         INCLUDE(EventType,MessageId,Attempts);
