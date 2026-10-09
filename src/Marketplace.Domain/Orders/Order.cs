@@ -12,6 +12,7 @@ public sealed class Order : AggregateRoot<long>
     public long SubtotalAmountIRR { get; private set; }
     public long CampaignDiscountIRR { get; private set; }
     public long CouponDiscountIRR { get; private set; }
+    public long ShippingFeeIRR { get; private set; }
     public string? CouponCodeSnapshot { get; private set; }
     public long TotalAmountIRR { get; private set; }
     public long SellerAmountIRR { get; private set; }
@@ -25,19 +26,19 @@ public sealed class Order : AggregateRoot<long>
     public DateTime? DeliveryExpiresAtUtc { get; private set; }
     public DateTime? ComplaintExpiresAtUtc { get; private set; }
 
-    public static Order Create(long id,long customerId,long sellerId,long storeId,long subtotalAmountIrr,long totalAmountIrr,string? requestKey=null)
+    public static Order Create(long id,long customerId,long sellerId,long storeId,long subtotalAmountIrr,long totalAmountIrr,string? requestKey=null,long shippingFeeIrr=0)
     {
-        if(id<=0||customerId<=0||sellerId<=0||storeId<=0||subtotalAmountIrr<=0||totalAmountIrr<=0||totalAmountIrr>subtotalAmountIrr)
+        if(id<=0||customerId<=0||sellerId<=0||storeId<=0||subtotalAmountIrr<=0||shippingFeeIrr<0||totalAmountIrr<=0||totalAmountIrr>checked(subtotalAmountIrr+shippingFeeIrr))
             throw new DomainException("Invalid order.");
         if (!string.IsNullOrWhiteSpace(requestKey) && (requestKey.Trim().Length > 64 || requestKey.Trim().Length < 16)) throw new DomainException("Invalid checkout request key.");
-        return new Order { Id=id,CustomerId=customerId,RequestKey=string.IsNullOrWhiteSpace(requestKey)?null:requestKey.Trim(),SellerId=sellerId,StoreId=storeId,SubtotalAmountIRR=subtotalAmountIrr,TotalAmountIRR=totalAmountIrr,SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
+        return new Order { Id=id,CustomerId=customerId,RequestKey=string.IsNullOrWhiteSpace(requestKey)?null:requestKey.Trim(),SellerId=sellerId,StoreId=storeId,SubtotalAmountIRR=subtotalAmountIrr,ShippingFeeIRR=shippingFeeIrr,TotalAmountIRR=totalAmountIrr,SellerAmountIRR=totalAmountIrr,Status=OrderStatus.PendingPayment,CreatedAtUtc=DateTime.UtcNow };
     }
     public void SetDiscounts(long campaignDiscountIrr,long couponDiscountIrr,string? couponCode)
     {
         if(campaignDiscountIrr<0||couponDiscountIrr<0||campaignDiscountIrr+couponDiscountIrr>SubtotalAmountIRR)
             throw new DomainException("Invalid order discounts.");
         if(campaignDiscountIrr>0&&couponDiscountIrr>0) throw new DomainException("Campaign and coupon cannot be combined.");
-        if(SubtotalAmountIRR-campaignDiscountIrr-couponDiscountIrr!=TotalAmountIRR)
+        if(checked(SubtotalAmountIRR-campaignDiscountIrr-couponDiscountIrr+ShippingFeeIRR)!=TotalAmountIRR)
             throw new DomainException("Order total does not match discounts.");
         CampaignDiscountIRR=campaignDiscountIrr; CouponDiscountIRR=couponDiscountIrr; CouponCodeSnapshot=string.IsNullOrWhiteSpace(couponCode)?null:couponCode.Trim().ToUpperInvariant();
     }
