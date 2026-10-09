@@ -221,3 +221,6 @@ The payment diagnostics also include checks 57–59:
 - **Check 59:** a payment is marked Succeeded without both its final reference and paid timestamp.
 
 These findings must be reconciled against the gateway's authoritative transaction record. Do not edit the amount, reference, or timestamps simply to silence a diagnostic; preserve provider evidence and use the payment reconciliation workflow if local finalization did not complete. The SQL Server integration test deliberately seeds each divergence and verifies that the corresponding read-only predicates find it.
+
+
+The payment and provider-transaction domain entities now reject blank bank references before entering Succeeded state. This prevents new invalid records through normal domain transitions; checks 58–59 remain useful for legacy data, direct SQL writes, and incidents where older application versions bypassed this validation. The rejection occurs before mutating status, reference, or paid timestamp, so callers can safely correct the input without leaving a partially transitioned aggregate.
