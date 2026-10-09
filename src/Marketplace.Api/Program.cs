@@ -612,10 +612,22 @@ app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal 
 }).RequirePermission("Order.Create");
 
 app.MapGet("/api/payments/test-return", async (long paymentId, string authority, string? result,
-    Marketplace.Application.Orders.PaymentVerificationService service, CancellationToken ct) =>
+    Marketplace.Application.Orders.PaymentVerificationService service,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    IConfiguration configuration, CancellationToken ct) =>
 {
     var verified = await service.VerifyTestReturnAsync(paymentId, authority,
         string.Equals(result, "success", StringComparison.OrdinalIgnoreCase), ct);
+    var payment = await db.Payments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == paymentId, ct);
+    var returnBase = configuration["Payment:ClientReturnBaseUrl"];
+    if (payment is not null && Uri.TryCreate(returnBase, UriKind.Absolute, out var clientBase)
+        && (clientBase.Scheme == Uri.UriSchemeHttps || clientBase.Scheme == Uri.UriSchemeHttp))
+    {
+        var separator = returnBase!.Contains('?') ? "&" : "?";
+        var target = $"{returnBase.TrimEnd('/')}/payment-result?orderId={payment.OrderId}&status={(verified.Paid ? "success" : "failed")}";
+        return Results.Redirect(target);
+    }
+
     var heading = verified.Paid ? "پرداخت آزمایشی موفق بود" : "پرداخت آزمایشی ناموفق بود";
     var message = verified.Paid
         ? "پرداخت ثبت شد. می‌توانید به فروشگاه برگردید."
