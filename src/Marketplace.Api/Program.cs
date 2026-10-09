@@ -489,10 +489,18 @@ app.MapGet("/api/admin/refunds",async(Marketplace.Infrastructure.Persistence.Mar
                       select new { id=r.Id,orderId=r.OrderId,sellerId=o.SellerId,customerId=r.CustomerId,amountIRR=r.AmountIRR,reason=r.Reason.ToString(),status=r.Status.ToString(),r.ProviderReference,r.FailureReason,r.RequestedAtUtc,r.CompletedAtUtc })
                      .Take(200).ToListAsync(ct))).RequirePermission("Admin.Settlement.Process");
 
-app.MapPost("/api/admin/refunds/{refundId:long}/reconcile",async(long refundId,RefundReconciliationRequest request,Marketplace.Application.Orders.RefundService service,CancellationToken ct)=>{
-    await service.ReconcileAsync(refundId,request.TransferCompleted,request.BankReference,request.Note,ct);
+app.MapPost("/api/admin/refunds/{refundId:long}/reconcile",async(long refundId,RefundReconciliationRequest request,System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.RefundService service,CancellationToken ct)=>{
+    await service.ReconcileAsync(refundId,CurrentUserId(user),request.TransferCompleted,request.BankReference,request.Note,ct);
     return Results.Ok(new { refundId, status=request.TransferCompleted?"Completed":"Failed" });
 }).RequirePermission("Admin.Settlement.Process");
+
+app.MapGet("/api/admin/refunds/reconciliation/history",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
+    Results.Ok(await (from a in db.RefundReconciliationAudits.AsNoTracking()
+                      join r in db.Refunds.AsNoTracking() on a.RefundId equals r.Id
+                      join o in db.Orders.AsNoTracking() on r.OrderId equals o.Id
+                      orderby a.CreatedAtUtc descending
+                      select new { auditId=a.Id,refundId=r.Id,orderId=r.OrderId,customerId=r.CustomerId,sellerId=o.SellerId,amountIRR=r.AmountIRR,transferCompleted=a.TransferCompleted,note=a.Note,bankReference=a.BankReference,adminUserId=a.AdminUserId,createdAtUtc=a.CreatedAtUtc })
+                     .Take(200).ToListAsync(ct))).RequirePermission("Admin.Settlement.Process");
 
 app.MapGet("/api/admin/complaints",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
     Results.Ok(await (from c in db.Complaints
