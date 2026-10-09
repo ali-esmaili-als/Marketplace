@@ -132,7 +132,7 @@ public sealed class MarketplaceDbContext : DbContext
         });
         b.Entity<Store>(e =>
         {
-            e.ToTable("Stores", t => t.HasCheckConstraint("CK_Stores_Commission", "CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR >= 0")); e.HasKey(x => x.Id);
+            e.ToTable("Stores", t => { t.HasCheckConstraint("CK_Stores_Commission", "CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR >= 0"); t.HasCheckConstraint("CK_Stores_ThemeCode", "ThemeCode IN ('classic','minimal','vibrant')"); }); e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasConversion<byte>();
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Slug).HasMaxLength(250).IsRequired();
