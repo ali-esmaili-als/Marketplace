@@ -549,7 +549,7 @@ app.MapPost("/api/settlements/{settlementId:long}/process", async (
                 .Select(x => new { x.Id, x.AmountIRR, x.Status, x.Reference })
                 .SingleOrDefaultAsync(CancellationToken.None);
 
-            if (persisted?.status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
+            if (persisted?.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
             {
                 logger.LogWarning(exception,
                     "Settlement {SettlementId} is on hold after an ambiguous payout outcome and requires bank reconciliation.",
@@ -559,7 +559,7 @@ app.MapPost("/api/settlements/{settlementId:long}/process", async (
                 {
                     settlementId = persisted.Id,
                     amountIRR = persisted.AmountIRR,
-                    status = persisted.status.ToString(),
+                    status = persisted.Status.ToString(),
                     reference = persisted.Reference,
                     outcomeRequiresReconciliation = true,
                     message = "Payout outcome is ambiguous. Reconcile against the bank's final status before retrying."
