@@ -1298,9 +1298,9 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
     if (payments.Any(x => x.AmountIRR != order.TotalAmountIRR))
         findings.Add(new { code = "PaymentAmountMismatch", severity = "error", message = "مبلغ حداقل یکی از پرداخت‌ها با مبلغ سفارش متفاوت است." });
     if (payments.Any(x => x.status == (int)Marketplace.Domain.Payments.PaymentStatus.Succeeded)
-        && order.Status is (int)Marketplace.Domain.Orders.OrderStatus.PendingPayment
-            or (int)Marketplace.Domain.Orders.OrderStatus.Cancelled
-            or (int)Marketplace.Domain.Orders.OrderStatus.Refunded)
+        && (order.Status == (int)Marketplace.Domain.Orders.OrderStatus.PendingPayment
+            || order.Status == (int)Marketplace.Domain.Orders.OrderStatus.Cancelled
+            || order.Status == (int)Marketplace.Domain.Orders.OrderStatus.Refunded))
         findings.Add(new { code = "SucceededPaymentOrderMismatch", severity = "error", message = "پرداخت موفق ثبت شده اما وضعیت سفارش با آن سازگار نیست." });
     if (payments.Any(x => x.status == (int)Marketplace.Domain.Payments.PaymentStatus.Refunded)
         && order.Status != (int)Marketplace.Domain.Orders.OrderStatus.Refunded)
