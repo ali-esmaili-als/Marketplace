@@ -357,11 +357,12 @@ public sealed class OrderLifecycleServiceTests
         var now = DateTime.UtcNow;
         var order = Order.Create(601, 602, 603, 604, 900_000, 900_000);
         order.MarkPaid(now.AddDays(-4));
-        var expiresAt = now.AddMinutes(-1);
+        var expiresAt = now.AddMinutes(1);
         order.SetDeliveryExpiry(expiresAt);
         order.MarkReady();
         var delivery = DeliveryEntity.Create(605, order.Id, order.SellerId, expiresAt);
         delivery.MarkReady();
+        var expiryCheckTime = expiresAt.AddSeconds(1);
         var balance = SellerBalance.Create(606, order.SellerId);
         balance.AddPending(order.SellerAmountIRR);
         var inventory = InventoryItem.Create(607, 608, 10);
@@ -389,7 +390,7 @@ public sealed class OrderLifecycleServiceTests
         var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
             lifecycle.Object, uow.Object, ids.Object, new Mock<INotificationRepository>().Object);
 
-        await service.ExpireDeliveryAsync(order.Id, now);
+        await service.ExpireDeliveryAsync(order.Id, expiryCheckTime);
 
         Assert.Equal(OrderStatus.RefundRequested, order.Status);
         Assert.Equal(Marketplace.Domain.Delivery.DeliveryStatus.Expired, delivery.Status);
