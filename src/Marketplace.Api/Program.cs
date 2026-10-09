@@ -215,7 +215,7 @@ app.MapGet("/api/cart/summary", async (System.Security.Claims.ClaimsPrincipal us
         select new
         {
             item.Id, item.ProductId, item.ProductVariantId, item.WarrantyId, item.Quantity,
-            product.Name, variant.SKU, variant.VariantKey, StoreName = store.Name,
+            product.Name, variant.SKU, variant.VariantKey, StoreId = store.Id, StoreSlug = store.Slug, StoreName = store.Name, StoreThemeCode = store.ThemeCode,
             UnitPriceIRR = variant.PriceIRR ?? product.BasePriceIRR,
             WarrantyName = warranty == null ? null : warranty.Name,
             WarrantyPriceIRR = warranty == null ? 0L : warranty.PriceIRR
