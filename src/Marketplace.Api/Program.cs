@@ -615,6 +615,10 @@ app.MapGet("/api/admin/settlements/reconciliation/history", async (Marketplace.I
     return Results.Ok(items);
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/orders/checkout/quote",async(System.Security.Claims.ClaimsPrincipal user,long destinationCityId,string? couponCode,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>
+    Results.Ok(await service.QuoteAsync(CurrentUserId(user),destinationCityId,couponCode,ct)))
+    .RequirePermission("Order.Create");
+
 app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,CancellationToken ct)=>{
     if(string.IsNullOrWhiteSpace(request.RequestKey)||request.RequestKey.Length<16||request.RequestKey.Length>64) return Results.BadRequest(new { detail="A valid checkout request key is required." });
     var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,request.RequestKey,ct); return Results.Ok(result);
