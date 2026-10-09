@@ -103,6 +103,7 @@ public sealed class RefundService
 
             var bucket=BalanceBucket.Blocked;
             var bucketBefore=balance.BlockedIRR;
+            var balanceDebited=true;
             if(balance.BlockedIRR>=order.SellerAmountIRR)
                 balance.ConsumeBlock(order.SellerAmountIRR);
             else if(balance.PendingIRR>=order.SellerAmountIRR)
@@ -117,6 +118,7 @@ public sealed class RefundService
                 // Do not debit it a second time when returning the customer's payment.
                 bucket=BalanceBucket.Pending;
                 bucketBefore=balance.PendingIRR;
+                balanceDebited=false;
             }
             else throw new DomainException("Seller balance does not contain the refundable seller amount.");
 
@@ -126,9 +128,10 @@ public sealed class RefundService
 
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),order.SellerId,order.Id,null,
-                BalanceTransactionType.Refund,order.SellerAmountIRR,
+                BalanceTransactionType.Refund,balanceDebited ? order.SellerAmountIRR : 0,
                 bucketBefore,
-                bucket==BalanceBucket.Blocked?balance.BlockedIRR:balance.PendingIRR,"REFUND",bucket));
+                bucket==BalanceBucket.Blocked?balance.BlockedIRR:balance.PendingIRR,
+                balanceDebited ? "REFUND" : "REFUND_SELLER_SHARE_ALREADY_REMOVED",bucket));
 
             var commission=await _life.GetCommissionByOrderAsync(order.Id,token);
             if(commission is not null)
@@ -173,6 +176,7 @@ public sealed class RefundService
             var hold=await _life.GetActiveHoldByOrderAsync(order.Id,token)??throw new DomainException("Seller hold not found.");
             var bucket=BalanceBucket.Blocked;
             var bucketBefore=balance.BlockedIRR;
+            var balanceDebited=true;
             if(balance.BlockedIRR>=order.SellerAmountIRR)
                 balance.ConsumeBlock(order.SellerAmountIRR);
             else if(balance.PendingIRR>=order.SellerAmountIRR)
@@ -187,6 +191,7 @@ public sealed class RefundService
                 // Do not debit it a second time when returning the customer's payment.
                 bucket=BalanceBucket.Pending;
                 bucketBefore=balance.PendingIRR;
+                balanceDebited=false;
             }
             else throw new DomainException("Seller balance does not contain the refundable seller amount.");
 
@@ -195,9 +200,9 @@ public sealed class RefundService
             order.MarkRefunded();
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),order.SellerId,order.Id,null,
-                BalanceTransactionType.Refund,order.SellerAmountIRR,bucketBefore,
+                BalanceTransactionType.Refund,balanceDebited ? order.SellerAmountIRR : 0,bucketBefore,
                 bucket==BalanceBucket.Blocked?balance.BlockedIRR:balance.PendingIRR,
-                "REFUND_RECONCILED",bucket));
+                balanceDebited ? "REFUND_RECONCILED" : "REFUND_RECONCILED_SELLER_SHARE_ALREADY_REMOVED",bucket));
 
             var commission=await _life.GetCommissionByOrderAsync(order.Id,token);
             if(commission is not null)
