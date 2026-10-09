@@ -166,6 +166,12 @@ public sealed class OrderLifecycleService
     public Task ExpireDeliveryAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
+        // Expiry jobs are at-least-once. A previously committed expiry must not release the
+        // seller's inventory reservation or alter financial buckets a second time.
+        if(d.Status==Marketplace.Domain.Delivery.DeliveryStatus.Expired
+            && o.Status is OrderStatus.DeliveryExpired or OrderStatus.RefundRequested)
+            return 0;
+
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
 
         var pendingBefore=b.PendingIRR;
@@ -207,7 +213,13 @@ public sealed class OrderLifecycleService
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
         var h=await _life.GetActiveHoldByOrderAsync(o.Id,token)??throw new DomainException("Seller hold not found.");
 
-        c.StartReview();
+        // The admin queue supports both Open and UnderReview complaints. Starting review
+        // again on an already-reviewed complaint used to reject the visible resolution action.
+        if(c.Status==ComplaintStatus.Open)
+            c.StartReview();
+        else if(c.Status!=ComplaintStatus.UnderReview)
+            throw new DomainException("Only open or under-review complaints can be resolved.");
+
         if(customerWon)
         {
             c.ResolveForCustomer(note);
