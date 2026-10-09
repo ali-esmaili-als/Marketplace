@@ -345,6 +345,15 @@ public sealed class FinancialSchemaConstraintTests
                 Assert.Equal(1, Convert.ToInt32(await verifyActiveComplaintSlot.ExecuteScalarAsync()));
             }
 
+            await using (var invalidComplaintStatus = new SqlCommand("""
+                INSERT INTO dbo.Complaints
+                    (Id, OrderId, CustomerId, SellerId, Status, Reason, CreatedAtUtc)
+                VALUES (950043, 950004, 950001, 950002, 7, N'Invalid status must be rejected', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidComplaintStatus.ExecuteNonQueryAsync());
+            }
+
             await using (var seedPaymentTransaction = new SqlCommand("""
                 INSERT INTO dbo.PaymentTransactions (Id, PaymentId, AmountIRR, Status, Provider, Authority, CreatedAtUtc)
                 VALUES (950010, 950006, 100000, 1, N'IntegrationGateway', N'same-authority', SYSUTCDATETIME());
