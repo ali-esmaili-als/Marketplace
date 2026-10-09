@@ -375,6 +375,22 @@ app.MapPost("/api/admin/categories/{categoryId:long}/deactivate",async(long cate
 app.MapGet("/api/shipping/cities",async(Marketplace.Application.Shipping.ShippingCoverageService service,CancellationToken ct)=>
     Results.Ok(await service.GetCitiesAsync(ct)));
 
+app.MapGet("/api/cart/shipping-options", async (
+    System.Security.Claims.ClaimsPrincipal user, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var cart = await db.Carts.AsNoTracking().SingleOrDefaultAsync(x => x.CustomerId == customerId, ct);
+    if (cart is null) return Results.Ok(Array.Empty<object>());
+    var cities = await db.StoreShippingCities.AsNoTracking()
+        .Where(x => x.StoreId == cart.StoreId && x.City.IsActive)
+        .Join(db.StoreShippingRates.AsNoTracking(), coverage => new { coverage.StoreId, coverage.CityId }, rate => new { rate.StoreId, rate.CityId }, (coverage, rate) => new { coverage.City, rate.ShippingFeeIRR, rate.MinDeliveryDays, rate.MaxDeliveryDays })
+        .OrderBy(x => x.City.ProvinceName).ThenBy(x => x.City.Name)
+        .Select(x => new { id = x.City.Id, name = x.City.Name, provinceName = x.City.ProvinceName, x.ShippingFeeIRR, x.MinDeliveryDays, x.MaxDeliveryDays })
+        .ToListAsync(ct);
+    return Results.Ok(cities);
+}).RequirePermission("Order.Create");
+
+
 app.MapPost("/api/sellers/apply",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
     var id=await service.ApplyAsync(CurrentUserId(user),ct); return Results.Ok(new { sellerId=id });
 }).RequireAuthorization();
