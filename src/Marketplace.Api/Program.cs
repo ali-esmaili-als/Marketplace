@@ -1722,9 +1722,9 @@ app.MapGet("/api/admin/outbox/messages", async (
     string? eventType,
     DateTime? fromUtc,
     DateTime? toUtc,
-    int page,
-    int pageSize,
-    CancellationToken ct) =>
+    CancellationToken ct,
+    int page = 1,
+    int pageSize = 25) =>
 {
     var allowedStatuses = new[] { "Pending", "Processing", "Processed", "DeadLetter" };
     if (!string.IsNullOrWhiteSpace(status) && !allowedStatuses.Contains(status, StringComparer.Ordinal))
@@ -1786,7 +1786,7 @@ app.MapPost("/api/admin/outbox/messages/{id:long}/retry", async (
         return Results.Conflict(new { message = "Only DeadLetter messages can be retried manually.", status = message.Status });
 
     var previousAttempts = message.Attempts;
-    var previousError = message.LastError;
+    var previousError = message.LastError is { Length: > 500 } errorText ? errorText[..500] : message.LastError;
     message.RetryFromDeadLetter(DateTime.UtcNow);
     var actorUserId = CurrentUserId(user);
     var correlationId = http.TraceIdentifier;
