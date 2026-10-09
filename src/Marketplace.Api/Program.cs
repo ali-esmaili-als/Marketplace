@@ -800,6 +800,90 @@ app.MapGet("/api/admin/financial-integrity/ledger", async (
     });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/financial-integrity/order-flows", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var commissionIssuesQuery =
+        from commission in db.Commissions.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on commission.OrderId equals order.Id
+        where commission.SellerId != order.SellerId
+            || commission.OrderAmountIRR != order.TotalAmountIRR
+            || commission.SellerAmountIRR != commission.OrderAmountIRR - commission.CommissionAmountIRR
+        select new FinancialOrderFlowFinding(
+            "CommissionOrderMismatch", commission.OrderId, commission.Id, null,
+            commission.SellerId, order.SellerId, commission.OrderAmountIRR,
+            order.TotalAmountIRR, commission.CommissionAmountIRR, commission.SellerAmountIRR,
+            commission.CreatedAtUtc);
+
+    var completedRefundsWithoutLedgerQuery =
+        from refund in db.Refunds.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on refund.OrderId equals order.Id
+        where refund.Status == Marketplace.Domain.Refunds.RefundStatus.Completed
+            && !db.BalanceTransactions.AsNoTracking().Any(bt =>
+                bt.OrderId == refund.OrderId
+                && bt.SellerId == order.SellerId
+                && bt.Type == Marketplace.Domain.Finance.BalanceTransactionType.Refund)
+        select new FinancialOrderFlowFinding(
+            "CompletedRefundMissingLedger", refund.OrderId, refund.Id, refund.Id,
+            order.SellerId, order.SellerId, refund.AmountIRR, null, null, null,
+            refund.CompletedAtUtc ?? refund.RequestedAtUtc);
+
+    var completedRefundsWithoutCommissionReversalQuery =
+        from refund in db.Refunds.AsNoTracking()
+        join commission in db.Commissions.AsNoTracking() on refund.OrderId equals commission.OrderId
+        where refund.Status == Marketplace.Domain.Refunds.RefundStatus.Completed
+            && !db.CommissionReversals.AsNoTracking().Any(reversal => reversal.RefundId == refund.Id)
+        select new FinancialOrderFlowFinding(
+            "CompletedRefundMissingCommissionReversal", refund.OrderId, commission.Id, refund.Id,
+            commission.SellerId, null, refund.AmountIRR, null, commission.CommissionAmountIRR, null,
+            refund.CompletedAtUtc ?? refund.RequestedAtUtc);
+
+    var reversalIssuesQuery =
+        from reversal in db.CommissionReversals.AsNoTracking()
+        join refund in db.Refunds.AsNoTracking() on reversal.RefundId equals refund.Id
+        join commission in db.Commissions.AsNoTracking() on reversal.CommissionId equals commission.Id
+        where reversal.OrderId != refund.OrderId
+            || reversal.OrderId != commission.OrderId
+            || reversal.ReversedCommissionIRR > commission.CommissionAmountIRR
+            || reversal.RefundAmountIRR != refund.AmountIRR
+        select new FinancialOrderFlowFinding(
+            "CommissionReversalMismatch", reversal.OrderId, reversal.Id, reversal.RefundId,
+            commission.SellerId, null, reversal.RefundAmountIRR, refund.AmountIRR,
+            reversal.ReversedCommissionIRR, commission.CommissionAmountIRR,
+            reversal.CreatedAtUtc);
+
+    var issues = new List<FinancialOrderFlowFinding>();
+    issues.AddRange(await commissionIssuesQuery.OrderByDescending(x => x.CreatedAtUtc).Take(200).ToListAsync(ct));
+    issues.AddRange(await completedRefundsWithoutLedgerQuery.OrderByDescending(x => x.CreatedAtUtc).Take(200).ToListAsync(ct));
+    issues.AddRange(await completedRefundsWithoutCommissionReversalQuery.OrderByDescending(x => x.CreatedAtUtc).Take(200).ToListAsync(ct));
+    issues.AddRange(await reversalIssuesQuery.OrderByDescending(x => x.CreatedAtUtc).Take(200).ToListAsync(ct));
+
+    var commissionIssueCount = await commissionIssuesQuery.CountAsync(ct);
+    var missingRefundLedgerCount = await completedRefundsWithoutLedgerQuery.CountAsync(ct);
+    var missingCommissionReversalCount = await completedRefundsWithoutCommissionReversalQuery.CountAsync(ct);
+    var reversalIssueCount = await reversalIssuesQuery.CountAsync(ct);
+    var allCount = commissionIssueCount + missingRefundLedgerCount
+        + missingCommissionReversalCount + reversalIssueCount;
+    var ordered = issues.OrderByDescending(x => x.CreatedAtUtc)
+        .ThenBy(x => x.FindingType).ThenBy(x => x.EntityId).Take(200).ToList();
+
+    return Results.Ok(new
+    {
+        generatedAtUtc = DateTime.UtcNow,
+        findingCount = allCount,
+        countsByType = new Dictionary<string, int>
+        {
+            ["CommissionOrderMismatch"] = commissionIssueCount,
+            ["CompletedRefundMissingLedger"] = missingRefundLedgerCount,
+            ["CompletedRefundMissingCommissionReversal"] = missingCommissionReversalCount,
+            ["CommissionReversalMismatch"] = reversalIssueCount
+        },
+        items = ordered,
+        itemsTruncated = allCount > ordered.Count
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/summary", async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var paymentReview = await db.Payments.AsNoTracking()
@@ -1138,6 +1222,7 @@ public sealed record RefundReconciliationRequest(bool TransferCompleted,string? 
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
 public sealed record FinancialLedgerFinding(long SellerId,string FindingType,string Bucket,long? CurrentBalanceIRR,long? LedgerBalanceAfterIRR,long? DifferenceIRR,long? LatestLedgerTransactionId,DateTime? LatestLedgerAtUtc,long? ActiveSettlementTotalIRR);
+public sealed record FinancialOrderFlowFinding(string FindingType,long OrderId,long EntityId,long? RefundId,long? SellerId,long? ExpectedSellerId,long AmountIRR,long? ExpectedAmountIRR,long? CommissionAmountIRR,long? SellerAmountIRR,DateTime CreatedAtUtc);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);

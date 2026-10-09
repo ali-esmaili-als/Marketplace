@@ -708,3 +708,40 @@ WHERE NOT EXISTS
 (
     SELECT 1 FROM dbo.SellerBalances AS sb WHERE sb.SellerId = x.SellerId
 );
+
+
+PRINT '61. Commission split or order snapshot differs from the order';
+SELECT c.Id AS CommissionId, c.OrderId, c.SellerId AS CommissionSellerId,
+       o.SellerId AS OrderSellerId, c.OrderAmountIRR, o.TotalAmountIRR,
+       c.CommissionAmountIRR, c.SellerAmountIRR,
+       c.CommissionAmountIRR + c.SellerAmountIRR AS SplitTotalIRR
+FROM dbo.Commissions AS c
+JOIN dbo.Orders AS o ON o.Id = c.OrderId
+WHERE c.SellerId <> o.SellerId
+   OR c.OrderAmountIRR <> o.TotalAmountIRR
+   OR c.SellerAmountIRR <> c.OrderAmountIRR - c.CommissionAmountIRR;
+
+PRINT '62. Completed refunds without a commission reversal although the order has a commission';
+SELECT r.Id AS RefundId, r.OrderId, r.AmountIRR AS RefundAmountIRR,
+       c.Id AS CommissionId, c.CommissionAmountIRR, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Commissions AS c ON c.OrderId = r.OrderId
+WHERE r.Status = 4 -- Completed
+  AND NOT EXISTS
+  (
+      SELECT 1 FROM dbo.CommissionReversals AS cr WHERE cr.RefundId = r.Id
+  );
+
+PRINT '63. Commission reversals whose refund/order/commission links or amounts disagree';
+SELECT cr.Id AS CommissionReversalId, cr.OrderId AS ReversalOrderId,
+       r.OrderId AS RefundOrderId, c.OrderId AS CommissionOrderId,
+       cr.RefundId, cr.CommissionId, cr.RefundAmountIRR,
+       r.AmountIRR AS ActualRefundAmountIRR, cr.ReversedCommissionIRR,
+       c.CommissionAmountIRR
+FROM dbo.CommissionReversals AS cr
+JOIN dbo.Refunds AS r ON r.Id = cr.RefundId
+JOIN dbo.Commissions AS c ON c.Id = cr.CommissionId
+WHERE cr.OrderId <> r.OrderId
+   OR cr.OrderId <> c.OrderId
+   OR cr.RefundAmountIRR <> r.AmountIRR
+   OR cr.ReversedCommissionIRR > c.CommissionAmountIRR;
