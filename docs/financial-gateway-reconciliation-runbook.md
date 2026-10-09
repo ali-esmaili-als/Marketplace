@@ -131,3 +131,16 @@ For each finding, first preserve the query output and correlate payment provider
 - **36 — Delivery-code use timestamp conflicts with delivery completion:** compare the code verification audit trail, delivery confirmation reference, and delivery state. Preserve evidence before any corrective action.
 
 Checks 34–36 can flag work that is in flight if the diagnostic is run concurrently with a transaction or background job. Re-run after the transaction/job has completed before escalating as a confirmed inconsistency. All checks remain read-only.
+
+### Complaint resolution and seller-hold release safeguards
+
+Before a completed order's complaint-window hold is released, the lifecycle operation must establish all of the following in the same serializable transaction:
+
+- No active complaint remains for the order. If one exists, leave the order Delivered and the seller funds Blocked until the complaint is resolved.
+- The seller balance belongs to the order's seller.
+- The active hold belongs to the exact order and seller and its amount equals the immutable seller amount on the order.
+- The blocked balance is sufficient for the hold amount.
+- The order is Delivered and the complaint window has elapsed.
+
+If any precondition fails, do not retry by changing status or balance rows directly. Preserve the order, hold, balance, and ledger records; inspect the complaint and hold relationships and use the application workflow after correcting the underlying issue. After a successful release, verify the order is Completed, the hold is Released, the blocked amount decreased exactly once, the available amount increased exactly once, and one matching hold-release ledger entry exists. A repeated close attempt must not create another financial movement.
+
