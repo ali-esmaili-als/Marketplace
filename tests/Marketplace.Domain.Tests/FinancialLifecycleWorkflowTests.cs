@@ -87,6 +87,8 @@ public sealed class FinancialLifecycleWorkflowTests
         var order = Order.Create(21, 22, 23, 24, 500_000, 500_000);
         order.MarkPaid();
         order.MarkReady();
+        var deliveredAt = DateTime.UtcNow;
+        order.MarkDelivered(deliveredAt, deliveredAt.AddDays(1));
         order.RequestRefund();
         var unrelatedPayment = Payment.Create(25, 999, order.CustomerId, order.TotalAmountIRR);
         unrelatedPayment.Succeed("UNRELATED");
