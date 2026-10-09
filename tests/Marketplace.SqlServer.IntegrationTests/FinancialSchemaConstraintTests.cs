@@ -86,6 +86,8 @@ public sealed class FinancialSchemaConstraintTests
                     OBJECT_ID(N'dbo.OutboxMessages', N'U') IS NOT NULL
                     AND COL_LENGTH(N'dbo.OutboxMessages', N'LockToken') IS NOT NULL
                     AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.OutboxMessages') AND name=N'IX_OutboxMessages_Poll')
+                    AND OBJECT_ID(N'dbo.OutboxMessageArchive', N'U') IS NOT NULL
+                    AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.OutboxMessageArchive') AND name=N'IX_OutboxMessageArchive_ArchivedAtUtc')
                     AND OBJECT_ID(N'dbo.AdminAuditEvents', N'U') IS NOT NULL
                     AND EXISTS (SELECT 1 FROM sys.foreign_keys WHERE parent_object_id=OBJECT_ID(N'dbo.AdminAuditEvents') AND name=N'FK_AdminAuditEvents_Users')
                     AND EXISTS (SELECT 1 FROM sys.sequences WHERE object_id=OBJECT_ID(N'dbo.MarketplaceSequence'))
