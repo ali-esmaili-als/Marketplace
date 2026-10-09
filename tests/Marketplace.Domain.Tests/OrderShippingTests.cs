@@ -12,10 +12,10 @@ public sealed class OrderShippingTests
     [Fact]
     public void Shipping_fee_is_snapshotted_and_added_after_discounts()
     {
-        var order = Order.Create(1, 2, 3, 4, 1000, 1100, "checkout-request-key-01", 100);
+        var order = Order.Create(1, 2, 3, 4, 1000, 1000, "checkout-request-key-01", 100);
         order.SetDiscounts(100, 0, null);
         Assert.Equal(100, order.ShippingFeeIRR);
-        Assert.Equal(1100, order.TotalAmountIRR);
+        Assert.Equal(1000, order.TotalAmountIRR);
     }
 
     [Fact]
