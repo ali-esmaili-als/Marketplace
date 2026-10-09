@@ -6,7 +6,7 @@ The admin financial-integrity endpoints are read-only diagnostics unless the end
 
 - `GET /api/admin/financial-integrity/summary`: aggregate payment, refund, and settlement diagnostic counts.
 - `GET /api/admin/financial-integrity/items`: bounded detail lists for payment/order mismatches, processing refunds, and on-hold settlements.
-- `GET /api/admin/financial-integrity/order-flows`: checks commission/order amount and seller alignment, completed refunds missing seller-ledger entries, completed refunds missing commission reversals, and commission-reversal links/amounts. The response returns up to 200 detailed findings and exact total counts by type. Refund ledger rows link to orders rather than refund IDs, so the existence check is order/seller-level and should be corroborated when investigating repeated or historical refund attempts.
+- `GET /api/admin/financial-integrity/order-flows`: checks commission/order amount and seller alignment, completed refunds missing seller-ledger entries, completed refunds missing commission reversals, and commission-reversal links/amounts. The response returns up to 200 detailed findings and exact total counts by type. New refund ledger postings carry `RefundId` and are matched exactly; legacy rows with no `RefundId` use an order/seller fallback and still require manual corroboration when an order has historical retry attempts.
 - `GET /api/admin/financial-integrity/ledger`: compares each seller balance bucket with the latest ledger snapshot for that seller/bucket, identifies non-zero buckets without ledger history, missing SellerBalance rows, and mismatches between the reserved balance and active settlement totals. Returns up to 200 findings plus total counts and a truncation flag.
 - `POST /api/admin/financial-integrity/reviews`: records an administrator's review note in `AdminAuditEvents`.
 - `GET /api/admin/financial-integrity/reviews`: returns up to 200 most recent review notes.
@@ -15,7 +15,7 @@ All endpoints require `Admin.Settlement.Process`.
 
 ## Ledger comparison caveats
 
-The latest `BalanceTransactions.BalanceAfterIRR` is treated as the last recorded snapshot for its specific bucket. The endpoint compares it with the current `SellerBalances` value; it does not reconstruct the entire ledger, infer missing bank transfers, or automatically correct either side. The reserved-bucket comparison also checks active settlement totals for Requested, Processing, and OnHold statuses. Investigate each finding against the underlying records before any correction.
+New refund ledger postings reference `RefundId`, with a filtered unique index preventing more than one refund ledger row per refund. Existing ledger rows remain nullable for backward compatibility; historical rows are not auto-linked because retry history cannot be safely inferred. The latest `BalanceTransactions.BalanceAfterIRR` is treated as the last recorded snapshot for its specific bucket. The endpoint compares it with the current `SellerBalances` value; it does not reconstruct the entire ledger, infer missing bank transfers, or automatically correct either side. The reserved-bucket comparison also checks active settlement totals for Requested, Processing, and OnHold statuses. Investigate each finding against the underlying records before any correction.
 
 ## Review request
 
