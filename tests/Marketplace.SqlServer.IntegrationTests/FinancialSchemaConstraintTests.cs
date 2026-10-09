@@ -505,6 +505,60 @@ public sealed class FinancialSchemaConstraintTests
             {
                 Assert.Equal(3, Convert.ToInt32(await identityCheck.ExecuteScalarAsync()));
             }
+
+            // The SQL schema must reject incomplete refund reconciliation evidence,
+            // while accepting a complete audit row linked to the refund.
+            await using (var seedValidRefundAudit = new SqlCommand("""
+                INSERT INTO dbo.RefundReconciliationAudits
+                    (RefundId, AdminUserId, TransferCompleted, Note, BankReference, CreatedAtUtc)
+                VALUES
+                    (950008, 950001, 1, N'Confirmed with provider', N'BANK-REF-950008', SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedValidRefundAudit.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyRefundAudit = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.RefundReconciliationAudits
+                WHERE RefundId = 950008
+                  AND TransferCompleted = 1
+                  AND LEN(LTRIM(RTRIM(Note))) > 0
+                  AND LEN(LTRIM(RTRIM(BankReference))) > 0;
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyRefundAudit.ExecuteScalarAsync()));
+            }
+
+            await using (var missingBankReference = new SqlCommand("""
+                INSERT INTO dbo.RefundReconciliationAudits
+                    (RefundId, AdminUserId, TransferCompleted, Note, BankReference, CreatedAtUtc)
+                VALUES
+                    (950008, 950001, 1, N'Provider confirmed', NULL, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => missingBankReference.ExecuteNonQueryAsync());
+            }
+
+            await using (var blankAuditNote = new SqlCommand("""
+                INSERT INTO dbo.RefundReconciliationAudits
+                    (RefundId, AdminUserId, TransferCompleted, Note, BankReference, CreatedAtUtc)
+                VALUES
+                    (950008, 950001, 0, N'   ', NULL, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => blankAuditNote.ExecuteNonQueryAsync());
+            }
+
+            await using (var missingRefund = new SqlCommand("""
+                INSERT INTO dbo.RefundReconciliationAudits
+                    (RefundId, AdminUserId, TransferCompleted, Note, BankReference, CreatedAtUtc)
+                VALUES
+                    (999998, 950001, 0, N'No refund exists', NULL, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => missingRefund.ExecuteNonQueryAsync());
+            }
         }
         finally
         {
