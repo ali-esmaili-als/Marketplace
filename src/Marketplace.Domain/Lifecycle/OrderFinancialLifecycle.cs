@@ -82,10 +82,23 @@ public sealed class OrderFinancialLifecycle
 
     public void OnSellerWon(Complaint complaint, Order order, SellerBalance balance, SellerBalanceHold hold)
     {
-        if(complaint.Status!=ComplaintStatus.SellerWon) throw new DomainException("Complaint is not resolved for seller.");
+        if (complaint.Status != ComplaintStatus.SellerWon)
+            throw new DomainException("Complaint is not resolved for seller.");
+        if (balance.SellerId != order.SellerId || hold.SellerId != order.SellerId ||
+            hold.OrderId != order.Id || hold.AmountIRR != order.SellerAmountIRR)
+            throw new DomainException("Balance hold does not match the order and seller.");
+        if (hold.Status != BalanceHoldStatus.Active)
+            throw new DomainException("Balance hold is not active.");
+        if (balance.BlockedIRR < order.SellerAmountIRR)
+            throw new DomainException("Insufficient blocked seller balance.");
+        if (order.Status != OrderStatus.Delivered || order.ComplaintExpiresAtUtc is null ||
+            DateTime.UtcNow < order.ComplaintExpiresAtUtc.Value)
+            throw new DomainException("Complaint period has not expired.");
+
+        // All state and balance preconditions are checked before any mutation.
+        order.Complete(DateTime.UtcNow);
         balance.ReleaseBlock(order.SellerAmountIRR);
         hold.Release();
-        order.Complete(DateTime.UtcNow);
     }
 
     public void CompleteRefund(Order order, Payment payment, Refund refund, SellerBalance balance, SellerBalanceHold hold)
