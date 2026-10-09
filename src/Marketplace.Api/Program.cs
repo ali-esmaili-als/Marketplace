@@ -706,6 +706,100 @@ app.MapGet("/api/admin/financial-integrity/reviews", async (
         .ToListAsync(ct))
 ).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/financial-integrity/ledger", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var balances = await db.SellerBalances.AsNoTracking()
+        .Select(x => new
+        {
+            x.SellerId, x.AvailableIRR, x.PendingIRR, x.BlockedIRR,
+            x.ReservedForSettlementIRR, x.LiabilityIRR, x.UpdatedAtUtc
+        }).ToListAsync(ct);
+
+    var latestLedger = await db.BalanceTransactions.AsNoTracking()
+        .GroupBy(x => new { x.SellerId, x.Bucket })
+        .Select(g => g.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
+            .Select(x => new
+            {
+                x.SellerId, Bucket = (byte)x.Bucket, x.Id,
+                x.BalanceAfterIRR, x.CreatedAtUtc, Type = (byte)x.Type
+            }).First())
+        .ToListAsync(ct);
+
+    var activeSettlementTotals = await db.Settlements.AsNoTracking()
+        .Where(x => x.Status == Marketplace.Domain.Finance.SettlementStatus.Requested
+            || x.Status == Marketplace.Domain.Finance.SettlementStatus.Processing
+            || x.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
+        .GroupBy(x => x.SellerId)
+        .Select(g => new { SellerId = g.Key, AmountIRR = g.Sum(x => x.AmountIRR), Count = g.Count() })
+        .ToListAsync(ct);
+
+    var balanceBySeller = balances.ToDictionary(x => x.SellerId);
+    var ledgerByKey = latestLedger.ToDictionary(x => (x.SellerId, x.Bucket));
+    var activeBySeller = activeSettlementTotals.ToDictionary(x => x.SellerId);
+    var sellerIds = balances.Select(x => x.SellerId)
+        .Concat(latestLedger.Select(x => x.SellerId))
+        .Concat(activeSettlementTotals.Select(x => x.SellerId))
+        .Distinct().ToArray();
+    var findings = new List<FinancialLedgerFinding>();
+
+    foreach (var sellerId in sellerIds)
+    {
+        balanceBySeller.TryGetValue(sellerId, out var balance);
+        activeBySeller.TryGetValue(sellerId, out var active);
+        if (balance is null)
+        {
+            findings.Add(new FinancialLedgerFinding(sellerId, "MissingSellerBalance", "All",
+                null, null, null, null, null, active?.AmountIRR));
+            continue;
+        }
+
+        var buckets = new[]
+        {
+            (Id: (byte)1, Name: "Available", Amount: balance.AvailableIRR),
+            (Id: (byte)2, Name: "Pending", Amount: balance.PendingIRR),
+            (Id: (byte)3, Name: "Blocked", Amount: balance.BlockedIRR),
+            (Id: (byte)4, Name: "ReservedForSettlement", Amount: balance.ReservedForSettlementIRR),
+            (Id: (byte)5, Name: "Liability", Amount: balance.LiabilityIRR)
+        };
+
+        foreach (var bucket in buckets)
+        {
+            if (!ledgerByKey.TryGetValue((sellerId, bucket.Id), out var snapshot))
+            {
+                if (bucket.Amount != 0)
+                    findings.Add(new FinancialLedgerFinding(sellerId, "MissingLedgerSnapshot", bucket.Name,
+                        bucket.Amount, null, null, null, null, null));
+                continue;
+            }
+
+            if (snapshot.BalanceAfterIRR != bucket.Amount)
+                findings.Add(new FinancialLedgerFinding(sellerId, "BalanceSnapshotMismatch", bucket.Name,
+                    bucket.Amount, snapshot.BalanceAfterIRR, bucket.Amount - snapshot.BalanceAfterIRR,
+                    snapshot.Id, snapshot.CreatedAtUtc, null));
+        }
+
+        var expectedReserved = active?.AmountIRR ?? 0;
+        if (balance.ReservedForSettlementIRR != expectedReserved)
+            findings.Add(new FinancialLedgerFinding(sellerId, "ReservedSettlementMismatch", "ReservedForSettlement",
+                balance.ReservedForSettlementIRR, null,
+                balance.ReservedForSettlementIRR - expectedReserved, null, null, expectedReserved));
+    }
+
+    var ordered = findings.OrderBy(x => x.SellerId).ThenBy(x => x.FindingType).ThenBy(x => x.Bucket).ToList();
+    return Results.Ok(new
+    {
+        generatedAtUtc = DateTime.UtcNow,
+        sellerCount = sellerIds.Length,
+        findingCount = ordered.Count,
+        countsByType = ordered.GroupBy(x => x.FindingType)
+            .ToDictionary(g => g.Key, g => g.Count()),
+        items = ordered.Take(200).ToList(),
+        itemsTruncated = ordered.Count > 200
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/summary", async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var paymentReview = await db.Payments.AsNoTracking()
@@ -1043,6 +1137,7 @@ public sealed record SettlementReconciliationRequest(bool TransferCompleted,stri
 public sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
+public sealed record FinancialLedgerFinding(long SellerId,string FindingType,string Bucket,long? CurrentBalanceIRR,long? LedgerBalanceAfterIRR,long? DifferenceIRR,long? LatestLedgerTransactionId,DateTime? LatestLedgerAtUtc,long? ActiveSettlementTotalIRR);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);

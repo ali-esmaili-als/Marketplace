@@ -680,3 +680,31 @@ SELECT p.Id AS PaymentId, p.OrderId, p.Status, p.ReferenceNumber, p.PaidAtUtc,
 FROM dbo.Payments AS p
 WHERE p.Status = 3 -- Succeeded
   AND (LEN(LTRIM(RTRIM(ISNULL(p.ReferenceNumber, N'')))) = 0 OR p.PaidAtUtc IS NULL);
+
+
+PRINT '60. Financial ledger or active settlement exists for a seller without a SellerBalance row';
+;WITH SellerFinancePresence AS
+(
+    SELECT bt.SellerId, COUNT_BIG(*) AS LedgerTransactionCount,
+           CAST(0 AS bigint) AS ActiveSettlementCount
+    FROM dbo.BalanceTransactions AS bt
+    GROUP BY bt.SellerId
+    UNION ALL
+    SELECT s.SellerId, CAST(0 AS bigint), COUNT_BIG(*)
+    FROM dbo.Settlements AS s
+    WHERE s.Status IN (1, 2, 6) -- Requested, Processing, OnHold
+    GROUP BY s.SellerId
+),
+SellerFinanceTotals AS
+(
+    SELECT SellerId, SUM(LedgerTransactionCount) AS LedgerTransactionCount,
+           SUM(ActiveSettlementCount) AS ActiveSettlementCount
+    FROM SellerFinancePresence
+    GROUP BY SellerId
+)
+SELECT x.SellerId, x.LedgerTransactionCount, x.ActiveSettlementCount
+FROM SellerFinanceTotals AS x
+WHERE NOT EXISTS
+(
+    SELECT 1 FROM dbo.SellerBalances AS sb WHERE sb.SellerId = x.SellerId
+);
