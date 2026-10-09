@@ -280,7 +280,7 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
         using var detailJson = System.Text.Json.JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
         Assert.Equal(OrderId, detailJson.RootElement.GetProperty("order").GetProperty("id").GetInt64());
-        Assert.Equal(900000, detailJson.RootElement.GetProperty("order").GetProperty("sellerAmountIRR").GetInt64());
+        Assert.Equal(900000L, detailJson.RootElement.GetProperty("order").GetProperty("sellerAmountIRR").GetInt64());
 
         using var invalidFilter = await Client.GetAsync("/api/admin/orders?status=99");
         Assert.Equal(HttpStatusCode.BadRequest, invalidFilter.StatusCode);
