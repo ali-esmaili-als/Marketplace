@@ -81,15 +81,77 @@ public sealed class PaymentVerificationServiceTests
         factory.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task Verify_ProviderTimeoutKeepsPaymentAndTransactionPendingForSafeRetry()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        var transaction = PaymentTransaction.Create(11, payment.Id, payment.AmountIRR, "TestBank", "AUTH-10");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
+        gateway.SetupGet(x => x.ProviderName).Returns("TestBank");
+        gateway.Setup(x => x.VerifyAsync("AUTH-10", 500_000, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("Provider response timed out."));
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        factory.Setup(x => x.GetAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(gateway.Object);
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+        var service = CreateService(payments, factory, uow);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => service.VerifyAsync(30, 10, "AUTH-10"));
+
+        Assert.Equal(PaymentStatus.Redirected, payment.Status);
+        Assert.Null(payment.ReferenceNumber);
+        Assert.Equal(PaymentTransactionStatus.Initiated, transaction.Status);
+        payments.Verify(x => x.GetLatestTransactionAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        uow.VerifyNoOtherCalls();
+        gateway.VerifyAll();
+        factory.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Verify_ExplicitProviderRejectionMarksPaymentAndTransactionFailed()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        var transaction = PaymentTransaction.Create(11, payment.Id, payment.AmountIRR, "TestBank", "AUTH-10");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        payments.Setup(x => x.GetLatestTransactionAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(transaction);
+        var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
+        gateway.SetupGet(x => x.ProviderName).Returns("TestBank");
+        gateway.Setup(x => x.VerifyAsync("AUTH-10", 500_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentVerification(false, null, "Provider rejected payment."));
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        factory.Setup(x => x.GetAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(gateway.Object);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var service = CreateService(payments, factory, uow);
+
+        var result = await service.VerifyAsync(30, 10, "AUTH-10");
+
+        Assert.False(result.Paid);
+        Assert.Equal("Provider rejected payment.", result.Error);
+        Assert.Equal(PaymentStatus.Failed, payment.Status);
+        Assert.Equal(PaymentTransactionStatus.Failed, transaction.Status);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static PaymentVerificationService CreateService(
         Mock<IPaymentRepository> payments,
-        Mock<IPaymentGatewayFactory> factory)
+        Mock<IPaymentGatewayFactory> factory,
+        Mock<IUnitOfWork>? unitOfWork = null)
     {
         var orders = new Mock<IOrderRepository>();
         var lifecycleRepository = new Mock<ILifecycleRepository>();
         var notifications = new Mock<INotificationRepository>();
         var ids = new Mock<IIdGenerator>();
-        var uow = new Mock<IUnitOfWork>();
+        var uow = unitOfWork ?? new Mock<IUnitOfWork>();
         var lifecycle = new OrderLifecycleService(
             orders.Object, payments.Object, lifecycleRepository.Object, uow.Object, ids.Object, notifications.Object);
         return new PaymentVerificationService(payments.Object, orders.Object, factory.Object, uow.Object, lifecycle);
