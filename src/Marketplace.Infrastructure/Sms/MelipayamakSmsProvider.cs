@@ -74,4 +74,23 @@ public sealed class MelipayamakSmsProvider(HttpClient http, IConfiguration confi
         configuration[key] is { Length: > 0 } value
             ? value
             : throw new InvalidOperationException($"{key} is required.");
+    public async Task SendMessageAsync(string mobile, string message, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(message) || message.Length > 1000) throw new ArgumentException("SMS message must contain 1-1000 characters.", nameof(message));
+        var username = Required("Authentication:Otp:Melipayamak:Username");
+        var password = Required("Authentication:Otp:Melipayamak:Password");
+        var from = configuration["Notifications:Sms:Melipayamak:From"] ?? configuration["Authentication:Otp:Melipayamak:From"];
+        if (string.IsNullOrWhiteSpace(from)) throw new InvalidOperationException("Notifications:Sms:Melipayamak:From is required for automatic SMS.");
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["username"] = username, ["password"] = password, ["to"] = mobile,
+            ["from"] = from, ["text"] = message, ["isFlash"] = "false"
+        });
+        using var response = await http.PostAsync("https://rest.payamak-panel.com/api/SendSMS/SendSMS", content, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Melipayamak rejected the SMS. HTTP {(int)response.StatusCode}: {body}");
+        using var json = JsonDocument.Parse(body);
+        if (json.RootElement.TryGetProperty("RetStatus", out var status) && status.GetInt32() != 1)
+            throw new InvalidOperationException($"Melipayamak rejected the SMS: {body}");
+    }
 }
