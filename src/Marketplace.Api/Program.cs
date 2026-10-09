@@ -115,6 +115,8 @@ app.UseAuthorization();
 app.UseRateLimiter();
 
 app.MapGet("/api/notifications",async(System.Security.Claims.ClaimsPrincipal user,int? take,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>Results.Ok(await service.GetAsync(CurrentUserId(user),take??50,ct))).RequireAuthorization();
+app.MapGet("/api/notifications/unread-count",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>Results.Ok(new { count=await service.GetUnreadCountAsync(CurrentUserId(user),ct) })).RequireAuthorization();
+app.MapPost("/api/notifications/read-all",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>Results.Ok(new { updated=await service.MarkAllReadAsync(CurrentUserId(user),ct) })).RequireAuthorization();
 app.MapPost("/api/notifications/{notificationId:long}/read",async(System.Security.Claims.ClaimsPrincipal user,long notificationId,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>{await service.MarkReadAsync(CurrentUserId(user),notificationId,ct);return Results.NoContent();}).RequireAuthorization();
 app.MapGet("/health",()=>Results.Ok(new{status="ok",utc=DateTime.UtcNow}));
 app.MapGet("/health/db",async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct) =>
