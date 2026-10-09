@@ -51,6 +51,19 @@ All management endpoints require `Admin.Settlement.Process`:
 
 The Angular admin page is at `/admin/outbox` and uses the same permission guard. Payload visibility is restricted to this admin permission; avoid putting credentials, bank account snapshots, access tokens or other secrets in event payloads.
 
+## Processed-message retention and archive
+
+A separate `OutboxRetentionHostedService` supports bounded archival of old, successfully processed messages. It is disabled by default and has independent settings under `Outbox:Retention`:
+
+- `Enabled=false` (default)
+- `ProcessedRetentionDays=90` (minimum 7 days)
+- `BatchSize=500` (bounded to 1–5000 rows)
+- `IntervalMinutes=60` (bounded to 5–1440 minutes)
+
+Before enabling it, deploy `database/021_OutboxRetentionArchive.sql` to an existing database; new databases already contain `dbo.OutboxMessageArchive` in `Marketplace_Complete.sql`. The worker atomically moves only rows with `Status='Processed'` and a non-null `ProcessedAtUtc` older than the retention cutoff. A bounded SQL delete/output statement writes the full message record to the archive table in the same statement; if archive insertion fails, the source deletion fails too. Pending, Processing, and DeadLetter messages are never archived by this worker. Archive records are retained indefinitely by this first version; archive expiration is intentionally not automated until a separate legal/compliance retention policy is defined.
+
+This worker does not call the webhook, retry messages, alter status on source messages, or touch orders, settlements, balances, commissions, refunds, or ledger records. Keep retention disabled until the archive migration is deployed and the workload/backup policy has been reviewed.
+
 ## Reliability boundaries
 
 The outbox closes the gap between committing a settlement state transition and persisting its event. It does not make a bank transfer exactly-once. For ambiguous bank responses, keep funds reserved and reconcile with the provider's status lookup or idempotency support before deciding whether to release funds or record completion.
