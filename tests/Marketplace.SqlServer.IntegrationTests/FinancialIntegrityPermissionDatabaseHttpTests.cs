@@ -108,8 +108,8 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
                     (Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc, LockedUntilUtc, LockToken,
                      NextAttemptAtUtc, Attempts, Status, LastError)
                 VALUES
-                    (91001, '91001000-0000-0000-0000-000000000001', N'Settlement.Requested', N'{""settlementId"":1}', @now, NULL, NULL, NULL, @now, 0, N'Pending', NULL),
-                    (91002, '91002000-0000-0000-0000-000000000002', N'Settlement.Completed', N'{""settlementId"":2}', @now, NULL, NULL, NULL, @now, 8, N'DeadLetter', N'Webhook unavailable');
+                    (91001, '91001000-0000-0000-0000-000000000001', N'Settlement.Requested', N'{"settlementId":1}', @now, NULL, NULL, NULL, @now, 0, N'Pending', NULL),
+                    (91002, '91002000-0000-0000-0000-000000000002', N'Settlement.Completed', N'{"settlementId":2}', @now, NULL, NULL, NULL, @now, 8, N'DeadLetter', N'Webhook unavailable');
                 """);
 
             SetEnvironment("Authentication__Jwt__Key", JwtKey);
