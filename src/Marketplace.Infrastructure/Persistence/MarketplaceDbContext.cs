@@ -27,6 +27,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
+    public DbSet<Marketplace.Domain.Catalog.SavedProduct> SavedProducts => Set<Marketplace.Domain.Catalog.SavedProduct>();
     public DbSet<ProductAttribute> ProductAttributes => Set<ProductAttribute>();
     public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
     public DbSet<ProductAttributeAssignment> ProductAttributeAssignments => Set<ProductAttributeAssignment>();
@@ -166,6 +167,21 @@ public sealed class MarketplaceDbContext : DbContext
             e.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
             e.HasIndex(x => new { x.StoreId, x.Status });
         });
+        b.Entity<Marketplace.Domain.Catalog.SavedProduct>(e =>
+        {
+            e.ToTable("SavedProducts", t =>
+            {
+                t.HasCheckConstraint("CK_SavedProducts_Ids", "CustomerId > 0 AND ProductId > 0");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.CreatedAtUtc).HasColumnType("datetime2(7)");
+            e.HasIndex(x => new { x.CustomerId, x.ProductId }).IsUnique();
+            e.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
+            e.HasOne<Marketplace.Domain.Identity.User>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Marketplace.Domain.Catalog.Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         b.Entity<ProductReview>(e =>
         {
             e.ToTable("ProductReviews", t =>
