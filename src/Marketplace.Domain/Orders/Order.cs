@@ -19,6 +19,11 @@ public sealed class Order : AggregateRoot<long>
     public long? DestinationCityId { get; private set; }
     public string? DestinationCityNameSnapshot { get; private set; }
     public string? DestinationProvinceNameSnapshot { get; private set; }
+    public string? DeliveryRecipientNameSnapshot { get; private set; }
+    public string? DeliveryRecipientMobileSnapshot { get; private set; }
+    public string? DeliveryAddressLineSnapshot { get; private set; }
+    public string? DeliveryPostalCodeSnapshot { get; private set; }
+    public string? DeliveryNoteSnapshot { get; private set; }
     public OrderStatus Status { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? PaidAtUtc { get; private set; }
@@ -43,6 +48,14 @@ public sealed class Order : AggregateRoot<long>
         CampaignDiscountIRR=campaignDiscountIrr; CouponDiscountIRR=couponDiscountIrr; CouponCodeSnapshot=string.IsNullOrWhiteSpace(couponCode)?null:couponCode.Trim().ToUpperInvariant();
     }
     public void SetShippingDestination(long cityId,string cityName,string provinceName){if(cityId<=0||string.IsNullOrWhiteSpace(cityName)||string.IsNullOrWhiteSpace(provinceName))throw new DomainException("Invalid shipping destination.");DestinationCityId=cityId;DestinationCityNameSnapshot=cityName.Trim();DestinationProvinceNameSnapshot=provinceName.Trim();}
+    public void SetDeliveryAddress(string recipientName,string recipientMobile,string addressLine,string postalCode,string? deliveryNote)
+    {
+        if(string.IsNullOrWhiteSpace(recipientName)||string.IsNullOrWhiteSpace(recipientMobile)||string.IsNullOrWhiteSpace(addressLine)||string.IsNullOrWhiteSpace(postalCode))
+            throw new DomainException("A complete delivery address is required.");
+        if(recipientName.Trim().Length>150||recipientMobile.Trim().Length>30||addressLine.Trim().Length>1000||postalCode.Trim().Length>20||deliveryNote?.Trim().Length>500)
+            throw new DomainException("Delivery address exceeds supported field lengths.");
+        DeliveryRecipientNameSnapshot=recipientName.Trim();DeliveryRecipientMobileSnapshot=recipientMobile.Trim();DeliveryAddressLineSnapshot=addressLine.Trim();DeliveryPostalCodeSnapshot=postalCode.Trim();DeliveryNoteSnapshot=string.IsNullOrWhiteSpace(deliveryNote)?null:deliveryNote.Trim();
+    }
     public void SetSellerAmount(long amount){if(amount<0||amount>TotalAmountIRR)throw new DomainException("Invalid seller amount.");SellerAmountIRR=amount;}
     public void MarkPaid(DateTime? now=null){Require(OrderStatus.PendingPayment);PaidAtUtc=now??DateTime.UtcNow;Status=OrderStatus.Paid;}
     public void StartPreparing(){Require(OrderStatus.Paid);Status=OrderStatus.Preparing;}
