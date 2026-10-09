@@ -428,8 +428,14 @@ app.MapPut("/api/admin/sms-providers/{provider}",async(string provider,SmsProvid
 app.MapGet("/api/admin/payment-providers",async(Marketplace.Application.Payments.PaymentProviderSettingsService service,CancellationToken ct)=>
     Results.Ok(await service.GetAllAsync(ct))).RequirePermission("Admin.PaymentProviders.Read");
 
-app.MapPut("/api/admin/payment-providers/{provider}",async(Marketplace.Domain.Payments.PaymentProviderCode provider,PaymentProviderConfigureRequest request,Marketplace.Application.Payments.PaymentProviderSettingsService service,CancellationToken ct)=>{
-    await service.ConfigureAsync(provider,request.IsEnabled,request.IsVisible,request.SortOrder,request.ConfigurationJson,ct);
+app.MapGet("/api/admin/audit-events",async(int? take,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
+    Results.Ok(await db.AdminAuditEvents.AsNoTracking().OrderByDescending(x=>x.CreatedAtUtc)
+        .Take(Math.Clamp(take??100,1,200))
+        .Select(x=>new { id=x.Id,actorUserId=x.ActorUserId,action=x.Action,entityType=x.EntityType,entityKey=x.EntityKey,detailsJson=x.DetailsJson,correlationId=x.CorrelationId,createdAtUtc=x.CreatedAtUtc })
+        .ToListAsync(ct))).RequirePermission("Admin.PaymentProviders.Read");
+
+app.MapPut("/api/admin/payment-providers/{provider}",async(Marketplace.Domain.Payments.PaymentProviderCode provider,PaymentProviderConfigureRequest request,System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Payments.PaymentProviderSettingsService service,CancellationToken ct)=>{
+    await service.ConfigureAsync(provider,request.IsEnabled,request.IsVisible,request.SortOrder,request.ConfigurationJson,ct,CurrentUserId(user));
     return Results.NoContent();
 }).RequirePermission("Admin.PaymentProviders.Configure");
 

@@ -20,7 +20,7 @@ public sealed class PaymentProviderSettingsService(IPaymentProviderSettingsAdmin
     public Task<IReadOnlyList<PaymentProviderSettingDto>> GetAllAsync(CancellationToken ct=default)
         => admin.GetAllAsync(ct);
 
-    public Task ConfigureAsync(PaymentProviderCode provider,bool isEnabled,bool isVisible,int sortOrder,string configurationJson,CancellationToken ct=default)
+    public Task ConfigureAsync(PaymentProviderCode provider,bool isEnabled,bool isVisible,int sortOrder,string configurationJson,CancellationToken ct=default,long? adminUserId=null)
     {
         if(sortOrder<0) throw new DomainException("Sort order cannot be negative.");
 
@@ -39,6 +39,6 @@ public sealed class PaymentProviderSettingsService(IPaymentProviderSettingsAdmin
             throw new DomainException("Payment provider configuration must be valid JSON.");
         }
 
-        return admin.ConfigureAsync(provider,isEnabled,isVisible,sortOrder,normalizedConfiguration,ct);
+        return admin.ConfigureAsync(provider,isEnabled,isVisible,sortOrder,normalizedConfiguration,ct,adminUserId);
     }
 }

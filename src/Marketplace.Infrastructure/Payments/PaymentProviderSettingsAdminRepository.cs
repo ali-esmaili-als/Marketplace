@@ -20,7 +20,7 @@ public sealed class PaymentProviderSettingsAdminRepository(
             PaymentProviderCapabilities.ReadinessMessage(x.Provider))).ToList();
     }
 
-    public async Task ConfigureAsync(PaymentProviderCode provider,bool isEnabled,bool isVisible,int sortOrder,string configurationJson,CancellationToken ct=default)
+    public async Task ConfigureAsync(PaymentProviderCode provider,bool isEnabled,bool isVisible,int sortOrder,string configurationJson,CancellationToken ct=default,long? adminUserId=null)
     {
         await uow.ExecuteInSerializableTransactionAsync(async token =>
         {
@@ -29,6 +29,10 @@ public sealed class PaymentProviderSettingsAdminRepository(
 
             // The UI receives masked secrets. Merge them with the stored credentials before
             // persisting so saving a label/order change cannot silently erase bank credentials.
+            var previousEnabled = setting.IsEnabled;
+            var previousVisible = setting.IsVisible;
+            var previousSortOrder = setting.SortOrder;
+            var configurationChanged = !string.Equals(setting.ConfigurationJson, configurationJson, StringComparison.Ordinal);
             var mergedConfiguration = PaymentProviderConfigurationSanitizer.MergePreservingSecrets(
                 setting.ConfigurationJson, configurationJson);
 
@@ -43,6 +47,16 @@ public sealed class PaymentProviderSettingsAdminRepository(
             }
 
             setting.Configure(isEnabled,isVisible,sortOrder,mergedConfiguration);
+            if (adminUserId is > 0)
+            {
+                var details = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    previousEnabled, enabled = isEnabled, previousVisible, visible = isVisible,
+                    previousSortOrder, sortOrder, configurationChanged
+                });
+                db.AdminAuditEvents.Add(Marketplace.Domain.Auditing.AdminAuditEvent.Create(
+                    adminUserId.Value,"PaymentProvider.Configure","PaymentProvider",provider.ToString(),details,null));
+            }
             await uow.SaveChangesAsync(token);
             return 0;
         },ct);

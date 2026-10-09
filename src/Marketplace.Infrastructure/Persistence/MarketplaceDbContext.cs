@@ -56,6 +56,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<SettlementReconciliationAudit> SettlementReconciliationAudits => Set<SettlementReconciliationAudit>();
     public DbSet<PaymentProviderSetting> PaymentProviderSettings => Set<PaymentProviderSetting>();
+    public DbSet<Marketplace.Domain.Auditing.AdminAuditEvent> AdminAuditEvents => Set<Marketplace.Domain.Auditing.AdminAuditEvent>();
     public DbSet<DeliveryCity> DeliveryCities => Set<DeliveryCity>();
     public DbSet<StoreShippingCity> StoreShippingCities => Set<StoreShippingCity>();
     public DbSet<User> Users => Set<User>();
@@ -266,6 +267,17 @@ public sealed class MarketplaceDbContext : DbContext
             e.HasIndex(x => x.Provider).IsUnique();
             e.HasIndex(x => new { x.IsEnabled, x.IsVisible, x.SortOrder });
         });
+        b.Entity<Marketplace.Domain.Auditing.AdminAuditEvent>(e =>
+        {
+            e.ToTable("AdminAuditEvents"); e.HasKey(x => x.Id);
+            e.Property(x => x.Action).HasMaxLength(100).IsRequired();
+            e.Property(x => x.EntityType).HasMaxLength(100).IsRequired();
+            e.Property(x => x.EntityKey).HasMaxLength(200).IsRequired();
+            e.Property(x => x.DetailsJson).HasMaxLength(2000).IsRequired();
+            e.Property(x => x.CorrelationId).HasMaxLength(100);
+            e.HasIndex(x => x.CreatedAtUtc);
+            e.HasIndex(x => new { x.EntityType, x.EntityKey, x.CreatedAtUtc });
+        });
         b.Entity<Campaign>(e =>
         {
             e.ToTable("Campaigns", t => { t.HasCheckConstraint("CK_Campaigns_Dates", "EndsAtUtc > StartsAtUtc"); t.HasCheckConstraint("CK_Campaigns_Discount", "DiscountValue >= 0 AND (DiscountType <> 1 OR DiscountValue <= 100)"); }); e.HasKey(x=>x.Id);
@@ -339,7 +351,8 @@ public sealed class MarketplaceDbContext : DbContext
             if (idProperty?.ClrType == typeof(long) &&
                 entityType.ClrType.Name is not nameof(PaymentReconciliationAudit)
                     and not nameof(RefundReconciliationAudit)
-                    and not nameof(SettlementReconciliationAudit))
+                    and not nameof(SettlementReconciliationAudit)
+                    and not nameof(Marketplace.Domain.Auditing.AdminAuditEvent))
             {
                 idProperty.ValueGenerated = Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never;
             }
