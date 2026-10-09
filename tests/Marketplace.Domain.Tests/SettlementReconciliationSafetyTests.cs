@@ -85,6 +85,101 @@ public sealed class SettlementReconciliationSafetyTests
     }
 
     [Fact]
+    public async Task Reconcile_paid_deducts_reserved_and_available_once_and_records_reference_and_audit()
+    {
+        var settlement = Settlement.Create(121, 232, 250_000, 343, "Bank", "IR00343", "Seller");
+        settlement.MarkProcessing();
+        settlement.PutOnHold();
+
+        var balance = SellerBalance.Create(454, settlement.SellerId);
+        balance.AddAvailable(700_000);
+        balance.ReserveForSettlement(settlement.AmountIRR);
+
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementAsync(settlement.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlement);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(settlement.SellerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+
+        SettlementReconciliationAudit? capturedAudit = null;
+        BalanceTransaction? capturedTransaction = null;
+        lifecycle.Setup(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()))
+            .Callback<SettlementReconciliationAudit>(audit => capturedAudit = audit);
+        lifecycle.Setup(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()))
+            .Callback<BalanceTransaction>(transaction => capturedTransaction = transaction);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        long nextId = 800;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Interlocked.Increment(ref nextId));
+
+        var service = new SettlementService(
+            lifecycle.Object, uow.Object, ids.Object, Mock.Of<ISellerPayoutGateway>(), Mock.Of<ISellerManagementRepository>());
+
+        var result = await service.ReconcileAsync(
+            settlement.Id, adminUserId: 919, transferCompleted: true, bankReference: " BANK-PAID-121 ",
+            note: "Confirmed against bank statement");
+
+        Assert.Equal("Completed", result.Status);
+        Assert.Equal("BANK-PAID-121", result.Reference);
+        Assert.Equal(SettlementStatus.Completed, settlement.Status);
+        Assert.Equal(450_000, balance.AvailableIRR);
+        Assert.Equal(0, balance.ReservedForSettlementIRR);
+        Assert.Equal(450_000, balance.WithdrawableIRR);
+
+        Assert.NotNull(capturedAudit);
+        Assert.Equal(919, capturedAudit!.AdminUserId);
+        Assert.Equal(settlement.Id, capturedAudit.SettlementId);
+        Assert.True(capturedAudit.TransferCompleted);
+        Assert.Equal("BANK-PAID-121", capturedAudit.BankReference);
+        Assert.Equal("Confirmed against bank statement", capturedAudit.Note);
+
+        Assert.NotNull(capturedTransaction);
+        Assert.Equal(BalanceTransactionType.Settlement, capturedTransaction!.Type);
+        Assert.Equal(BalanceBucket.Available, capturedTransaction.Bucket);
+        Assert.Equal(settlement.Id, capturedTransaction.SettlementId);
+        Assert.Equal(250_000, capturedTransaction.AmountIRR);
+        Assert.Equal(700_000, capturedTransaction.BalanceBeforeIRR);
+        Assert.Equal(450_000, capturedTransaction.BalanceAfterIRR);
+        Assert.Contains("RECONCILED_PAID:BANK-PAID-121", capturedTransaction.Reference);
+
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        lifecycle.Verify(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.ReconcileAsync(
+            settlement.Id, 920, transferCompleted: true, bankReference: "BANK-PAID-121",
+            note: "Duplicate attempt"));
+        Assert.Equal(450_000, balance.AvailableIRR);
+        Assert.Equal(0, balance.ReservedForSettlementIRR);
+        lifecycle.Verify(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Reconcile_requires_a_nonblank_operator_note_before_database_transaction()
+    {
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+        var service = new SettlementService(
+            Mock.Of<ILifecycleRepository>(), uow.Object, Mock.Of<IIdGenerator>(),
+            Mock.Of<ISellerPayoutGateway>(), Mock.Of<ISellerManagementRepository>());
+
+        await Assert.ThrowsAsync<DomainException>(() => service.ReconcileAsync(
+            settlementId: 1, adminUserId: 2, transferCompleted: false,
+            bankReference: null, note: "   "));
+
+        uow.Verify(x => x.ExecuteInSerializableTransactionAsync(
+            It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Reconcile_paid_requires_bank_reference_before_changing_financial_state()
     {
         var settlement = Settlement.Create(111, 222, 250_000, 333, "Bank", "IR00333", "Seller");
