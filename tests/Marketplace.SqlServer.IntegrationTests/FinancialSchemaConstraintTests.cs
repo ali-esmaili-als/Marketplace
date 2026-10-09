@@ -69,6 +69,17 @@ public sealed class FinancialSchemaConstraintTests
             VALUES (920003, 920001, 920003, 0, 1, DATEADD(hour, 1, SYSUTCDATETIME()), SYSUTCDATETIME());
             """);
 
+        await AssertDatabaseConstraintAsync(db, """
+            INSERT INTO dbo.Payments (Id, OrderId, CustomerId, AmountIRR, Status, CreatedAtUtc)
+            VALUES (930001, 930001, 930001, 0, 1, SYSUTCDATETIME());
+            """);
+
+        await AssertDatabaseConstraintAsync(db, """
+            INSERT INTO dbo.Refunds
+                (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+            VALUES (930002, 930002, 930002, 930002, 0, 1, 1, SYSUTCDATETIME());
+            """);
+
         // Two independent sessions compete for four units from stock of five.
         // The conditional UPDATE is atomic: only one reservation may succeed.
         async Task<int> TryReserveAsync()
