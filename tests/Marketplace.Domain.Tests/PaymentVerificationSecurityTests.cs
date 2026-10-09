@@ -25,16 +25,10 @@ public sealed class PaymentVerificationSecurityTests
         var orders = new Mock<IOrderRepository>();
         var gatewayFactory = new Mock<IPaymentGatewayFactory>();
         var uow = new Mock<IUnitOfWork>();
-        var lifecycle = new Mock<OrderLifecycleService>(
-            orders.Object,
-            payments.Object,
-            Mock.Of<ILifecycleRepository>(),
-            uow.Object,
-            Mock.Of<IIdGenerator>(),
-            Mock.Of<INotificationRepository>()) { CallBase = false };
+        var lifecycle = CreateLifecycle(orders.Object, payments.Object, uow.Object);
 
         var service = new PaymentVerificationService(
-            payments.Object, orders.Object, gatewayFactory.Object, uow.Object, lifecycle.Object);
+            payments.Object, orders.Object, gatewayFactory.Object, uow.Object, lifecycle);
 
         await Assert.ThrowsAsync<DomainException>(() =>
             service.VerifyAsync(userId: 999, paymentId: payment.Id, authority: "authority-1"));
@@ -52,7 +46,7 @@ public sealed class PaymentVerificationSecurityTests
         var orders = new Mock<IOrderRepository>();
         var gatewayFactory = new Mock<IPaymentGatewayFactory>();
         var uow = new Mock<IUnitOfWork>();
-        var lifecycle = Mock.Of<OrderLifecycleService>();
+        var lifecycle = CreateLifecycle(orders.Object, payments.Object, uow.Object);
 
         var service = new PaymentVerificationService(
             payments.Object, orders.Object, gatewayFactory.Object, uow.Object, lifecycle);
@@ -142,6 +136,16 @@ public sealed class PaymentVerificationSecurityTests
         Assert.Equal(PaymentTransactionStatus.Failed, transaction.Status);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    private static OrderLifecycleService CreateLifecycle(
+        IOrderRepository orders, IPaymentRepository payments, IUnitOfWork uow)
+        => new(
+            orders,
+            payments,
+            Mock.Of<ILifecycleRepository>(),
+            uow,
+            Mock.Of<IIdGenerator>(),
+            Mock.Of<INotificationRepository>());
 
     private static Payment CreateRedirectedPayment(string provider = "TestBank")
     {
