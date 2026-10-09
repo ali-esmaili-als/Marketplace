@@ -13,6 +13,9 @@ using Marketplace.Application.Pricing;
 namespace Marketplace.Application.Orders;
 
 public sealed record CheckoutResult(long OrderId,long PaymentId,string Provider,string Authority,string RedirectUrl,long TotalAmountIRR,long SubtotalAmountIRR,long CampaignDiscountIRR,long CouponDiscountIRR,string? CouponCode);
+public sealed record CheckoutQuoteLine(long ProductId,long VariantId,string ProductName,string SKU,string VariantKey,int Quantity,long UnitPriceIRR,long WarrantyUnitPriceIRR,string? WarrantyName,long CampaignDiscountIRR,long CouponDiscountIRR,long FinalLineIRR,int AvailableQuantity,string? CampaignName);
+public sealed record CheckoutQuoteResult(long StoreId,string StoreName,long DestinationCityId,string DestinationCityName,long SubtotalIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long TotalIRR,string? CouponCode,IReadOnlyList<CheckoutQuoteLine> Lines,DateTime QuotedAtUtc);
+
 
 public sealed class OrderCreationService
 {
@@ -23,6 +26,33 @@ public sealed class OrderCreationService
 
     public OrderCreationService(ICartRepository carts,ICatalogRepository catalog,IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,IPaymentGatewayFactory gatewayFactory,IShippingRepository shipping,PricingService pricing)
     { _carts=carts;_catalog=catalog;_orders=orders;_payments=payments;_life=life;_uow=uow;_ids=ids;_gatewayFactory=gatewayFactory;_shipping=shipping;_pricing=pricing; }
+
+    public async Task<CheckoutQuoteResult> QuoteAsync(long customerId,long destinationCityId,string? couponCode,CancellationToken ct=default)
+    {
+        if(customerId<=0)throw new DomainException("Invalid customer.");
+        if(destinationCityId<=0)throw new DomainException("A destination city is required.");
+        var cart=await _carts.GetByCustomerAsync(customerId,ct)??throw new DomainException("Cart is empty.");
+        var items=await _carts.GetItemsAsync(cart.Id,ct);
+        if(items.Count==0)throw new DomainException("Cart is empty.");
+        var store=await _catalog.GetStoreAsync(cart.StoreId,ct)??throw new DomainException("Store not found.");
+        if(store.SellerId!=cart.SellerId||store.Status!=StoreStatus.Active)throw new DomainException("Store is not available.");
+        var city=await _shipping.GetCityAsync(destinationCityId,ct)??throw new DomainException("Destination city was not found.");
+        if(!city.IsActive)throw new DomainException("Destination city is not active.");
+        if(!await _shipping.StoreShipsToCityAsync(store.Id,city.Id,ct))throw new DomainException($"This store does not ship to {city.Name}.");
+        var input=new List<(CartItem,CheckoutLineData)>(items.Count);
+        foreach(var item in items)
+        {
+            var data=await _catalog.GetCheckoutLineAsync(item.ProductVariantId,item.WarrantyId,ct)??throw new DomainException("A cart product is no longer available.");
+            if(data.Product.StoreId!=cart.StoreId||data.Product.Id!=item.ProductId)throw new DomainException("Cart item is invalid.");
+            if(data.Product.Status!=ProductStatus.Active||!data.Variant.IsActive)throw new DomainException($"Product {data.Product.Name} is no longer available.");
+            if(item.Quantity>data.Inventory.AvailableQuantity)throw new DomainException($"Insufficient stock for {data.Product.Name}.");
+            if(item.WarrantyId.HasValue&&(data.Warranty is null||!data.Warranty.IsActive))throw new DomainException($"Warranty is no longer available for {data.Product.Name}.");
+            input.Add((item,data));
+        }
+        var priced=await _pricing.PriceAsync(customerId,store.Id,store.SellerId,input,couponCode,DateTime.UtcNow,ct);
+        var lines=priced.Lines.Select(x=>new CheckoutQuoteLine(x.Data.Product.Id,x.Data.Variant.Id,x.Data.Product.Name,x.Data.Variant.SKU,x.Data.Variant.VariantKey,x.Item.Quantity,x.BaseUnitIRR,x.WarrantyIRR,x.Data.Warranty?.Name,x.CampaignDiscountIRR,x.CouponDiscountIRR,x.FinalLineIRR,x.Data.Inventory.AvailableQuantity,x.Campaign?.Name)).ToList();
+        return new CheckoutQuoteResult(store.Id,store.Name,city.Id,city.Name,priced.SubtotalIRR,priced.CampaignDiscountIRR,priced.CouponDiscountIRR,priced.TotalIRR,priced.Coupon?.Code,lines,DateTime.UtcNow);
+    }
 
     public Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,CancellationToken ct=default)
         => CheckoutAsync(customerId,provider,destinationCityId,couponCode,null,ct);
