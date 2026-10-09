@@ -24,6 +24,7 @@ The numbered scripts are retained as **incremental upgrade history** for databas
 | `019_RefundLedgerIdentity.sql` | Adds refund identity to ledger postings with uniqueness protection |
 | `020_TransactionalOutbox.sql` | Adds/updates the Outbox table, lock token and polling index |
 | `021_OutboxRetentionArchive.sql` | Adds the archive table for old Processed messages; does not move or delete existing rows |
+| `022_AdminOrderReadPermission.sql` | Adds the dedicated `Admin.Order.Read` permission for read-only order operations; does not modify commerce or financial data |
 | `Marketplace.Patch.ShippingCoverage.sql` | Incremental shipping-coverage changes |
 | `FinancialConsistencyChecks.sql` | Read-only financial consistency diagnostics; **not a migration** |
 
