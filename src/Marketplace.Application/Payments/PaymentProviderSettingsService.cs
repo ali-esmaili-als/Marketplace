@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Payments;
@@ -14,6 +15,19 @@ public sealed class PaymentProviderSettingsService(IPaymentProviderSettingsAdmin
     public Task ConfigureAsync(PaymentProviderCode provider,bool isEnabled,bool isVisible,int sortOrder,string configurationJson,CancellationToken ct=default)
     {
         if(sortOrder<0) throw new DomainException("Sort order cannot be negative.");
-        return admin.ConfigureAsync(provider,isEnabled,isVisible,sortOrder,configurationJson,ct);
+
+        var normalizedConfiguration = string.IsNullOrWhiteSpace(configurationJson) ? "{}" : configurationJson;
+        try
+        {
+            using var document = JsonDocument.Parse(normalizedConfiguration);
+            if(document.RootElement.ValueKind != JsonValueKind.Object)
+                throw new DomainException("Payment provider configuration must be a JSON object.");
+        }
+        catch(JsonException)
+        {
+            throw new DomainException("Payment provider configuration must be valid JSON.");
+        }
+
+        return admin.ConfigureAsync(provider,isEnabled,isVisible,sortOrder,normalizedConfiguration,ct);
     }
 }
