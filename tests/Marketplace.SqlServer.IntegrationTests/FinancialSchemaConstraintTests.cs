@@ -676,6 +676,73 @@ public sealed class FinancialSchemaConstraintTests
                 await Assert.ThrowsAsync<SqlException>(() => duplicateAuthority.ExecuteNonQueryAsync());
             }
 
+            // Payment reconciliation diagnostics must detect provider success that was not
+            // finalized locally, amount drift, missing provider references, and a success
+            // status without a successful provider transaction.
+            await using (var seedMismatchedSuccessfulTransaction = new SqlCommand("""
+                INSERT INTO dbo.PaymentTransactions
+                    (Id, PaymentId, AmountIRR, Status, Provider, Authority, Reference, CreatedAtUtc)
+                VALUES
+                    (950016, 950006, 99000, 2, N'IntegrationGateway', N'success-amount-drift', N'BANK-950016', SYSUTCDATETIME()),
+                    (950017, 950006, 100000, 2, N'IntegrationGateway', N'success-missing-reference', NULL, SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedMismatchedSuccessfulTransaction.ExecuteNonQueryAsync();
+            }
+
+            await using (var markPaymentSucceededWithoutSuccessTransaction = new SqlCommand("""
+                UPDATE dbo.Payments
+                SET Status = 3, ReferenceNumber = N'BANK-950007', PaidAtUtc = SYSUTCDATETIME()
+                WHERE Id = 950007;
+                """, connection))
+            {
+                await markPaymentSucceededWithoutSuccessTransaction.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyPaymentTransactionStatusDivergence = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.PaymentTransactions AS pt
+                JOIN dbo.Payments AS p ON p.Id = pt.PaymentId
+                WHERE pt.Id = 950016 AND pt.Status = 2 AND p.Status NOT IN (3, 8);
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyPaymentTransactionStatusDivergence.ExecuteScalarAsync()));
+            }
+
+            await using (var verifySuccessfulTransactionAmountMismatch = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.PaymentTransactions AS pt
+                JOIN dbo.Payments AS p ON p.Id = pt.PaymentId
+                WHERE pt.Id = 950016 AND pt.Status = 2 AND pt.AmountIRR <> p.AmountIRR;
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifySuccessfulTransactionAmountMismatch.ExecuteScalarAsync()));
+            }
+
+            await using (var verifySuccessfulTransactionMissingReference = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.PaymentTransactions
+                WHERE Id = 950017 AND Status = 2
+                  AND LEN(LTRIM(RTRIM(ISNULL(Reference, N'')))) = 0;
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifySuccessfulTransactionMissingReference.ExecuteScalarAsync()));
+            }
+
+            await using (var verifyPaymentWithoutSuccessfulTransaction = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM dbo.Payments AS p
+                WHERE p.Id = 950007 AND p.Status = 3
+                  AND NOT EXISTS
+                  (
+                      SELECT 1 FROM dbo.PaymentTransactions AS pt
+                      WHERE pt.PaymentId = p.Id AND pt.Status = 2
+                  );
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyPaymentWithoutSuccessfulTransaction.ExecuteScalarAsync()));
+            }
+
             await using (var seedHold = new SqlCommand("""
                 INSERT INTO dbo.SellerBalanceHolds (Id, SellerId, OrderId, AmountIRR, Reason, Status, CreatedAtUtc)
                 VALUES (950012, 950002, 950004, 90000, N'Integration test hold', 1, SYSUTCDATETIME());
