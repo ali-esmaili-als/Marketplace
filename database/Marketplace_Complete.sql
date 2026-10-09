@@ -445,6 +445,7 @@ CREATE INDEX IX_Complaints_Order_Status ON dbo.Complaints(OrderId,Status);
 CREATE INDEX IX_InventoryReservations_Order_Status ON dbo.InventoryReservations(OrderId,Status);
 CREATE INDEX IX_InventoryReservations_Status_Expiry ON dbo.InventoryReservations(Status,ExpiresAtUtc);
 CREATE INDEX IX_SellerBalanceHolds_Order_Status ON dbo.SellerBalanceHolds(OrderId,Status);
+CREATE UNIQUE INDEX UX_SellerBalanceHolds_OrderId ON dbo.SellerBalanceHolds(OrderId) WHERE OrderId IS NOT NULL;
 CREATE INDEX IX_BalanceTransactions_Seller_Created ON dbo.BalanceTransactions(SellerId,CreatedAtUtc);
 CREATE INDEX IX_BalanceTransactions_Order_Type ON dbo.BalanceTransactions(OrderId,Type);
 CREATE INDEX IX_SettlementReconciliationAudits_Settlement_Created ON dbo.SettlementReconciliationAudits(SettlementId,CreatedAtUtc);
