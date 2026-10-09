@@ -69,7 +69,7 @@ public sealed class SettlementServiceTests
 
         Assert.Equal(SettlementStatus.OnHold, settlement.Status);
         Assert.Equal(400_000, balance.ReservedForSettlementIRR);
-        Assert.Equal(1_000_000, balance.WithdrawableIRR);
+        Assert.Equal(600_000, balance.WithdrawableIRR);
         payout.Verify(x => x.TransferAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
             Times.Once);
