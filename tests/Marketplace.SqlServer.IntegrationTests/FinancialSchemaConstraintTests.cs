@@ -177,6 +177,33 @@ public sealed class FinancialSchemaConstraintTests
                 await Assert.ThrowsAsync<SqlException>(() => duplicateActiveRefund.ExecuteNonQueryAsync());
             }
 
+            // A definitive failed refund releases the filtered unique index slot so a
+            // customer can retry after reconciliation confirms that no transfer occurred.
+            await using (var failFirstRefund = new SqlCommand("""
+                UPDATE dbo.Refunds SET Status = 5, FailureReason = N'Provider confirmed not refunded'
+                WHERE Id = 950008;
+                """, connection))
+            {
+                Assert.Equal(1, await failFirstRefund.ExecuteNonQueryAsync());
+            }
+
+            await using (var retryRefund = new SqlCommand("""
+                INSERT INTO dbo.Refunds (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (950021, 950004, 950006, 950001, 10000, 1, 1, SYSUTCDATETIME());
+                """, connection))
+            {
+                Assert.Equal(1, await retryRefund.ExecuteNonQueryAsync());
+            }
+
+            await using (var verifyOneActiveRefund = new SqlCommand("""
+                SELECT COUNT_BIG(*)
+                FROM dbo.Refunds
+                WHERE OrderId = 950004 AND Status IN (1, 2, 3);
+                """, connection))
+            {
+                Assert.Equal(1L, Convert.ToInt64(await verifyOneActiveRefund.ExecuteScalarAsync()));
+            }
+
             await using (var seedPaymentTransaction = new SqlCommand("""
                 INSERT INTO dbo.PaymentTransactions (Id, PaymentId, AmountIRR, Status, Provider, Authority, CreatedAtUtc)
                 VALUES (950010, 950006, 100000, 1, N'IntegrationGateway', N'same-authority', SYSUTCDATETIME());
