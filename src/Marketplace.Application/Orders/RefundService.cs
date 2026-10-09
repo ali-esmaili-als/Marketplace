@@ -30,7 +30,7 @@ public sealed class RefundService
         string? paymentReference=null;
 
         // Phase 1: reserve the refund in SQL and commit before calling the external gateway.
-        await _uow.ExecuteInTransactionAsync(async token =>
+        await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             var order=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
             var payment=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
@@ -82,7 +82,7 @@ public sealed class RefundService
         var gatewayOk=await gateway.RefundAsync(paymentReference,amount,ct);
 
         // Phase 2: finalize exactly once in a short DB transaction.
-        await _uow.ExecuteInTransactionAsync(async token =>
+        await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             var order=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
             var payment=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
@@ -143,7 +143,7 @@ public sealed class RefundService
         },ct);
     }
     public Task ReconcileAsync(long refundId,long adminUserId,bool transferCompleted,string? bankReference,string note,CancellationToken ct=default)
-        =>_uow.ExecuteInTransactionAsync(async token =>
+        =>_uow.ExecuteInSerializableTransactionAsync(async token =>
         {
             if(string.IsNullOrWhiteSpace(note))
                 throw new DomainException("A reconciliation note is required.");
