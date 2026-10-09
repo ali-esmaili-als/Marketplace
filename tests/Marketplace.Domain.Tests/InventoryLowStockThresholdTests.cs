@@ -11,7 +11,7 @@ public sealed class InventoryLowStockThresholdTests
     {
         var inventory = InventoryItem.Create(1, 10, 5);
 
-        Assert.Equal(5, inventory.LowStockThreshold);
+        Assert.Equal(5L, inventory.LowStockThreshold);
         Assert.True(inventory.IsLowStock);
     }
 
@@ -22,7 +22,7 @@ public sealed class InventoryLowStockThresholdTests
         inventory.SetLowStockThreshold(5);
         inventory.Reserve(15);
 
-        Assert.Equal(5, inventory.AvailableQuantity);
+        Assert.Equal(5L, inventory.AvailableQuantity);
         Assert.True(inventory.IsLowStock);
     }
 
@@ -33,7 +33,7 @@ public sealed class InventoryLowStockThresholdTests
         inventory.SetLowStockThreshold(5);
         inventory.Reserve(5);
 
-        Assert.Equal(0, inventory.AvailableQuantity);
+        Assert.Equal(0L, inventory.AvailableQuantity);
         Assert.False(inventory.IsLowStock);
     }
 
@@ -54,7 +54,7 @@ public sealed class InventoryLowStockThresholdTests
 
         inventory.SetLowStockThreshold(0);
 
-        Assert.Equal(0, inventory.LowStockThreshold);
+        Assert.Equal(0L, inventory.LowStockThreshold);
         Assert.False(inventory.IsLowStock);
     }
 }
