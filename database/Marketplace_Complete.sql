@@ -147,7 +147,8 @@ CREATE TABLE dbo.Orders(
  DestinationCityNameSnapshot NVARCHAR(200) NULL, DestinationProvinceNameSnapshot NVARCHAR(200) NULL,
  Status TINYINT NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL, PaidAtUtc DATETIME2(7) NULL,
  DeliveredAtUtc DATETIME2(7) NULL, DeliveryExpiresAtUtc DATETIME2(7) NULL, ComplaintExpiresAtUtc DATETIME2(7) NULL,
- CONSTRAINT CK_Orders_Amounts CHECK(SubtotalAmountIRR>0 AND TotalAmountIRR>0 AND TotalAmountIRR<=SubtotalAmountIRR AND SellerAmountIRR>=0 AND SellerAmountIRR<=TotalAmountIRR)
+ CONSTRAINT CK_Orders_Amounts CHECK(SubtotalAmountIRR>0 AND TotalAmountIRR>0 AND TotalAmountIRR<=SubtotalAmountIRR AND SellerAmountIRR>=0 AND SellerAmountIRR<=TotalAmountIRR),
+ CONSTRAINT CK_Orders_Status CHECK(Status BETWEEN 1 AND 10)
 );
 CREATE TABLE dbo.OrderItems(
  Id BIGINT NOT NULL CONSTRAINT PK_OrderItems PRIMARY KEY, OrderId BIGINT NOT NULL, ProductId BIGINT NOT NULL, VariantId BIGINT NULL,
@@ -163,12 +164,14 @@ CREATE TABLE dbo.Payments(
  Id BIGINT NOT NULL CONSTRAINT PK_Payments PRIMARY KEY, OrderId BIGINT NOT NULL, CustomerId BIGINT NOT NULL,
  AmountIRR BIGINT NOT NULL, Status TINYINT NOT NULL, Provider NVARCHAR(100) NULL, Authority NVARCHAR(200) NULL,
  ReferenceNumber NVARCHAR(200) NULL, CreatedAtUtc DATETIME2(7) NOT NULL, PaidAtUtc DATETIME2(7) NULL, RefundedAtUtc DATETIME2(7) NULL,
- CONSTRAINT UQ_Payments_Order UNIQUE(OrderId), CONSTRAINT CK_Payments_Amount CHECK(AmountIRR>0)
+ CONSTRAINT UQ_Payments_Order UNIQUE(OrderId), CONSTRAINT CK_Payments_Amount CHECK(AmountIRR>0),
+ CONSTRAINT CK_Payments_Status CHECK(Status BETWEEN 1 AND 8)
 );
 CREATE TABLE dbo.PaymentTransactions(
  Id BIGINT NOT NULL CONSTRAINT PK_PaymentTransactions PRIMARY KEY, PaymentId BIGINT NOT NULL, AmountIRR BIGINT NOT NULL,
  Status TINYINT NOT NULL, Provider NVARCHAR(100) NOT NULL, Authority NVARCHAR(200) NULL, Reference NVARCHAR(200) NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
- CONSTRAINT CK_PaymentTransactions_Amount CHECK(AmountIRR>0)
+ CONSTRAINT CK_PaymentTransactions_Amount CHECK(AmountIRR>0),
+ CONSTRAINT CK_PaymentTransactions_Status CHECK(Status BETWEEN 1 AND 4)
 );
 CREATE TABLE dbo.PaymentProviderSettings(
  Id BIGINT NOT NULL CONSTRAINT PK_PaymentProviderSettings PRIMARY KEY, Provider TINYINT NOT NULL, DisplayName NVARCHAR(100) NOT NULL,
@@ -205,7 +208,8 @@ CREATE TABLE dbo.Refunds(
  Id BIGINT NOT NULL CONSTRAINT PK_Refunds PRIMARY KEY, OrderId BIGINT NOT NULL, PaymentId BIGINT NOT NULL, CustomerId BIGINT NOT NULL,
  AmountIRR BIGINT NOT NULL, Reason TINYINT NOT NULL, Status TINYINT NOT NULL, ProviderReference NVARCHAR(200) NULL,
  FailureReason NVARCHAR(1000) NULL, RequestedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL,
- CONSTRAINT CK_Refunds_Amount CHECK(AmountIRR>0)
+ CONSTRAINT CK_Refunds_Amount CHECK(AmountIRR>0),
+ CONSTRAINT CK_Refunds_Status CHECK(Status BETWEEN 1 AND 6)
 );
 CREATE TABLE dbo.RefundReconciliationAudits(
  Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_RefundReconciliationAudits PRIMARY KEY,
@@ -253,7 +257,8 @@ CREATE TABLE dbo.Settlements(
  Id BIGINT NOT NULL CONSTRAINT PK_Settlements PRIMARY KEY, SellerId BIGINT NOT NULL, AmountIRR BIGINT NOT NULL, Status TINYINT NOT NULL,
  BankAccountId BIGINT NOT NULL, BankNameSnapshot NVARCHAR(150) NOT NULL, IbanSnapshot NVARCHAR(34) NOT NULL,
  AccountHolderNameSnapshot NVARCHAR(250) NOT NULL, Reference NVARCHAR(200) NULL, FailureReason NVARCHAR(1000) NULL,
- RequestedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL, CONSTRAINT CK_Settlements_Amount CHECK(AmountIRR>0)
+ RequestedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL, CONSTRAINT CK_Settlements_Amount CHECK(AmountIRR>0),
+ CONSTRAINT CK_Settlements_Status CHECK(Status BETWEEN 1 AND 6)
 );
 CREATE TABLE dbo.SettlementReconciliationAudits(
  Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_SettlementReconciliationAudits PRIMARY KEY,
