@@ -2371,6 +2371,70 @@ WHERE Id = {id}")
     return item is null ? Results.NotFound() : Results.Ok(item);
 }).RequirePermission("Admin.Settlement.Process");
 
+
+app.MapGet("/api/admin/users", async (
+    string? q, int? take,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var limit = Math.Clamp(take ?? 100, 1, 200);
+    var query = db.Users.AsNoTracking();
+    if (!string.IsNullOrWhiteSpace(q))
+    {
+        var term = q.Trim();
+        query = query.Where(x => x.Mobile.Contains(term) || x.DisplayName.Contains(term) || (x.Email != null && x.Email.Contains(term)));
+    }
+    var items = await query.OrderByDescending(x => x.CreatedAtUtc).Take(limit)
+        .Select(x => new { x.Id, x.Mobile, x.Email, x.DisplayName, x.IsActive, x.IsMobileVerified, x.CreatedAtUtc, x.LastLoginAtUtc })
+        .ToListAsync(ct);
+    return Results.Ok(items);
+}).RequirePermission("Admin.Identity.Manage");
+
+app.MapGet("/api/admin/sellers", async (
+    string? q, int? take,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var limit = Math.Clamp(take ?? 100, 1, 200);
+    var query = from seller in db.Sellers.AsNoTracking()
+                join user in db.Users.AsNoTracking() on seller.UserId equals user.Id
+                select new { Seller = seller, User = user };
+    if (!string.IsNullOrWhiteSpace(q))
+    {
+        var term = q.Trim();
+        query = query.Where(x => x.User.Mobile.Contains(term) || x.User.DisplayName.Contains(term));
+    }
+    var items = await query.OrderByDescending(x => x.Seller.CreatedAtUtc).Take(limit)
+        .Select(x => new
+        {
+            id = x.Seller.Id, userId = x.User.Id, x.User.DisplayName, x.User.Mobile,
+            status = x.Seller.Status.ToString(), x.Seller.CommissionRateBasisPoints,
+            x.Seller.MinimumCommissionIRR, x.Seller.MaxStoreCount, x.Seller.CreatedAtUtc,
+            storeCount = db.Stores.Count(store => store.SellerId == x.Seller.Id)
+        }).ToListAsync(ct);
+    return Results.Ok(items);
+}).RequirePermission("Admin.Seller.Manage");
+
+app.MapGet("/api/admin/categories", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var items = await db.Categories.AsNoTracking().OrderBy(x => x.Path)
+        .Select(x => new { x.Id, x.ParentCategoryId, x.Name, x.Slug, x.Path, x.IsActive, x.CreatedAtUtc })
+        .ToListAsync(ct);
+    return Results.Ok(items);
+}).RequirePermission("Admin.Identity.Manage");
+
+app.MapPost("/api/admin/users/{userId:long}/active", async (
+    long userId, bool active, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var user = await db.Users.SingleOrDefaultAsync(x => x.Id == userId, ct);
+    if (user is null) return Results.NotFound();
+    if (active) user.Activate(); else user.Deactivate();
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).RequirePermission("Admin.Identity.Manage");
+
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
