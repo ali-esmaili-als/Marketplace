@@ -75,4 +75,52 @@ public sealed class SettlementServiceTests
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
+    [Fact]
+    public async Task SuccessfulSettlement_DeductsAvailableAndClearsReservationExactlyOnce()
+    {
+        var settlement = Settlement.Create(50, 60, 400_000, 70, "Test Bank", "IR0070", "Seller");
+        var balance = SellerBalance.Create(80, settlement.SellerId);
+        balance.AddAvailable(1_000_000);
+        balance.ReserveForSettlement(settlement.AmountIRR);
+
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementAsync(settlement.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlement);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(settlement.SellerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(90);
+        var payout = new Mock<ISellerPayoutGateway>();
+        payout.Setup(x => x.TransferAsync(
+                settlement.BankNameSnapshot, settlement.IbanSnapshot, settlement.AccountHolderNameSnapshot,
+                settlement.AmountIRR, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "BANK-PAID-50", (string?)null));
+
+        var service = new SettlementService(
+            lifecycle.Object, uow.Object, ids.Object, payout.Object, Mock.Of<ISellerManagementRepository>());
+
+        var result = await service.ProcessAsync(settlement.Id);
+
+        Assert.Equal("Completed", result.Status);
+        Assert.Equal(600_000, balance.AvailableIRR);
+        Assert.Equal(0, balance.ReservedForSettlementIRR);
+        Assert.Equal(600_000, balance.WithdrawableIRR);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.Is<BalanceTransaction>(t =>
+            t.Type == BalanceTransactionType.Settlement && t.AmountIRR == 400_000 &&
+            t.BalanceBeforeIRR == 1_000_000 && t.BalanceAfterIRR == 600_000)), Times.Once);
+        payout.Verify(x => x.TransferAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
 }
