@@ -1672,6 +1672,95 @@ app.MapPost("/api/sellers/me/products/{productId:long}/warranties/{warrantyId:lo
 }).RequirePermission("Seller.Catalog.Manage");
 
 
+app.MapGet("/api/admin/orders", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    int? status,
+    long? orderId,
+    long? sellerId,
+    long? storeId,
+    DateTime? fromUtc,
+    DateTime? toUtc,
+    int page = 1,
+    int pageSize = 25,
+    CancellationToken ct = default) =>
+{
+    if (status.HasValue && (status.Value < 1 || status.Value > 10))
+        return Results.BadRequest(new { detail = "status must be between 1 and 10." });
+    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value > toUtc.Value)
+        return Results.BadRequest(new { detail = "fromUtc must not be later than toUtc." });
+
+    page = Math.Max(1, page);
+    pageSize = Math.Clamp(pageSize <= 0 ? 25 : pageSize, 1, 100);
+    var query = db.Orders.AsNoTracking().AsQueryable();
+    if (status.HasValue) query = query.Where(x => (int)x.Status == status.Value);
+    if (orderId.HasValue) query = query.Where(x => x.Id == orderId.Value);
+    if (sellerId.HasValue) query = query.Where(x => x.SellerId == sellerId.Value);
+    if (storeId.HasValue) query = query.Where(x => x.StoreId == storeId.Value);
+    if (fromUtc.HasValue) query = query.Where(x => x.CreatedAtUtc >= fromUtc.Value);
+    if (toUtc.HasValue) query = query.Where(x => x.CreatedAtUtc <= toUtc.Value);
+
+    var total = await query.LongCountAsync(ct);
+    var statusCounts = await query.GroupBy(x => x.Status)
+        .Select(g => new { status = (int)g.Key, count = g.LongCount() })
+        .ToListAsync(ct);
+    var items = await query.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
+        .Skip((page - 1) * pageSize).Take(pageSize)
+        .Select(x => new
+        {
+            id = x.Id, customerId = x.CustomerId, sellerId = x.SellerId, storeId = x.StoreId,
+            status = (int)x.Status, subtotalIRR = x.SubtotalAmountIRR,
+            campaignDiscountIRR = x.CampaignDiscountIRR, couponDiscountIRR = x.CouponDiscountIRR,
+            totalIRR = x.TotalAmountIRR, sellerAmountIRR = x.SellerAmountIRR,
+            couponCode = x.CouponCodeSnapshot, destinationCity = x.DestinationCityNameSnapshot,
+            destinationProvince = x.DestinationProvinceNameSnapshot, createdAtUtc = x.CreatedAtUtc,
+            paidAtUtc = x.PaidAtUtc, deliveredAtUtc = x.DeliveredAtUtc
+        }).ToListAsync(ct);
+
+    return Results.Ok(new
+    {
+        page, pageSize, total, pageCount = (int)Math.Ceiling(total / (double)pageSize),
+        statusCounts, items
+    });
+}).RequirePermission("Admin.Order.Read");
+
+app.MapGet("/api/admin/orders/{orderId:long}", async (
+    long orderId,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var order = await db.Orders.AsNoTracking().Where(x => x.Id == orderId)
+        .Select(x => new
+        {
+            id = x.Id, customerId = x.CustomerId, sellerId = x.SellerId, storeId = x.StoreId,
+            status = (int)x.Status, subtotalIRR = x.SubtotalAmountIRR,
+            campaignDiscountIRR = x.CampaignDiscountIRR, couponDiscountIRR = x.CouponDiscountIRR,
+            totalIRR = x.TotalAmountIRR, sellerAmountIRR = x.SellerAmountIRR,
+            couponCode = x.CouponCodeSnapshot, destinationCity = x.DestinationCityNameSnapshot,
+            destinationProvince = x.DestinationProvinceNameSnapshot, createdAtUtc = x.CreatedAtUtc,
+            paidAtUtc = x.PaidAtUtc, deliveredAtUtc = x.DeliveredAtUtc,
+            deliveryExpiresAtUtc = x.DeliveryExpiresAtUtc, complaintExpiresAtUtc = x.ComplaintExpiresAtUtc
+        }).SingleOrDefaultAsync(ct);
+    if (order is null) return Results.NotFound();
+
+    var items = await db.OrderItems.AsNoTracking().Where(x => x.OrderId == orderId)
+        .OrderBy(x => x.Id)
+        .Select(x => new
+        {
+            id = x.Id, productId = x.ProductId, variantId = x.VariantId,
+            productName = x.ProductNameSnapshot, variant = x.VariantSnapshot, warranty = x.WarrantySnapshot,
+            quantity = x.Quantity, baseUnitPriceIRR = x.BaseUnitPriceIRR, unitPriceIRR = x.UnitPriceIRR,
+            warrantyPriceIRR = x.WarrantyPriceIRR, campaignDiscountIRR = x.CampaignDiscountIRR,
+            couponDiscountIRR = x.CouponDiscountIRR, campaignId = x.CampaignId,
+            campaignName = x.CampaignNameSnapshot, lineTotalIRR = x.LineTotalIRR
+        }).ToListAsync(ct);
+    var payment = await db.Payments.AsNoTracking().Where(x => x.OrderId == orderId)
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .Select(x => new { status = x.Status.ToString(), provider = x.Provider, referenceNumber = x.ReferenceNumber,
+            amountIRR = x.AmountIRR, createdAtUtc = x.CreatedAtUtc, paidAtUtc = x.PaidAtUtc })
+        .FirstOrDefaultAsync(ct);
+    return Results.Ok(new { order, items, payment });
+}).RequirePermission("Admin.Order.Read");
+
 app.MapGet("/api/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrdersAsync(CurrentUserId(user),ct))).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrderAsync(CurrentUserId(user),orderId,ct))).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/seller/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrdersAsync(seller.Id,ct));}).RequirePermission("Order.ReadOwn");
