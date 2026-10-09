@@ -1224,16 +1224,14 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
             x.CreatedAtUtc, x.PaidAtUtc, x.RefundedAtUtc
         }).ToListAsync(ct);
     var paymentIds = payments.Select(x => x.paymentId).ToArray();
-    var paymentTransactions = paymentIds.Length == 0
-        ? new List<object>()
-        : (await db.PaymentTransactions.AsNoTracking()
-            .Where(x => paymentIds.Contains(x.PaymentId))
-            .OrderBy(x => x.CreatedAtUtc).Take(300)
-            .Select(x => new
-            {
-                x.Id, x.PaymentId, x.AmountIRR, status = (int)x.Status,
-                x.Provider, x.Authority, x.Reference, x.CreatedAtUtc
-            }).ToListAsync(ct)).Cast<object>().ToList();
+    var paymentTransactions = await db.PaymentTransactions.AsNoTracking()
+        .Where(x => paymentIds.Contains(x.PaymentId))
+        .OrderBy(x => x.CreatedAtUtc).Take(300)
+        .Select(x => new
+        {
+            x.Id, x.PaymentId, x.AmountIRR, status = (int)x.Status,
+            x.Provider, x.Authority, x.Reference, x.CreatedAtUtc
+        }).ToListAsync(ct);
 
     var refunds = await db.Refunds.AsNoTracking()
         .Where(x => x.OrderId == orderId)
@@ -1245,16 +1243,14 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
             x.FailureReason, x.RequestedAtUtc, x.CompletedAtUtc
         }).ToListAsync(ct);
     var refundIds = refunds.Select(x => x.refundId).ToArray();
-    var reversals = refundIds.Length == 0
-        ? new List<object>()
-        : (await db.CommissionReversals.AsNoTracking()
-            .Where(x => refundIds.Contains(x.RefundId))
-            .OrderBy(x => x.CreatedAtUtc).Take(200)
-            .Select(x => new
-            {
-                x.Id, x.CommissionId, x.OrderId, x.RefundId, x.RefundAmountIRR,
-                x.ReversedCommissionIRR, x.CreatedAtUtc
-            }).ToListAsync(ct)).Cast<object>().ToList();
+    var reversals = await db.CommissionReversals.AsNoTracking()
+        .Where(x => refundIds.Contains(x.RefundId))
+        .OrderBy(x => x.CreatedAtUtc).Take(200)
+        .Select(x => new
+        {
+            x.Id, x.CommissionId, x.OrderId, x.RefundId, x.RefundAmountIRR,
+            x.ReversedCommissionIRR, x.CreatedAtUtc
+        }).ToListAsync(ct);
 
     var commission = await db.Commissions.AsNoTracking()
         .Where(x => x.OrderId == orderId)
@@ -1320,7 +1316,7 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
             && (x.RefundId == refund.refundId || (x.RefundId is null && x.OrderId == orderId)));
         if (!refundLedgerExists)
             findings.Add(new { code = "RefundLedgerMissing", severity = "error", message = $"بازپرداخت #{refund.refundId} تکمیل شده اما ثبت دفتر متناظر پیدا نشد." });
-        if (!reversals.Any(x => ((dynamic)x).RefundId == refund.refundId))
+        if (!reversals.Any(x => x.RefundId == refund.refundId))
             findings.Add(new { code = "CommissionReversalMissing", severity = "warning", message = $"برای بازپرداخت #{refund.refundId} برگشت کمیسیون پیدا نشد." });
     }
     if (sellerBalance is null)
