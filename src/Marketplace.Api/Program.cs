@@ -206,9 +206,11 @@ app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeI
     var limit=Math.Clamp(take??60,1,100);
     var query=from p in db.Products.AsNoTracking()
               join s in db.Stores.AsNoTracking() on p.StoreId equals s.Id
+              join seller in db.Sellers.AsNoTracking() on s.SellerId equals seller.Id
               join c in db.Categories.AsNoTracking() on p.CategoryId equals c.Id
               where p.Status==Marketplace.Domain.Catalog.ProductStatus.Active
-                    && s.Status==Marketplace.Domain.Sellers.StoreStatus.Active && c.IsActive
+                    && s.Status==Marketplace.Domain.Sellers.StoreStatus.Active
+                    && seller.Status==Marketplace.Domain.Sellers.SellerStatus.Active && c.IsActive
                     && (!categoryId.HasValue||p.CategoryId==categoryId.Value)
                     && (!storeId.HasValue||p.StoreId==storeId.Value)
                     && (string.IsNullOrWhiteSpace(q)||p.Name.Contains(q)||p.Description!.Contains(q)||s.Name.Contains(q))
