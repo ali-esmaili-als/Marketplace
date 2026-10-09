@@ -435,6 +435,18 @@ app.MapPost("/api/seller/orders/{orderId:long}/delivery/expire",async(System.Sec
 
 app.MapPost("/api/orders/{orderId:long}/complaints",async(System.Security.Claims.ClaimsPrincipal user,long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{var id=await service.ComplaintAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok(new{id});}).RequirePermission("Order.Create");
 
+app.MapGet("/api/admin/refunds",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
+    Results.Ok(await (from r in db.Refunds.AsNoTracking()
+                      join o in db.Orders.AsNoTracking() on r.OrderId equals o.Id
+                      orderby r.RequestedAtUtc descending
+                      select new { id=r.Id,orderId=r.OrderId,sellerId=o.SellerId,customerId=r.CustomerId,amountIRR=r.AmountIRR,reason=r.Reason.ToString(),status=r.Status.ToString(),r.ProviderReference,r.FailureReason,r.RequestedAtUtc,r.CompletedAtUtc })
+                     .Take(200).ToListAsync(ct))).RequirePermission("Admin.Settlement.Process");
+
+app.MapPost("/api/admin/refunds/{refundId:long}/reconcile",async(long refundId,RefundReconciliationRequest request,Marketplace.Application.Orders.RefundService service,CancellationToken ct)=>{
+    await service.ReconcileAsync(refundId,request.TransferCompleted,request.BankReference,request.Note,ct);
+    return Results.Ok(new { refundId, status=request.TransferCompleted?"Completed":"Failed" });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/complaints",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
     Results.Ok(await (from c in db.Complaints
                       join o in db.Orders on c.OrderId equals o.Id
@@ -540,7 +552,7 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
-public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
+public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);\npublic sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);
