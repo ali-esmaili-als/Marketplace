@@ -639,4 +639,42 @@ public sealed class OrderLifecycleServiceTests
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+
+
+    [Fact]
+    public async Task Customer_won_resolution_rejects_complaint_with_mismatched_order_parties()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(881, 882, 883, 884, 150_000, 150_000);
+        order.MarkPaid(now.AddDays(-2));
+        order.MarkReady();
+        order.MarkDelivered(now.AddDays(-1), now.AddDays(1));
+        var balance = SellerBalance.Create(885, order.SellerId);
+        balance.AddAvailable(order.SellerAmountIRR);
+        balance.Block(order.SellerAmountIRR);
+        var hold = SellerBalanceHold.Create(886, order.SellerId, order.Id, order.SellerAmountIRR, "Secure order hold");
+        var complaint = Complaint.Create(887, order.Id, 999_888, order.SellerId, "Complaint party does not match order");
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetComplaintAsync(complaint.Id, It.IsAny<CancellationToken>())).ReturnsAsync(complaint);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
+        lifecycle.Setup(x => x.GetActiveHoldByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(hold);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            service.ResolveComplaintAsync(complaint.Id, true, "Review attempted"));
+
+        Assert.Equal(OrderStatus.Delivered, order.Status);
+        Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
+        Assert.Equal(BalanceHoldStatus.Active, hold.Status);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
 }
