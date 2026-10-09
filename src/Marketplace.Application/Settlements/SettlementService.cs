@@ -186,6 +186,7 @@ public sealed class SettlementService
                 if (settlement?.Status == SettlementStatus.Processing)
                 {
                     settlement.PutOnHold();
+                    await AddOutboxAsync("Settlement.OnHold", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
                     await _uow.SaveChangesAsync(token);
                 }
                 return 0;
