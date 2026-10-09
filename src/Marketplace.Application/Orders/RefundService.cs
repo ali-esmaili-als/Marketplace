@@ -1,5 +1,6 @@
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
+using Marketplace.Domain.Complaints;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Refunds;
@@ -36,10 +37,19 @@ public sealed class RefundService
             if(payment.Status!=Marketplace.Domain.Payments.PaymentStatus.Succeeded)
                 throw new DomainException("Only successfully paid orders can be refunded.");
 
-            if(order.Status is OrderStatus.Delivered or OrderStatus.DeliveryExpired)
+            if(reason==RefundReason.AdminAdjustment || !Enum.IsDefined(reason))
+                throw new DomainException("This refund reason is not available to customers.");
+
+            if(order.Status==OrderStatus.DeliveryExpired && reason==RefundReason.DeliveryExpired)
                 order.RequestRefund();
-            else if(order.Status!=OrderStatus.RefundRequested)
-                throw new DomainException("Order is not in a refundable state.");
+            else if(order.Status==OrderStatus.RefundRequested && reason==RefundReason.ComplaintCustomerWon)
+            {
+                var complaint=await _life.GetOpenComplaintByOrderAsync(orderId,token);
+                if(complaint is null || complaint.Status!=ComplaintStatus.CustomerWon)
+                    throw new DomainException("A customer-favorable resolved complaint is required for this refund reason.");
+            }
+            else
+                throw new DomainException("Refund is allowed only after delivery expiry or a customer-favorable complaint resolution.");
 
             var existing=await _life.GetActiveRefundByOrderAsync(orderId,token);
             if(existing is not null)
