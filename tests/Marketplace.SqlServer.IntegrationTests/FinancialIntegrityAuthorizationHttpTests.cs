@@ -17,11 +17,15 @@ using Xunit;
 
 namespace Marketplace.SqlServer.IntegrationTests;
 
+[CollectionDefinition("FinancialIntegrityHttpTests", DisableParallelization = true)]
+public sealed class FinancialIntegrityHttpTestsCollection { }
+
 /// <summary>
 /// Exercises the actual ASP.NET Core authorization pipeline for financial-integrity routes.
 /// These requests intentionally stop before querying financial data, so they do not mutate
 /// or depend on the contents of the SQL Server database.
 /// </summary>
+[Collection("FinancialIntegrityHttpTests")]
 public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<WebApplicationFactory<global::Program>>, IDisposable
 {
     private const string JwtKey = "Marketplace-Test-Only-Signing-Key-Must-Be-At-Least-32-Characters";
