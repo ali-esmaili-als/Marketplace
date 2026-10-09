@@ -161,14 +161,14 @@ public sealed class SettlementService
                     throw new DomainException("Bank reference is required when confirming a completed transfer.");
 
                 settlement.Complete(bankReference);
-                var before = balance.WithdrawableIRR;
+                var before = balance.AvailableIRR;
                 balance.CompleteSettlement(amount);
                 balance.RemoveAvailable(amount);
                 var auditReference = $"RECONCILED_PAID:{bankReference.Trim()}:{note.Trim()}";
                 if (auditReference.Length > 200) auditReference = auditReference[..200];
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
-                    BalanceTransactionType.Settlement, amount, before, balance.WithdrawableIRR,
+                    BalanceTransactionType.Settlement, amount, before, balance.AvailableIRR,
                     auditReference, BalanceBucket.Available));
             }
             else
@@ -182,7 +182,7 @@ public sealed class SettlementService
                 if (auditReference.Length > 200) auditReference = auditReference[..200];
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
-                    BalanceTransactionType.Settlement, amount, reservedBefore,
+                    BalanceTransactionType.SettlementFailed, amount, reservedBefore,
                     balance.ReservedForSettlementIRR, auditReference,
                     BalanceBucket.ReservedForSettlement));
             }
