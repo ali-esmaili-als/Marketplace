@@ -356,3 +356,65 @@ FROM dbo.SellerBalanceHolds AS h
 WHERE h.OrderId IS NOT NULL
 GROUP BY h.OrderId
 HAVING COUNT_BIG(*) > 1;
+
+PRINT '31. Paid-through-terminal orders without a delivery record';
+SELECT o.Id AS OrderId, o.SellerId, o.Status AS OrderStatus,
+       o.PaidAtUtc, o.DeliveryExpiresAtUtc, o.TotalAmountIRR
+FROM dbo.Orders AS o
+WHERE o.Status IN (2, 3, 4, 5, 6, 7, 8, 9)
+  AND NOT EXISTS (SELECT 1 FROM dbo.Deliveries AS d WHERE d.OrderId = o.Id);
+
+PRINT '32. Delivered orders whose delivery record is missing or not delivered';
+SELECT o.Id AS OrderId, o.SellerId, o.Status AS OrderStatus,
+       d.Id AS DeliveryId, d.Status AS DeliveryStatus,
+       o.DeliveredAtUtc, d.DeliveredAtUtc AS DeliveryDeliveredAtUtc
+FROM dbo.Orders AS o
+LEFT JOIN dbo.Deliveries AS d ON d.OrderId = o.Id
+WHERE o.Status IN (5, 9) -- Delivered or Completed
+  AND (d.Id IS NULL OR d.Status <> 3);
+
+PRINT '33. Delivery marked delivered while order state does not reflect delivery';
+SELECT d.Id AS DeliveryId, d.OrderId, d.SellerId,
+       d.Status AS DeliveryStatus, o.Status AS OrderStatus,
+       d.DeliveredAtUtc, d.ConfirmationReference
+FROM dbo.Deliveries AS d
+JOIN dbo.Orders AS o ON o.Id = d.OrderId
+WHERE d.Status = 3
+  AND o.Status NOT IN (5, 7, 8, 9); -- Delivered, RefundRequested, Refunded, Completed
+
+PRINT '34. Active inventory reservations attached to terminal order states';
+SELECT r.Id AS ReservationId, r.OrderId, r.ProductVariantId,
+       r.Quantity, r.Status AS ReservationStatus, r.ExpiresAtUtc,
+       o.Status AS OrderStatus
+FROM dbo.InventoryReservations AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 1 -- Active
+  AND o.Status IN (5, 6, 7, 8, 9, 10); -- Delivered, DeliveryExpired, RefundRequested, Refunded, Completed, Cancelled
+
+PRINT '35. Inventory reserved quantity differs from active reservation totals';
+;WITH ActiveReservationTotals AS
+(
+    SELECT ProductVariantId, SUM(Quantity) AS ExpectedReservedQuantity,
+           COUNT_BIG(*) AS ActiveReservationCount
+    FROM dbo.InventoryReservations
+    WHERE Status = 1 -- Active
+    GROUP BY ProductVariantId
+)
+SELECT i.Id AS InventoryItemId, i.ProductVariantId,
+       i.StockQuantity, i.ReservedQuantity,
+       COALESCE(r.ExpectedReservedQuantity, 0) AS ExpectedReservedQuantity,
+       i.ReservedQuantity - COALESCE(r.ExpectedReservedQuantity, 0) AS DifferenceQuantity,
+       COALESCE(r.ActiveReservationCount, 0) AS ActiveReservationCount
+FROM dbo.InventoryItems AS i
+LEFT JOIN ActiveReservationTotals AS r ON r.ProductVariantId = i.ProductVariantId
+WHERE i.ReservedQuantity <> COALESCE(r.ExpectedReservedQuantity, 0);
+
+PRINT '36. Delivery-code use timestamp conflicts with delivery completion';
+SELECT c.Id AS DeliveryCodeId, c.OrderId,
+       c.IssuedAtUtc, c.ExpiresAtUtc, c.UsedAtUtc,
+       d.Status AS DeliveryStatus, d.DeliveredAtUtc,
+       c.FailedAttempts
+FROM dbo.DeliveryCodes AS c
+LEFT JOIN dbo.Deliveries AS d ON d.OrderId = c.OrderId
+WHERE (c.UsedAtUtc IS NOT NULL AND (d.Id IS NULL OR d.Status <> 3))
+   OR (d.Status = 3 AND c.UsedAtUtc IS NULL);
