@@ -35,12 +35,13 @@ public sealed class HttpWebhookOutboxPublisher : IOutboxPublisher
 
     public async Task PublishAsync(OutboxEnvelope message, CancellationToken cancellationToken = default)
     {
+        using var payloadDocument = JsonDocument.Parse(message.PayloadJson);
         var json = JsonSerializer.Serialize(new
         {
             messageId = message.MessageId,
             eventType = message.EventType,
             occurredAtUtc = message.OccurredAtUtc,
-            payload = JsonDocument.Parse(message.PayloadJson).RootElement
+            payload = payloadDocument.RootElement
         });
         var body = Encoding.UTF8.GetBytes(json);
         var signature = Convert.ToHexString(HMACSHA256.HashData(_secret, body)).ToLowerInvariant();
