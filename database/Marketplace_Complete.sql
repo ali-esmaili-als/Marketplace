@@ -207,6 +207,14 @@ CREATE TABLE dbo.Refunds(
  FailureReason NVARCHAR(1000) NULL, RequestedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL,
  CONSTRAINT CK_Refunds_Amount CHECK(AmountIRR>0)
 );
+CREATE TABLE dbo.RefundReconciliationAudits(
+ Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_RefundReconciliationAudits PRIMARY KEY,
+ RefundId BIGINT NOT NULL, AdminUserId BIGINT NOT NULL, TransferCompleted BIT NOT NULL,
+ Note NVARCHAR(2000) NOT NULL, BankReference NVARCHAR(200) NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT FK_RefundReconciliationAudits_Refunds FOREIGN KEY(RefundId) REFERENCES dbo.Refunds(Id),
+ CONSTRAINT CK_RefundReconciliationAudits_Note CHECK(LEN(LTRIM(RTRIM(Note)))>0),
+ CONSTRAINT CK_RefundReconciliationAudits_BankReference CHECK(TransferCompleted=0 OR LEN(LTRIM(RTRIM(ISNULL(BankReference,N''))))>0)
+);
 CREATE TABLE dbo.Complaints(
  Id BIGINT NOT NULL CONSTRAINT PK_Complaints PRIMARY KEY, OrderId BIGINT NOT NULL, CustomerId BIGINT NOT NULL, SellerId BIGINT NOT NULL,
  Status TINYINT NOT NULL, Reason NVARCHAR(2000) NOT NULL, ResolutionNote NVARCHAR(4000) NULL,
@@ -424,6 +432,7 @@ CREATE INDEX IX_PaymentTransactions_Payment_Status ON dbo.PaymentTransactions(Pa
 CREATE INDEX IX_Deliveries_Status_Expires ON dbo.Deliveries(Status,ExpiresAtUtc);
 CREATE INDEX IX_DeliveryCodes_Expiry ON dbo.DeliveryCodes(ExpiresAtUtc,UsedAtUtc);
 CREATE INDEX IX_Refunds_Order_Status ON dbo.Refunds(OrderId,Status);
+CREATE INDEX IX_RefundReconciliationAudits_Refund_Created ON dbo.RefundReconciliationAudits(RefundId,CreatedAtUtc);
 CREATE INDEX IX_Complaints_Order_Status ON dbo.Complaints(OrderId,Status);
 CREATE INDEX IX_InventoryReservations_Order_Status ON dbo.InventoryReservations(OrderId,Status);
 CREATE INDEX IX_InventoryReservations_Status_Expiry ON dbo.InventoryReservations(Status,ExpiresAtUtc);
@@ -492,5 +501,5 @@ WHERE t.name IN
 'Warranties','ProductWarranties','Carts','CartItems','DeliveryCities','StoreShippingCities','Orders','OrderItems','Payments','PaymentTransactions',
 'PaymentProviderSettings','Deliveries','DeliveryCodes','Refunds','Complaints','InventoryItems','InventoryReservations','SellerBalances','SellerBalanceHolds',
 'Settlements','BalanceTransactions','Commissions','CommissionReversals','Campaigns','CampaignProducts','Coupons','CouponProducts','CouponCategories','CouponUsages','Notifications',
-'SmsProviderSettings','PaymentReconciliationAudits')
+'SmsProviderSettings','PaymentReconciliationAudits','RefundReconciliationAudits')
 ORDER BY t.name;
