@@ -120,36 +120,48 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
-    public Task MarkDeliveredAsync(long orderId,string deliveryCode,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
-        var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
-        var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
-        var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
-        var code=await _life.GetDeliveryCodeByOrderAsync(orderId,token)??throw new DomainException("Delivery code not found.");
-        if(!code.Verify(deliveryCode,now)) throw new DomainException("Invalid or expired delivery code.");
-
-        d.ConfirmDelivered(confirmationReference,now);
-        var pendingBefore=b.PendingIRR;
-        _domain.OnDelivered(o,d,b,now,complaintExpiresAtUtc);
-
-        var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
-        foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
+    public async Task MarkDeliveredAsync(long orderId,string deliveryCode,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)
+    {
+        var invalidCode = await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
-            var inventory=await _life.GetInventoryItemAsync(reservation.ProductVariantId,token)??throw new DomainException("Inventory item not found.");
-            inventory.ConsumeReservation(reservation.Quantity);
-            reservation.Consume();
-        }
+            var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
+            var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
+            var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
+            var code=await _life.GetDeliveryCodeByOrderAsync(orderId,token)??throw new DomainException("Delivery code not found.");
+            if(!code.Verify(deliveryCode,now))
+            {
+                // Commit failed-attempt counters before returning the validation error.
+                await _uow.SaveChangesAsync(token);
+                return true;
+            }
 
-        _life.AddBalanceTransaction(BalanceTransaction.Create(
-            await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.PendingReleased,
-            o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY",BalanceBucket.Pending));
+            d.ConfirmDelivered(confirmationReference,now);
+            var pendingBefore=b.PendingIRR;
+            _domain.OnDelivered(o,d,b,now,complaintExpiresAtUtc);
 
-        _life.AddBalanceTransaction(BalanceTransaction.Create(
-            await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHold,
-            o.SellerAmountIRR,b.BlockedIRR-o.SellerAmountIRR,b.BlockedIRR,"COMPLAINT_WINDOW",BalanceBucket.Blocked));
+            var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
+            foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
+            {
+                var inventory=await _life.GetInventoryItemAsync(reservation.ProductVariantId,token)??throw new DomainException("Inventory item not found.");
+                inventory.ConsumeReservation(reservation.Quantity);
+                reservation.Consume();
+            }
 
-        await _uow.SaveChangesAsync(token);
-        return 0;
-    },ct);
+            _life.AddBalanceTransaction(BalanceTransaction.Create(
+                await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.PendingReleased,
+                o.SellerAmountIRR,pendingBefore,b.PendingIRR,"DELIVERY",BalanceBucket.Pending));
+
+            _life.AddBalanceTransaction(BalanceTransaction.Create(
+                await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHold,
+                o.SellerAmountIRR,b.BlockedIRR-o.SellerAmountIRR,b.BlockedIRR,"COMPLAINT_WINDOW",BalanceBucket.Blocked));
+
+            await _uow.SaveChangesAsync(token);
+            return false;
+        },ct);
+
+        if(invalidCode)
+            throw new DomainException("Invalid, expired, or locked delivery code.");
+    }
 
     public Task ExpireDeliveryAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
