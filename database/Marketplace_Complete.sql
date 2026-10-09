@@ -448,6 +448,7 @@ CREATE INDEX IX_SellerBalanceHolds_Order_Status ON dbo.SellerBalanceHolds(OrderI
 CREATE UNIQUE INDEX UX_SellerBalanceHolds_OrderId ON dbo.SellerBalanceHolds(OrderId) WHERE OrderId IS NOT NULL;
 CREATE INDEX IX_BalanceTransactions_Seller_Created ON dbo.BalanceTransactions(SellerId,CreatedAtUtc);
 CREATE INDEX IX_BalanceTransactions_Order_Type ON dbo.BalanceTransactions(OrderId,Type);
+CREATE UNIQUE INDEX UX_BalanceTransactions_Order_Sale ON dbo.BalanceTransactions(OrderId) WHERE OrderId IS NOT NULL AND Type = 1;
 CREATE INDEX IX_SettlementReconciliationAudits_Settlement_Created ON dbo.SettlementReconciliationAudits(SettlementId,CreatedAtUtc);
 CREATE INDEX IX_Settlements_Seller_Status ON dbo.Settlements(SellerId,Status);
 CREATE INDEX IX_Settlements_Status_RequestedAt ON dbo.Settlements(Status,RequestedAtUtc);
