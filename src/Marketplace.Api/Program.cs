@@ -202,6 +202,38 @@ app.MapPost("/api/sellers/me/attributes/{attributeId:long}/values",async(System.
 app.MapPost("/api/sellers/me/products/{productId:long}/attributes/{attributeId:long}",async(System.Security.Claims.ClaimsPrincipal user,long productId,long attributeId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();await service.AssignAttributeAsync(seller.Id,productId,attributeId,ct);return Results.NoContent();}).RequirePermission("Seller.Catalog.Manage");
 app.MapPost("/api/sellers/me/variants/{variantId:long}/attribute-values/{attributeValueId:long}",async(System.Security.Claims.ClaimsPrincipal user,long variantId,long attributeValueId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();await service.AssignVariantValueAsync(seller.Id,variantId,attributeValueId,ct);return Results.NoContent();}).RequirePermission("Seller.Catalog.Manage");
 app.MapGet("/api/categories",async(long? parentId,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>Results.Ok(await service.GetChildrenAsync(parentId,ct)));
+app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeId,int? take,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>{
+    var limit=Math.Clamp(take??60,1,100);
+    var query=from p in db.Products.AsNoTracking()
+              join s in db.Stores.AsNoTracking() on p.StoreId equals s.Id
+              join c in db.Categories.AsNoTracking() on p.CategoryId equals c.Id
+              where p.Status==Marketplace.Domain.Catalog.ProductStatus.Active
+                    && s.Status==Marketplace.Domain.Sellers.StoreStatus.Active && c.IsActive
+                    && (!categoryId.HasValue||p.CategoryId==categoryId.Value)
+                    && (!storeId.HasValue||p.StoreId==storeId.Value)
+                    && (string.IsNullOrWhiteSpace(q)||p.Name.Contains(q)||p.Description!.Contains(q)||s.Name.Contains(q))
+              orderby p.CreatedAtUtc descending
+              select new { p.Id,p.StoreId,SellerId=s.SellerId,StoreName=s.Name,p.CategoryId,CategoryName=c.Name,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants };
+    var products=await query.Take(limit).ToListAsync(ct);
+    var ids=products.Select(x=>x.Id).ToArray();
+    var variants=await (from v in db.ProductVariants.AsNoTracking()
+        join inv0 in db.InventoryItems.AsNoTracking().Where(x=>x.IsActive) on v.Id equals inv0.ProductVariantId into invs
+        from inv in invs.DefaultIfEmpty()
+        where ids.Contains(v.ProductId)&&v.IsActive
+        select new { v.Id,v.ProductId,v.SKU,v.VariantKey,PriceIRR=v.PriceIRR,AvailableQuantity=inv==null?0L:inv.StockQuantity-inv.ReservedQuantity })
+        .ToListAsync(ct);
+    var warranties=await (from pw in db.ProductWarranties.AsNoTracking()
+        join w in db.Warranties.AsNoTracking() on pw.WarrantyId equals w.Id
+        where ids.Contains(pw.ProductId)&&pw.IsActive&&w.IsActive
+        select new { pw.ProductId,WarrantyId=w.Id,w.Name,w.PriceIRR,pw.IsDefault })
+        .ToListAsync(ct);
+    return Results.Ok(products.Select(p=>new {
+        p.Id,p.StoreId,p.SellerId,p.StoreName,p.CategoryId,p.CategoryName,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants,
+        Variants=variants.Where(v=>v.ProductId==p.Id).Select(v=>new {v.Id,v.SKU,v.VariantKey,PriceIRR=v.PriceIRR??p.BasePriceIRR,v.AvailableQuantity}),
+        Warranties=warranties.Where(w=>w.ProductId==p.Id).Select(w=>new {id=w.WarrantyId,w.Name,w.PriceIRR,w.IsDefault})
+    }));
+});
+
 app.MapPost("/api/admin/categories",async(CategoryRequest request,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>Results.Ok(new{id=await service.CreateAsync(request.Name,request.Slug,request.ParentCategoryId,ct)})).RequirePermission("Admin.Identity.Manage");
 app.MapPut("/api/admin/categories/{categoryId:long}",async(long categoryId,CategoryRequest request,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>{await service.RenameAsync(categoryId,request.Name,request.Slug,ct);return Results.NoContent();}).RequirePermission("Admin.Identity.Manage");
 app.MapPost("/api/admin/categories/{categoryId:long}/deactivate",async(long categoryId,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>{await service.DeactivateAsync(categoryId,ct);return Results.NoContent();}).RequirePermission("Admin.Identity.Manage");
