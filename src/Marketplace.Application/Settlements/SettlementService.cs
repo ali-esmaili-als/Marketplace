@@ -34,6 +34,11 @@ public sealed class SettlementService
         // sequence so two simultaneous requests cannot reserve the same available funds.
         return await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
+            // Lock the seller's balance first. This serializes both same-key replays and
+            // different-key requests before their range/index reads, avoiding lock-promotion
+            // deadlocks while preserving the idempotency contract.
+            var balance = await _life.GetSellerBalanceAsync(seller.Id, token);
+
             if (requestKey is not null)
             {
                 var existing = await _life.GetSettlementByRequestKeyAsync(seller.Id, requestKey, token);
@@ -43,7 +48,7 @@ public sealed class SettlementService
                     return new SettlementResult(existing.Id, existing.AmountIRR, existing.Status.ToString(), existing.Reference);
                 }
             }
-            var balance=await _life.GetSellerBalanceAsync(seller.Id,token)??throw new DomainException("Seller balance not found.");
+            balance ??= throw new DomainException("Seller balance not found.");
             var account=await _life.GetSellerBankAccountAsync(seller.Id,bankAccountId,token)??throw new DomainException("Bank account not found.");
             if(!account.IsVerified) throw new DomainException("Seller bank account is not verified.");
             if(amountIRR<=0 || amountIRR>balance.WithdrawableIRR) throw new DomainException("Settlement amount exceeds withdrawable balance.");
