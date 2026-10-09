@@ -758,6 +758,75 @@ app.MapGet("/api/admin/financial-integrity/cases", async (
     return Results.Ok(new { generatedAtUtc = DateTime.UtcNow, cases, itemsTruncated = events.Count == 2000 });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", async (
+    string kind,
+    string entityKey,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var allowedKinds = new[] { "PaymentOrderMismatch", "PaymentReview", "RefundProcessing", "SettlementOnHold" };
+    if (!allowedKinds.Contains(kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial case type.");
+    if (!long.TryParse(entityKey, out var entityId) || entityId <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
+
+    var history = await db.AdminAuditEvents.AsNoTracking()
+        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged"
+            && x.EntityType == kind && x.EntityKey == entityId.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
+        .Take(200)
+        .Select(x => new
+        {
+            auditId = x.Id,
+            actorUserId = x.ActorUserId,
+            x.EntityType,
+            x.EntityKey,
+            x.DetailsJson,
+            x.CorrelationId,
+            x.CreatedAtUtc
+        })
+        .ToListAsync(ct);
+
+    var items = history.Select(x =>
+    {
+        string status = "Unknown";
+        string note = "";
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(x.DetailsJson);
+            if (document.RootElement.TryGetProperty("status", out var statusElement))
+                status = statusElement.GetString() ?? "Unknown";
+            if (document.RootElement.TryGetProperty("note", out var noteElement))
+                note = noteElement.GetString() ?? "";
+        }
+        catch
+        {
+            note = "جزئیات رویداد قابل خواندن نیست";
+        }
+
+        return new
+        {
+            x.auditId,
+            x.actorUserId,
+            kind = x.EntityType,
+            entityKey = x.EntityKey,
+            status,
+            note,
+            x.CorrelationId,
+            x.CreatedAtUtc
+        };
+    }).ToList();
+
+    return Results.Ok(new
+    {
+        kind,
+        entityKey = entityId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        generatedAtUtc = DateTime.UtcNow,
+        items,
+        itemsTruncated = history.Count == 200
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapPost("/api/admin/financial-integrity/cases", async (
     FinancialIntegrityCaseStatusRequest request,
     System.Security.Claims.ClaimsPrincipal user,
