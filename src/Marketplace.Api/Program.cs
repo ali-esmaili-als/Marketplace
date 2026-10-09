@@ -2038,8 +2038,8 @@ app.MapGet("/api/me/saved-products", async (System.Security.Claims.ClaimsPrincip
         join store in db.Stores.AsNoTracking() on product.StoreId equals store.Id
         where saved.CustomerId == customerId && product.Status == Marketplace.Domain.Catalog.ProductStatus.Active
         orderby saved.CreatedAtUtc descending
-        select new { saved.Id, productId = product.Id, product.Name, product.Slug, product.Description,
-            product.BasePriceIRR, product.HasVariants, storeId = store.Id, store.Name, store.Slug, saved.CreatedAtUtc })
+        select new { saved.Id, productId = product.Id, productName = product.Name, productSlug = product.Slug, product.Description,
+            product.BasePriceIRR, product.HasVariants, storeId = store.Id, storeName = store.Name, storeSlug = store.Slug, saved.CreatedAtUtc })
         .Take(200).ToListAsync(ct);
     return Results.Ok(items);
 }).RequirePermission("Order.ReadOwn");
