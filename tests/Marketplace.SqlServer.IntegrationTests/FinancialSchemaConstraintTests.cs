@@ -302,6 +302,48 @@ public sealed class FinancialSchemaConstraintTests
                 """);
             Assert.Equal(1, saleLedgerRace.Count(succeeded => succeeded));
 
+            // Two independent sessions compete to reserve more seller funds than are available.
+            // The conditional UPDATE is the database-level last line of defense against over-reserving.
+            await using (var seedSellerBalance = new SqlCommand("""
+                INSERT INTO dbo.SellerBalances
+                    (Id, SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
+                VALUES (950025, 950002, 100000, 0, 0, 0, 0, SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedSellerBalance.ExecuteNonQueryAsync();
+            }
+
+            var reservationStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            async Task<int> TryReserveSellerFundsAsync()
+            {
+                await using var contender = new SqlConnection(targetBuilder.ConnectionString);
+                await contender.OpenAsync();
+                await reservationStart.Task;
+                await using var command = new SqlCommand("""
+                    UPDATE dbo.SellerBalances
+                    SET ReservedForSettlementIRR = ReservedForSettlementIRR + 70000,
+                        UpdatedAtUtc = SYSUTCDATETIME()
+                    WHERE SellerId = 950002
+                      AND AvailableIRR - ReservedForSettlementIRR >= 70000;
+                    """, contender);
+                return await command.ExecuteNonQueryAsync();
+            }
+
+            var firstReservation = TryReserveSellerFundsAsync();
+            var secondReservation = TryReserveSellerFundsAsync();
+            reservationStart.SetResult();
+            var reservationRows = await Task.WhenAll(firstReservation, secondReservation);
+            Assert.Equal(1, reservationRows.Sum());
+
+            await using (var verifyReservedFunds = new SqlCommand("""
+                SELECT ReservedForSettlementIRR
+                FROM dbo.SellerBalances
+                WHERE SellerId = 950002;
+                """, connection))
+            {
+                Assert.Equal(70000L, Convert.ToInt64(await verifyReservedFunds.ExecuteScalarAsync()));
+            }
+
             await using (var identityCheck = new SqlCommand("""
                 SELECT COUNT(*)
                 FROM sys.identity_columns ic
