@@ -210,6 +210,8 @@ public sealed class CatalogManagementRepository(MarketplaceDbContext db) : ICata
  public Task<bool> AttributeValueBelongsToStoreAsync(long valueId,long storeId,CancellationToken ct=default)=>db.ProductAttributeValues.AnyAsync(x=>x.Id==valueId&&db.ProductAttributes.Any(a=>a.Id==x.ProductAttributeId&&a.StoreId==storeId),ct);
  public Task<bool> WarrantyBelongsToStoreAsync(long warrantyId,long storeId,CancellationToken ct=default)=>db.Warranties.AnyAsync(x=>x.Id==warrantyId&&x.StoreId==storeId&&x.IsActive,ct);
  public Task<InventoryItem?> GetInventoryAsync(long variantId,CancellationToken ct=default)=>db.InventoryItems.SingleOrDefaultAsync(x=>x.ProductVariantId==variantId,ct);
+ public Task<List<InventoryStockMovement>> GetStockMovementsAsync(long variantId,int take,CancellationToken ct=default)=>db.InventoryStockMovements.AsNoTracking().Where(x=>x.ProductVariantId==variantId).OrderByDescending(x=>x.CreatedAtUtc).ThenByDescending(x=>x.Id).Take(Math.Clamp(take,1,100)).ToListAsync(ct);
+ public void AddStockMovement(InventoryStockMovement movement)=>db.InventoryStockMovements.Add(movement);
  public Task<List<Product>> GetProductsAsync(long storeId,CancellationToken ct=default)=>db.Products.Where(x=>x.StoreId==storeId).OrderByDescending(x=>x.Id).ToListAsync(ct);
  public Task<List<ProductVariant>> GetVariantsAsync(long productId,CancellationToken ct=default)=>db.ProductVariants.Where(x=>x.ProductId==productId).OrderBy(x=>x.Id).ToListAsync(ct);
  public Task<List<Warranty>> GetWarrantiesAsync(long storeId,CancellationToken ct=default)=>db.Warranties.Where(x=>x.StoreId==storeId).OrderBy(x=>x.Id).ToListAsync(ct);
