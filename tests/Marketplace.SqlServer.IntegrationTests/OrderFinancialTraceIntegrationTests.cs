@@ -100,7 +100,7 @@ public sealed class OrderFinancialTraceIntegrationTests
                     (82001, 72001, 75001, NULL, NULL, 1, 2, 900000, 0, 900000, N'SALE-TRACE-1', @now),
                     (82002, 72001, 75001, NULL, 78001, 3, 2, 1000000, 900000, 0, N'REFUND-TRACE-1', @now),
                     (82003, 72001, NULL, 81001, NULL, 4, 1, 500000, 900000, 400000, N'SETTLE-TRACE-1', @now),
-                    (82004, 72001, 75001, NULL, 78001, 8, 2, 100000, 900000, 800000, N'REVERSAL-TRACE-1', @now);
+                    (82004, 72001, 75001, NULL, NULL, 8, 2, 100000, 900000, 800000, N'REVERSAL-TRACE-1', @now);
                 """);
 
             // Mirror the main links the admin trace relies on and verify that pooled settlement
