@@ -656,3 +656,27 @@ WHERE p.Status = 3 -- Succeeded
       WHERE pt.PaymentId = p.Id
         AND pt.Status = 2 -- Succeeded
   );
+
+
+PRINT '57. Successful provider transaction amount differs from its payment amount';
+SELECT pt.Id AS PaymentTransactionId, pt.PaymentId,
+       pt.AmountIRR AS TransactionAmountIRR, p.AmountIRR AS PaymentAmountIRR,
+       pt.Provider, pt.Authority, pt.Reference
+FROM dbo.PaymentTransactions AS pt
+JOIN dbo.Payments AS p ON p.Id = pt.PaymentId
+WHERE pt.Status = 2 -- Succeeded
+  AND pt.AmountIRR <> p.AmountIRR;
+
+PRINT '58. Successful provider transaction has no bank reference';
+SELECT pt.Id AS PaymentTransactionId, pt.PaymentId, pt.Provider,
+       pt.Authority, pt.Status, pt.Reference
+FROM dbo.PaymentTransactions AS pt
+WHERE pt.Status = 2 -- Succeeded
+  AND LEN(LTRIM(RTRIM(ISNULL(pt.Reference, N'')))) = 0;
+
+PRINT '59. Succeeded payment lacks its final reference or paid timestamp';
+SELECT p.Id AS PaymentId, p.OrderId, p.Status, p.ReferenceNumber, p.PaidAtUtc,
+       p.AmountIRR, p.Provider, p.Authority
+FROM dbo.Payments AS p
+WHERE p.Status = 3 -- Succeeded
+  AND (LEN(LTRIM(RTRIM(ISNULL(p.ReferenceNumber, N'')))) = 0 OR p.PaidAtUtc IS NULL);
