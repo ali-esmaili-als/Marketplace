@@ -14,5 +14,6 @@ public enum BalanceTransactionType : byte
     ComplaintHold = 10,
     ComplaintHoldReleased = 11,
     ComplaintHoldConsumed = 12,
-    PendingRemoved = 13
+    PendingRemoved = 13,
+    SettlementFailed = 14
 }
