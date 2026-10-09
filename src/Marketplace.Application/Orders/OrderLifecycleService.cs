@@ -60,6 +60,36 @@ public sealed class OrderLifecycleService
         return 0;
     },ct);
 
+    public Task<bool> ExpirePendingPaymentAsync(long orderId,DateTime now,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
+        var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
+        if(o.Status!=OrderStatus.PendingPayment) return false;
+
+        var p=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
+        if(p.Status is not (Marketplace.Domain.Payments.PaymentStatus.Pending or Marketplace.Domain.Payments.PaymentStatus.Redirected))
+            return false;
+
+        var reservations=await _life.GetReservationsByOrderAsync(orderId,token);
+        if(!reservations.Any(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active && x.ExpiresAtUtc<=now))
+            return false;
+
+        o.Cancel();
+        p.Fail();
+        var transaction=await _payments.GetLatestTransactionAsync(p.Id,token);
+        if(transaction?.Status==Marketplace.Domain.Payments.PaymentTransactionStatus.Initiated)
+            transaction.Fail();
+
+        foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
+        {
+            var inventory=await _life.GetInventoryItemAsync(reservation.ProductVariantId,token)
+                ??throw new DomainException("Inventory item not found.");
+            inventory.Release(reservation.Quantity);
+            reservation.Release();
+        }
+
+        await _uow.SaveChangesAsync(token);
+        return true;
+    },ct);
+
     public Task MarkReadyForDeliveryAsync(long orderId,CancellationToken ct=default)=>_uow.ExecuteInTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
