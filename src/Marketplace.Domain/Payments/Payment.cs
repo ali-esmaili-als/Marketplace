@@ -20,5 +20,14 @@ public sealed class Payment : AggregateRoot<long>
     public void Succeed(string reference){if(Status is not (PaymentStatus.Pending or PaymentStatus.Redirected))throw new DomainException("Payment cannot succeed.");Status=PaymentStatus.Succeeded;ReferenceNumber=reference?.Trim();PaidAtUtc=DateTime.UtcNow;}
     public void Fail(){if(Status is PaymentStatus.Succeeded or PaymentStatus.Refunded)throw new DomainException("Payment cannot fail.");Status=PaymentStatus.Failed;}
     public void Cancel(){if(Status==PaymentStatus.Succeeded)throw new DomainException("Succeeded payment cannot be cancelled.");Status=PaymentStatus.Cancelled;}
-    public void MarkRefunded(){if(Status is not (PaymentStatus.Succeeded or PaymentStatus.PartiallyRefunded))throw new DomainException("Payment cannot be refunded.");Status=PaymentStatus.Refunded;RefundedAtUtc=DateTime.UtcNow;}
+    public void RequireReconciliation(string reference)
+    {
+        if(Status is PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+            throw new DomainException("Refunded payment cannot require reconciliation.");
+        if(string.IsNullOrWhiteSpace(reference))
+            throw new DomainException("Gateway reference is required for reconciliation.");
+        Status=PaymentStatus.ReconciliationRequired;
+        ReferenceNumber=reference.Trim();
+    }
+    public void MarkRefunded(){if(Status is not (PaymentStatus.Succeeded or PaymentStatus.PartiallyRefunded or PaymentStatus.ReconciliationRequired))throw new DomainException("Payment cannot be refunded.");Status=PaymentStatus.Refunded;RefundedAtUtc=DateTime.UtcNow;}
 }
