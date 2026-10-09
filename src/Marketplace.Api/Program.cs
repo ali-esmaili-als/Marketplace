@@ -448,6 +448,33 @@ app.MapGet("/api/admin/payments/reconciliation",async(Marketplace.Infrastructure
         .Select(x=>new { paymentId=x.Id,orderId=x.OrderId,customerId=x.CustomerId,amountIRR=x.AmountIRR,provider=x.Provider,reference=x.ReferenceNumber,createdAtUtc=x.CreatedAtUtc })
         .ToListAsync(ct))).RequirePermission("Admin.Settlement.Process");
 
+app.MapPost("/api/admin/payments/{paymentId:long}/reconcile",async(long paymentId,PaymentReconciliationRequest request,System.Security.Claims.ClaimsPrincipal user,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length>2000)
+        throw new Marketplace.Domain.Common.DomainException("A note of at most 2000 characters is required.");
+    if(request.Action is not ("RefundCompleted" or "KeepOpen"))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported reconciliation action.");
+    if(request.Action=="RefundCompleted" && string.IsNullOrWhiteSpace(request.BankReference))
+        throw new Marketplace.Domain.Common.DomainException("Bank reference is required when confirming a completed refund.");
+    if(request.BankReference?.Trim().Length>200)
+        throw new Marketplace.Domain.Common.DomainException("Bank reference cannot exceed 200 characters.");
+
+    await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
+    var payment=await db.Payments.SingleOrDefaultAsync(x=>x.Id==paymentId,ct)
+        ??throw new Marketplace.Domain.Common.DomainException("Payment not found.");
+    if(payment.Status!=Marketplace.Domain.Payments.PaymentStatus.ReconciliationRequired)
+        throw new Marketplace.Domain.Common.DomainException("Payment is not awaiting reconciliation.");
+    var adminId=CurrentUserId(user);
+    if(request.Action=="RefundCompleted")
+        payment.MarkRefunded();
+
+    db.PaymentReconciliationAudits.Add(Marketplace.Domain.Payments.PaymentReconciliationAudit.Create(
+        payment.Id,adminId,request.Action,request.Note,request.BankReference));
+    await db.SaveChangesAsync(ct);
+    await tx.CommitAsync(ct);
+    return Results.Ok(new { paymentId, status=payment.Status.ToString(), action=request.Action });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/refunds",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
     Results.Ok(await (from r in db.Refunds.AsNoTracking()
                       join o in db.Orders.AsNoTracking() on r.OrderId equals o.Id
@@ -586,6 +613,7 @@ public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
 public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
+public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);
