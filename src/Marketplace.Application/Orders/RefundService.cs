@@ -131,7 +131,7 @@ public sealed class RefundService
                 BalanceTransactionType.Refund,balanceDebited ? order.SellerAmountIRR : 0,
                 bucketBefore,
                 bucket==BalanceBucket.Blocked?balance.BlockedIRR:balance.PendingIRR,
-                balanceDebited ? "REFUND" : "REFUND_SELLER_SHARE_ALREADY_REMOVED",bucket));
+                balanceDebited ? "REFUND" : "REFUND_SELLER_SHARE_ALREADY_REMOVED",bucket,refund.Id));
 
             var commission=await _life.GetCommissionByOrderAsync(order.Id,token);
             if(commission is not null)
@@ -202,7 +202,7 @@ public sealed class RefundService
                 await _ids.NextAsync(token),order.SellerId,order.Id,null,
                 BalanceTransactionType.Refund,balanceDebited ? order.SellerAmountIRR : 0,bucketBefore,
                 bucket==BalanceBucket.Blocked?balance.BlockedIRR:balance.PendingIRR,
-                balanceDebited ? "REFUND_RECONCILED" : "REFUND_RECONCILED_SELLER_SHARE_ALREADY_REMOVED",bucket));
+                balanceDebited ? "REFUND_RECONCILED" : "REFUND_RECONCILED_SELLER_SHARE_ALREADY_REMOVED",bucket,refund.Id));
 
             var commission=await _life.GetCommissionByOrderAsync(order.Id,token);
             if(commission is not null)
