@@ -127,6 +127,9 @@ public sealed class ShippingRepository(MarketplaceDbContext db) : IShippingRepos
     public Task<bool> StoreShipsToCityAsync(long storeId, long cityId, CancellationToken ct=default)
         => db.StoreShippingCities.AnyAsync(x => x.StoreId == storeId && x.CityId == cityId && x.City.IsActive, ct);
 
+    public Task<StoreShippingRate?> GetStoreShippingRateAsync(long storeId, long cityId, CancellationToken ct=default)
+        => db.StoreShippingRates.SingleOrDefaultAsync(x => x.StoreId == storeId && x.CityId == cityId, ct);
+
     public Task<List<long>> GetStoreCityIdsAsync(long storeId, CancellationToken ct=default)
         => db.StoreShippingCities.Where(x => x.StoreId == storeId).Select(x => x.CityId).ToListAsync(ct);
 
