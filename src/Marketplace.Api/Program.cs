@@ -103,6 +103,7 @@ builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationP
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
 
 builder.Services.AddHostedService<MarketplaceMaintenanceHostedService>();
+builder.Services.AddHostedService<Marketplace.Infrastructure.Outbox.OutboxRetentionHostedService>();
 var app=builder.Build();
 if (app.Environment.IsDevelopment()) app.UseSwagger().UseSwaggerUI();
 app.UseExceptionHandler(errorApp=>errorApp.Run(async context=>{var feature=context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();var ex=feature?.Error;var status=ex is Marketplace.Domain.Common.DomainException?StatusCodes.Status400BadRequest:StatusCodes.Status500InternalServerError;context.Response.StatusCode=status;context.Response.ContentType="application/problem+json";await context.Response.WriteAsJsonAsync(new{title=status==400?"Validation error":"Server error",detail=status==400?ex?.Message:"An unexpected error occurred."});}));
