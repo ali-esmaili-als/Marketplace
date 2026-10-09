@@ -667,8 +667,8 @@ app.MapPost("/api/admin/financial-integrity/reviews", async (
         throw new Marketplace.Domain.Common.DomainException("Unsupported financial review type.");
     if (!long.TryParse(request.EntityKey, out var entityId) || entityId <= 0)
         throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
-    if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length > 1500)
-        throw new Marketplace.Domain.Common.DomainException("A review note of at most 1500 characters is required.");
+    if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length > 800)
+        throw new Marketplace.Domain.Common.DomainException("A review note of at most 800 characters is required.");
 
     var exists = request.Kind switch
     {
@@ -685,7 +685,7 @@ app.MapPost("/api/admin/financial-integrity/reviews", async (
         entityId,
         note = request.Note.Trim(),
         reviewState = "Reviewed"
-    });
+    }, new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
     var correlationId = http.TraceIdentifier;
     var audit = Marketplace.Domain.Auditing.AdminAuditEvent.Create(
         CurrentUserId(user), "FinancialIntegrity.Reviewed", request.Kind, entityId.ToString(),
