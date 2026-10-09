@@ -418,6 +418,59 @@ app.MapPut("/api/stores/{storeId:long}/shipping-cities",async(System.Security.Cl
     await service.ConfigureStoreCitiesAsync(CurrentUserId(user),storeId,request.CityIds,ct); return Results.NoContent();
 }).RequirePermission("Seller.Shipping.Configure");
 
+app.MapGet("/api/stores/{storeId:long}/shipping-rates", async (
+    System.Security.Claims.ClaimsPrincipal user, long storeId, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    Marketplace.Application.Abstractions.ISellerManagementRepository sellers, CancellationToken ct) =>
+{
+    var seller = await sellers.GetSellerByUserIdAsync(CurrentUserId(user), ct) ?? throw new UnauthorizedAccessException();
+    if (!await sellers.StoreBelongsToSellerAsync(storeId, seller.Id, ct))
+        throw new Marketplace.Domain.Common.DomainException("Store not found.");
+    return Results.Ok(await db.StoreShippingRates.AsNoTracking()
+        .Where(x => x.StoreId == storeId)
+        .Join(db.DeliveryCities.AsNoTracking(), rate => rate.CityId, city => city.Id, (rate, city) => new
+        {
+            cityId = city.Id, cityName = city.Name, provinceName = city.ProvinceName,
+            rate.ShippingFeeIRR, rate.MinDeliveryDays, rate.MaxDeliveryDays, rate.UpdatedAtUtc
+        }).OrderBy(x => x.provinceName).ThenBy(x => x.cityName).ToListAsync(ct));
+}).RequirePermission("Seller.Shipping.Configure");
+
+app.MapPut("/api/stores/{storeId:long}/shipping-rates", async (
+    System.Security.Claims.ClaimsPrincipal user, long storeId, StoreShippingRatesRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, Marketplace.Application.Abstractions.ISellerManagementRepository sellers,
+    Marketplace.Application.Abstractions.IIdGenerator ids, CancellationToken ct) =>
+{
+    var userId = CurrentUserId(user);
+    var seller = await sellers.GetSellerByUserIdAsync(userId, ct) ?? throw new UnauthorizedAccessException();
+    if (!await sellers.StoreBelongsToSellerAsync(storeId, seller.Id, ct))
+        throw new Marketplace.Domain.Common.DomainException("Store not found.");
+    var requested = request.Rates ?? Array.Empty<StoreShippingRateRequest>();
+    if (requested.Any(x => x.CityId <= 0) || requested.Select(x => x.CityId).Distinct().Count() != requested.Length)
+        throw new Marketplace.Domain.Common.DomainException("Shipping rates must contain unique valid city identifiers.");
+    await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+    var coverage = await db.StoreShippingCities.Where(x => x.StoreId == storeId).Select(x => x.CityId).ToListAsync(ct);
+    if (coverage.Count != requested.Length || !coverage.ToHashSet().SetEquals(requested.Select(x => x.CityId)))
+        throw new Marketplace.Domain.Common.DomainException("Configure exactly one shipping rate for every city enabled in the store's shipping coverage.");
+    var cityIds = requested.Select(x => x.CityId).ToArray();
+    var activeCityCount = await db.DeliveryCities.CountAsync(x => cityIds.Contains(x.Id) && x.IsActive, ct);
+    if (activeCityCount != cityIds.Length)
+        throw new Marketplace.Domain.Common.DomainException("All shipping rate destinations must be active cities.");
+    var existing = await db.StoreShippingRates.Where(x => x.StoreId == storeId).ToListAsync(ct);
+    var now = DateTime.UtcNow;
+    foreach (var item in requested)
+    {
+        var rate = existing.SingleOrDefault(x => x.CityId == item.CityId);
+        if (rate is null)
+            db.StoreShippingRates.Add(Marketplace.Domain.Shipping.StoreShippingRate.Create(await ids.NextAsync(ct), storeId, item.CityId, item.ShippingFeeIRR, item.MinDeliveryDays, item.MaxDeliveryDays, now));
+        else
+            rate.Update(item.ShippingFeeIRR, item.MinDeliveryDays, item.MaxDeliveryDays, now);
+    }
+    db.StoreShippingRates.RemoveRange(existing.Where(x => !cityIds.Contains(x.CityId)));
+    await db.SaveChangesAsync(ct);
+    await tx.CommitAsync(ct);
+    return Results.NoContent();
+}).RequirePermission("Seller.Shipping.Configure");
+
+
 app.MapGet("/api/payments/providers",async(Marketplace.Application.Abstractions.IPaymentProviderSettings settings,CancellationToken ct)=>
     Results.Ok(await settings.GetAvailableAsync(ct)));
 
@@ -2125,6 +2178,8 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
+public sealed record StoreShippingRateRequest(long CityId, long ShippingFeeIRR, int MinDeliveryDays, int MaxDeliveryDays);
+public sealed record StoreShippingRatesRequest(StoreShippingRateRequest[] Rates);
 public sealed record ShipmentCreateRequest(string CarrierName, string TrackingNumber, string? TrackingUrl);
 public sealed record ShipmentStatusUpdateRequest(Marketplace.Domain.Shipping.ShipmentStatus Status, string Description, string? Location, DateTime? OccurredAtUtc);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR,string? RequestKey);
