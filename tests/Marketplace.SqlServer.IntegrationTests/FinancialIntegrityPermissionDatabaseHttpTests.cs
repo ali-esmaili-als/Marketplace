@@ -235,6 +235,7 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         Assert.Contains("Outbox.DeadLetter", json);
         Assert.Contains("Outbox.StaleProcessing", json);
         Assert.Contains("Outbox.PendingBacklog", json);
+        Assert.Contains("Outbox.DispatcherDisabled", json);
         Assert.Contains("\"overduePendingCount\":1", json, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"staleProcessingCount\":1", json, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"deadLetterCount\":1", json, StringComparison.OrdinalIgnoreCase);
