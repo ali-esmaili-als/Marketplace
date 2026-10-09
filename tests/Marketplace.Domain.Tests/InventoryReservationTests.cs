@@ -1,3 +1,4 @@
+using System;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Inventory;
 using Xunit;
