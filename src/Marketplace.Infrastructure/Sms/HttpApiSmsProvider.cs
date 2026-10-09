@@ -38,4 +38,20 @@ public sealed class HttpApiSmsProvider(HttpClient http, IConfiguration configura
             throw new InvalidOperationException(
                 $"HTTP API SMS provider rejected the OTP request. HTTP {(int)response.StatusCode}: {body}");
     }
+    public async Task SendMessageAsync(string mobile, string message, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(message) || message.Length > 1000) throw new ArgumentException("SMS message must contain 1-1000 characters.", nameof(message));
+        var endpoint = configuration["Notifications:Sms:HttpApi:Endpoint"] ?? configuration["Authentication:Otp:HttpApi:Endpoint"];
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("A valid HTTPS Notifications:Sms:HttpApi:Endpoint is required for automatic SMS.");
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { mobile, message }), Encoding.UTF8, "application/json")
+        };
+        var apiKey = configuration["Notifications:Sms:HttpApi:ApiKey"] ?? configuration["Authentication:Otp:HttpApi:ApiKey"];
+        if (!string.IsNullOrWhiteSpace(apiKey)) request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"HTTP API SMS provider rejected the message. HTTP {(int)response.StatusCode}: {body}");
+    }
 }
