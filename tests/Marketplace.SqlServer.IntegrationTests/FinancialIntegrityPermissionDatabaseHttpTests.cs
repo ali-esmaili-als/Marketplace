@@ -78,11 +78,9 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
                     (71001, N'09120007101', N'test-hash-customer', N'Permission Test Customer', @now),
                     (71002, N'09120007102', N'test-hash-authorized', N'Permission Test Admin', @now);
 
-                INSERT dbo.Rules(Id, Code, Name, ActionType, IsActive)
-                VALUES (99001, N'Admin.Settlement.Process', N'Process settlements', 3, 1);
-
+                -- The complete bootstrap schema seeds Admin.Settlement.Process as Rule 3003.
                 INSERT dbo.UserRules(Id, UserId, RuleId, GrantedAtUtc)
-                VALUES (99002, 71002, 99001, @now);
+                VALUES (99002, 71002, 3003, @now);
 
                 INSERT dbo.Sellers(Id, UserId, Status, CommissionRateBasisPoints, MinimumCommissionIRR, MaxStoreCount, CreatedAtUtc, ActivatedAtUtc)
                 VALUES (72001, 71002, 2, 1000, 0, 2, @now, @now);
