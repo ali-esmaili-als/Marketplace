@@ -421,7 +421,6 @@ public sealed class OrderLifecycleServiceTests
         balance.Block(order.SellerAmountIRR);
         var hold = SellerBalanceHold.Create(806, order.SellerId, order.Id, order.SellerAmountIRR, "Secure order hold");
         var complaint = Complaint.Create(807, order.Id, order.CustomerId, order.SellerId, "Item arrived damaged");
-        complaint.StartReview();
 
         var orders = new Mock<IOrderRepository>();
         orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
@@ -461,7 +460,6 @@ public sealed class OrderLifecycleServiceTests
         balance.Block(order.SellerAmountIRR);
         var hold = SellerBalanceHold.Create(816, order.SellerId, order.Id, order.SellerAmountIRR, "Secure order hold");
         var complaint = Complaint.Create(817, order.Id, order.CustomerId, order.SellerId, "Customer reported a defect");
-        complaint.StartReview();
 
         var orders = new Mock<IOrderRepository>();
         orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
