@@ -185,7 +185,7 @@ public sealed class SettlementRequestValidationTests
         var service = new SettlementService(lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
         var result = await service.RequestAsync(20, 30, 200_000, "retry-key");
         Assert.Equal(90, result.SettlementId); Assert.Equal("Requested", result.Status);
-        lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Once);
         lifecycle.Verify(x => x.AddSettlement(It.IsAny<Settlement>()), Times.Never);
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
