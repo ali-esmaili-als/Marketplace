@@ -1725,6 +1725,11 @@ app.MapGet("/api/admin/outbox/health", async (
         => int.TryParse(config[key], out var value) ? Math.Clamp(value, min, max) : fallback;
 
     var now = DateTime.UtcNow;
+    var dispatcherEnabled = bool.TryParse(configuration["Outbox:Enabled"], out var enabled) && enabled;
+    var webhookUrlConfigured = Uri.TryCreate(configuration["Outbox:Webhook:Url"], UriKind.Absolute, out var webhookUri)
+        && (webhookUri.Scheme == Uri.UriSchemeHttps || (webhookUri.IsLoopback && webhookUri.Scheme == Uri.UriSchemeHttp));
+    var webhookSecretConfigured = System.Text.Encoding.UTF8.GetByteCount(configuration["Outbox:Webhook:Secret"] ?? string.Empty) >= 32;
+    var publisherConfigured = webhookUrlConfigured && webhookSecretConfigured;
     var pendingAgeMinutes = ReadThreshold(configuration, "Outbox:Health:PendingAgeMinutes", 15, 1, 1440);
     var leaseGraceMinutes = ReadThreshold(configuration, "Outbox:Health:LeaseGraceMinutes", 2, 0, 120);
     var deadLetterWarningCount = ReadThreshold(configuration, "Outbox:Health:DeadLetterWarningCount", 1, 1, 100000);
@@ -1754,6 +1759,10 @@ app.MapGet("/api/admin/outbox/health", async (
         .ToListAsync(ct);
 
     var alerts = new List<object>();
+    if (!dispatcherEnabled)
+        alerts.Add(new { code = "Outbox.DispatcherDisabled", severity = "Warning", count = 1, message = "Outbox dispatch is disabled; messages are persisted but not sent to the configured receiver." });
+    else if (!publisherConfigured)
+        alerts.Add(new { code = "Outbox.PublisherNotConfigured", severity = "Critical", count = 1, message = "Outbox dispatch is enabled but the HTTPS webhook URL or signing secret is not configured correctly." });
     if (deadLetterCount >= deadLetterWarningCount)
         alerts.Add(new { code = "Outbox.DeadLetter", severity = "Critical", count = deadLetterCount, message = "One or more messages require manual investigation." });
     if (staleProcessingCount > 0)
@@ -1769,6 +1778,7 @@ app.MapGet("/api/admin/outbox/health", async (
     {
         generatedAtUtc = now,
         status = severity,
+        dispatcher = new { enabled = dispatcherEnabled, webhookConfigured = publisherConfigured },
         thresholds = new { pendingAgeMinutes, leaseGraceMinutes, deadLetterWarningCount },
         metrics = new { duePendingCount, overduePendingCount = pendingCount, staleProcessingCount, deadLetterCount },
         oldestDuePending = oldestPending,
