@@ -13,11 +13,13 @@ public sealed class SettlementReconciliationAudit : Entity<long>
     public string? BankReference { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
+    // SQL Server owns this audit table's IDENTITY key. Unlike financial business entities,
+    // callers must not allocate an ID from MarketplaceSequence.
     public static SettlementReconciliationAudit Create(
-        long id, long settlementId, long adminUserId, bool transferCompleted,
+        long settlementId, long adminUserId, bool transferCompleted,
         string? bankReference, string note)
     {
-        if (id <= 0 || settlementId <= 0 || adminUserId <= 0)
+        if (settlementId <= 0 || adminUserId <= 0)
             throw new DomainException("Settlement reconciliation identifiers must be positive.");
         if (string.IsNullOrWhiteSpace(note) || note.Trim().Length > 2000)
             throw new DomainException("A reconciliation note between 1 and 2000 characters is required.");
@@ -29,7 +31,6 @@ public sealed class SettlementReconciliationAudit : Entity<long>
 
         return new SettlementReconciliationAudit
         {
-            Id = id,
             SettlementId = settlementId,
             AdminUserId = adminUserId,
             TransferCompleted = transferCompleted,
