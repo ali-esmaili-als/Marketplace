@@ -655,6 +655,57 @@ app.MapPost("/api/seller/orders/{orderId:long}/delivery/expire",async(System.Sec
 
 app.MapPost("/api/orders/{orderId:long}/complaints",async(System.Security.Claims.ClaimsPrincipal user,long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{var id=await service.ComplaintAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok(new{id});}).RequirePermission("Order.Create");
 
+app.MapPost("/api/admin/financial-integrity/reviews", async (
+    FinancialIntegrityReviewRequest request,
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    var allowedKinds = new[] { "PaymentOrderMismatch", "PaymentReview", "RefundProcessing", "SettlementOnHold" };
+    if (!allowedKinds.Contains(request.Kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial review type.");
+    if (!long.TryParse(request.EntityKey, out var entityId) || entityId <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
+    if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length > 1500)
+        throw new Marketplace.Domain.Common.DomainException("A review note of at most 1500 characters is required.");
+
+    var exists = request.Kind switch
+    {
+        "PaymentOrderMismatch" or "PaymentReview" => await db.Payments.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "RefundProcessing" => await db.Refunds.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "SettlementOnHold" => await db.Settlements.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        _ => false
+    };
+    if (!exists) return Results.NotFound(new { detail = "Financial record not found." });
+
+    var detailsJson = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        kind = request.Kind,
+        entityId,
+        note = request.Note.Trim(),
+        reviewState = "Reviewed"
+    });
+    var correlationId = http.TraceIdentifier;
+    var audit = Marketplace.Domain.Auditing.AdminAuditEvent.Create(
+        CurrentUserId(user), "FinancialIntegrity.Reviewed", request.Kind, entityId.ToString(),
+        detailsJson, correlationId.Length <= 100 ? correlationId : correlationId[..100]);
+    db.AdminAuditEvents.Add(audit);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { auditId = audit.Id, kind = request.Kind, entityId, reviewState = "Reviewed", createdAtUtc = audit.CreatedAtUtc });
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapGet("/api/admin/financial-integrity/reviews", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+    Results.Ok(await db.AdminAuditEvents.AsNoTracking()
+        .Where(x => x.Action == "FinancialIntegrity.Reviewed")
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .Take(200)
+        .Select(x => new { auditId = x.Id, actorUserId = x.ActorUserId, kind = x.EntityType,
+            entityKey = x.EntityKey, detailsJson = x.DetailsJson, x.CorrelationId, x.CreatedAtUtc })
+        .ToListAsync(ct))
+).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/summary", async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var paymentReview = await db.Payments.AsNoTracking()
@@ -990,7 +1041,7 @@ public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR,string? RequestKey);
 public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
-public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
+public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);\npublic sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);
