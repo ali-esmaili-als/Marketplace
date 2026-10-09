@@ -1,9 +1,18 @@
 /*
- Marketplace - Complete SQL Server schema
+ Marketplace - SINGLE CANONICAL SQL SERVER SCHEMA
  Branch: develop
- Generated from the current Domain model + MarketplaceDbContext + database patches.
- Run this script against an EMPTY Marketplace database.
- It is intentionally self-contained for a fresh/empty database and includes current shipping, delivery-code, balance bucket, SMS-provider, payment-provider, settlement, and payment-reconciliation schema. Do not run the incremental patch scripts after this file on a fresh database; use those only to upgrade an existing installation.
+
+ This is the source of truth for a NEW / EMPTY database. It consolidates the current schema
+ changes previously introduced by the numbered database upgrades, including identity and
+ permission tables, seller/catalog, campaigns/coupons, shipping coverage and order destination
+ snapshots, payment/refund/settlement lifecycle constraints and idempotency indexes, balance
+ buckets, reconciliation/audit tables, SMS/payment provider settings, and the transactional
+ outbox (including LockToken, polling index, and retry/audit support).
+
+ Run this file ONCE against an empty Marketplace database. Do NOT run the numbered patch files
+ afterward on a fresh database. Numbered patch files remain only as incremental upgrade history
+ for databases that already existed before this consolidated schema; they are not required for
+ fresh installs. This script validates the presence of all required tables at the end.
 */
 
 SET NOCOUNT ON;
@@ -601,7 +610,9 @@ INSERT INTO @ExpectedTables(TableName) VALUES
 (N'SmsProviderSettings'),
 (N'PaymentReconciliationAudits'),
 (N'RefundReconciliationAudits'),
-(N'SettlementReconciliationAudits');
+(N'SettlementReconciliationAudits'),
+(N'OutboxMessages'),
+(N'AdminAuditEvents');
 
 IF EXISTS (
     SELECT 1
