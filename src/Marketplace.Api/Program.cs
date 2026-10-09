@@ -1821,8 +1821,9 @@ app.MapPut("/api/sellers/me/variants/{variantId:long}",async(System.Security.Cla
 
 app.MapGet("/api/sellers/me/variants/{variantId:long}/stock",async(System.Security.Claims.ClaimsPrincipal user,long variantId,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();var stock=await service.GetStockAsync(seller.Id,variantId,ct);return Results.Ok(new { stockQuantity=stock.StockQuantity,reservedQuantity=stock.ReservedQuantity,availableQuantity=stock.AvailableQuantity });}).RequirePermission("Seller.Catalog.Manage");
 app.MapPut("/api/sellers/me/variants/{variantId:long}/stock",async(System.Security.Claims.ClaimsPrincipal user,long variantId,StockRequest request,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
- var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.SetStockAsync(seller.Id,variantId,request.Quantity,ct); return Results.NoContent();
+ var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); await service.SetStockAsync(seller.Id,variantId,request.Quantity,request.Reason,ct); return Results.NoContent();
 }).RequirePermission("Seller.Catalog.Manage");
+app.MapGet("/api/sellers/me/variants/{variantId:long}/stock/movements",async(System.Security.Claims.ClaimsPrincipal user,long variantId,int? take,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();var items=await service.GetStockMovementsAsync(seller.Id,variantId,take??50,ct);return Results.Ok(items.Select(x=>new { x.Id,x.ProductVariantId,x.PreviousStockQuantity,x.NewStockQuantity,x.QuantityDelta,x.Reason,x.CreatedAtUtc }));}).RequirePermission("Seller.Catalog.Manage");
 
 app.MapPost("/api/sellers/me/stores/{storeId:long}/warranties",async(System.Security.Claims.ClaimsPrincipal user,long storeId,WarrantyRequest request,Marketplace.Application.Catalog.CatalogManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
  var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException(); var id=await service.CreateWarrantyAsync(seller.Id,storeId,request.Name,request.PriceIRR,ct); return Results.Ok(new{id});
@@ -2218,7 +2219,7 @@ public sealed record RefundRequest(Marketplace.Domain.Refunds.RefundReason Reaso
 public sealed record CatalogProductRequest(long CategoryId,string Name,string Slug,string? Description,long BasePriceIRR,bool HasVariants);
 public sealed record CatalogProductUpdateRequest(string Name,string Slug,string? Description,long BasePriceIRR);
 public sealed record CatalogVariantRequest(string SKU,string VariantKey,long? PriceIRR,bool IsActive=true);
-public sealed record StockRequest(long Quantity);
+public sealed record StockRequest(long Quantity,string? Reason=null);
 public sealed record WarrantyRequest(string Name,long PriceIRR);
 public sealed record LinkWarrantyRequest(bool IsDefault);
 public sealed record AttributeRequest(string Name,string Slug);
