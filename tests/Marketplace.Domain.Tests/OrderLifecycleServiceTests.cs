@@ -85,7 +85,7 @@ public sealed class OrderLifecycleServiceTests
             .ReturnsAsync((PaymentTransaction?)null);
         var lifecycle = new Mock<ILifecycleRepository>();
         lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
-        lifecycle.Setup(x => x.GetDeliveryByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync((Delivery?)null);
+        lifecycle.Setup(x => x.GetDeliveryByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync((DeliveryEntity?)null);
         lifecycle.Setup(x => x.GetReservationsByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<InventoryReservation>());
         var unitOfWork = new Mock<IUnitOfWork>();
@@ -108,7 +108,7 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(PaymentStatus.Succeeded, payment.Status);
         Assert.Equal(2_000_000, balance.PendingIRR);
         lifecycle.Verify(x => x.AddBalanceHold(It.IsAny<SellerBalanceHold>()), Times.Once);
-        lifecycle.Verify(x => x.AddDelivery(It.IsAny<Delivery>()), Times.Once);
+        lifecycle.Verify(x => x.AddDelivery(It.IsAny<DeliveryEntity>()), Times.Once);
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
         unitOfWork.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
