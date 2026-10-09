@@ -108,7 +108,7 @@ public sealed class PaymentAndDeliveryRegressionTests
         var lifecycle = new OrderFinancialLifecycle();
 
         delivery.Expire(expiresAt.AddSeconds(1));
-        lifecycle.OnDeliveryExpired(order, delivery, balance);
+        lifecycle.OnDeliveryExpired(order, delivery, balance, expiresAt.AddSeconds(1));
 
         Assert.Equal(OrderStatus.RefundRequested, order.Status);
         Assert.Equal(0, balance.PendingIRR);
