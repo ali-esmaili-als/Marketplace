@@ -102,13 +102,19 @@ PRINT '9. Seller reserved-for-settlement bucket differs from unsettled settlemen
     WHERE Status IN (1, 2, 6) -- Requested, Processing, OnHold
     GROUP BY SellerId
 )
-SELECT b.SellerId, b.ReservedForSettlementIRR,
+SELECT COALESCE(b.SellerId, a.SellerId) AS SellerId,
+       b.ReservedForSettlementIRR,
        COALESCE(a.ExpectedReservedIRR, 0) AS ExpectedReservedIRR,
-       b.ReservedForSettlementIRR - COALESCE(a.ExpectedReservedIRR, 0) AS DifferenceIRR,
-       COALESCE(a.ActiveSettlementCount, 0) AS ActiveSettlementCount
+       CASE WHEN b.SellerId IS NULL THEN NULL
+            ELSE b.ReservedForSettlementIRR - COALESCE(a.ExpectedReservedIRR, 0) END AS DifferenceIRR,
+       COALESCE(a.ActiveSettlementCount, 0) AS ActiveSettlementCount,
+       CASE WHEN b.SellerId IS NULL THEN 'MISSING_SELLER_BALANCE'
+            WHEN b.ReservedForSettlementIRR <> COALESCE(a.ExpectedReservedIRR, 0) THEN 'RESERVED_TOTAL_MISMATCH'
+            ELSE 'OK' END AS Finding
 FROM dbo.SellerBalances AS b
-LEFT JOIN ActiveSettlementTotals AS a ON a.SellerId = b.SellerId
-WHERE b.ReservedForSettlementIRR <> COALESCE(a.ExpectedReservedIRR, 0);
+FULL OUTER JOIN ActiveSettlementTotals AS a ON a.SellerId = b.SellerId
+WHERE b.SellerId IS NULL
+   OR b.ReservedForSettlementIRR <> COALESCE(a.ExpectedReservedIRR, 0);
 
 PRINT '10. More than one final settlement ledger entry for a settlement';
 SELECT bt.SettlementId, COUNT_BIG(*) AS FinalLedgerCount,
@@ -151,3 +157,13 @@ FROM dbo.Settlements AS s
 JOIN dbo.BalanceTransactions AS bt ON bt.SettlementId = s.Id
 WHERE s.Status IN (1, 2, 6) -- Requested, Processing, OnHold
   AND ((bt.Type = 4 AND bt.Bucket = 1) OR bt.Type = 14);
+
+
+PRINT '14. Settlement ledger entries linked to a different seller than the settlement';
+SELECT s.Id AS SettlementId, s.SellerId AS SettlementSellerId,
+       bt.Id AS LedgerTransactionId, bt.SellerId AS LedgerSellerId,
+       s.AmountIRR AS SettlementAmountIRR, bt.AmountIRR AS LedgerAmountIRR,
+       bt.Type AS LedgerType, bt.Bucket, bt.CreatedAtUtc
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt ON bt.SettlementId = s.Id
+WHERE bt.SellerId <> s.SellerId;
