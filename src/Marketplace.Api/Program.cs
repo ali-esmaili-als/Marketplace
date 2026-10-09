@@ -415,6 +415,26 @@ app.MapPost("/api/complaints/{complaintId:long}/resolve",async(long complaintId,
 app.MapPost("/api/orders/{orderId:long}/refund",async(System.Security.Claims.ClaimsPrincipal user,long orderId,RefundRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{await service.RefundAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok();}).RequirePermission("Order.Create");
 
 
+app.MapGet("/api/sellers/me/campaigns",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
+    var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
+    return Results.Ok(await (from c in db.Campaigns
+        join s in db.Stores on c.StoreId equals s.Id
+        where s.SellerId==seller.Id
+        orderby c.StartsAtUtc descending
+        select new { c.Id,c.StoreId,StoreName=s.Name,c.Name,DiscountType=(byte)c.DiscountType,c.DiscountValue,c.StartsAtUtc,c.EndsAtUtc,c.IsActive,ProductCount=db.CampaignProducts.Count(t=>t.CampaignId==c.Id) })
+        .Take(200).ToListAsync(ct));
+}).RequirePermission("Seller.Campaign.Manage");
+
+app.MapGet("/api/sellers/me/coupons",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
+    var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
+    return Results.Ok(await (from c in db.Coupons
+        join s in db.Stores on c.StoreId equals s.Id
+        where c.SellerId==seller.Id
+        orderby c.Id descending
+        select new { c.Id,c.StoreId,StoreName=s.Name,c.Code,DiscountType=(byte)c.DiscountType,c.DiscountValue,c.MaxDiscountAmountIRR,c.MinimumPurchaseIRR,c.MaxUses,c.NewCustomerOnly,c.StartsAtUtc,c.EndsAtUtc,c.IsActive,ProductCount=db.CouponProducts.Count(t=>t.CouponId==c.Id),CategoryCount=db.CouponCategories.Count(t=>t.CouponId==c.Id),UsedCount=db.CouponUsages.Count(t=>t.CouponId==c.Id) })
+        .Take(200).ToListAsync(ct));
+}).RequirePermission("Seller.Coupon.Manage");
+
 app.MapPost("/api/sellers/me/campaigns",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Pricing.CreateCampaignRequest request,Marketplace.Application.Pricing.PricingManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
     var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
     var variants=request.VariantIds??Array.Empty<long>();
