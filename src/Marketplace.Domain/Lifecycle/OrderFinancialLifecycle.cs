@@ -133,14 +133,17 @@ public sealed class OrderFinancialLifecycle
             throw new DomainException("Balance hold does not match the order and seller.");
         if (hold.Status != BalanceHoldStatus.Active)
             throw new DomainException("Balance hold is not active.");
-        if (balance.BlockedIRR < order.SellerAmountIRR && balance.PendingIRR < order.SellerAmountIRR)
+        var sellerFundsAvailable = balance.BlockedIRR >= order.SellerAmountIRR ||
+                                   balance.PendingIRR >= order.SellerAmountIRR;
+        if (!sellerFundsAvailable && refund.Reason != RefundReason.DeliveryExpired)
             throw new DomainException("Insufficient seller funds to complete refund.");
 
-        // Preflight every cross-aggregate condition before mutating payment, balance, hold or order.
+        // Delivery-expiry processing may already have removed the seller's pending share.
+        // Never debit another bucket in that case; the platform refund is reconciled separately.
         payment.MarkRefunded();
         if (balance.BlockedIRR >= order.SellerAmountIRR)
             balance.ConsumeBlock(order.SellerAmountIRR);
-        else
+        else if (balance.PendingIRR >= order.SellerAmountIRR)
             balance.RemovePending(order.SellerAmountIRR);
         hold.Consume();
         order.MarkRefunded();
