@@ -58,6 +58,18 @@ public sealed class CartService
             _carts.RemoveItem(item); cart.Touch(); await _uow.SaveChangesAsync(token); return 0;
         }, ct);
 
+    public Task SetQuantityAsync(long customerId,long variantId,long? warrantyId,int quantity,CancellationToken ct=default)
+        =>_uow.ExecuteInTransactionAsync(async token =>
+        {
+            if(quantity<=0)throw new DomainException("Quantity must be positive.");
+            var cart=await _carts.GetByCustomerAsync(customerId,token)??throw new DomainException("Cart not found.");
+            var item=await _carts.GetItemAsync(cart.Id,variantId,warrantyId,token)??throw new DomainException("Cart item not found.");
+            item.ChangeQuantity(quantity);
+            cart.Touch();
+            await _uow.SaveChangesAsync(token);
+            return 0;
+        },ct);
+
     public async Task<List<CartItem>> GetItemsAsync(long customerId, CancellationToken ct=default)
     {
         var cart=await _carts.GetByCustomerAsync(customerId,ct);
