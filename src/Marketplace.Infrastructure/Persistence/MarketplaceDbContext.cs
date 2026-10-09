@@ -77,6 +77,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<CouponUsage> CouponUsages => Set<CouponUsage>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<SmsProviderSetting> SmsProviderSettings => Set<SmsProviderSetting>();
+    public DbSet<SmsAutomationSetting> SmsAutomationSettings => Set<SmsAutomationSetting>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -364,6 +365,7 @@ public sealed class MarketplaceDbContext : DbContext
         });
 
         b.Entity<Notification>(e => { e.ToTable("Notifications"); e.HasKey(x=>x.Id); e.Property(x=>x.Channel).HasConversion<byte>(); e.Property(x=>x.Status).HasConversion<byte>(); e.Property(x=>x.Title).HasMaxLength(250).IsRequired(); e.Property(x=>x.Body).HasMaxLength(4000).IsRequired(); e.Property(x=>x.ReferenceType).HasMaxLength(100); e.HasIndex(x=>new{x.UserId,x.Status,x.CreatedAtUtc}); });
+        b.Entity<SmsAutomationSetting>(e => { e.ToTable("SmsAutomationSettings", t => t.HasCheckConstraint("CK_SmsAutomationSettings_LowStock", "LowStockSmsEnabled = 0 OR AutomaticSmsEnabled = 1")); e.HasKey(x => x.Id); e.Property(x => x.Id).ValueGeneratedNever(); });
         b.Entity<SmsProviderSetting>(e => { e.ToTable("SmsProviderSettings"); e.HasKey(x=>x.Id); e.Property(x=>x.Provider).HasMaxLength(50).IsRequired(); e.Property(x=>x.DisplayName).HasMaxLength(150).IsRequired(); e.HasIndex(x=>x.Provider).IsUnique(); e.HasIndex(x=>new{x.IsEnabled,x.IsVisible,x.SortOrder}); });
 
         b.Entity<DeliveryCity>(e =>
