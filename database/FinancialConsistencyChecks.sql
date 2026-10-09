@@ -312,3 +312,47 @@ SELECT c.Id AS CommissionId, c.OrderId, c.CommissionAmountIRR,
 FROM ReversedCommissionTotals AS r
 JOIN dbo.Commissions AS c ON c.Id = r.CommissionId
 WHERE r.TotalReversedCommissionIRR > c.CommissionAmountIRR;
+
+PRINT '27. Payment amount differs from its order total';
+SELECT p.Id AS PaymentId, p.OrderId,
+       p.AmountIRR AS PaymentAmountIRR, o.TotalAmountIRR AS OrderTotalAmountIRR,
+       p.Status AS PaymentStatus, o.Status AS OrderStatus
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.AmountIRR <> o.TotalAmountIRR;
+
+PRINT '28. Captured/refunded payment has no corresponding sale ledger entry';
+SELECT p.Id AS PaymentId, p.OrderId, p.AmountIRR, p.Status AS PaymentStatus,
+       o.Status AS OrderStatus, o.SellerId, o.SellerAmountIRR
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.Status IN (3, 6, 7) -- Succeeded, Refunded, PartiallyRefunded
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.BalanceTransactions AS bt
+      WHERE bt.OrderId = o.Id
+        AND bt.SellerId = o.SellerId
+        AND bt.Type = 1 -- Sale
+        AND bt.AmountIRR = o.SellerAmountIRR
+  );
+
+PRINT '29. Sale ledger amount or seller does not match the order snapshot';
+SELECT bt.Id AS LedgerTransactionId, bt.OrderId,
+       bt.SellerId AS LedgerSellerId, o.SellerId AS OrderSellerId,
+       bt.AmountIRR AS LedgerAmountIRR, o.SellerAmountIRR AS ExpectedSellerAmountIRR,
+       bt.Bucket, bt.CreatedAtUtc
+FROM dbo.BalanceTransactions AS bt
+JOIN dbo.Orders AS o ON o.Id = bt.OrderId
+WHERE bt.Type = 1 -- Sale
+  AND (bt.SellerId <> o.SellerId OR bt.AmountIRR <> o.SellerAmountIRR);
+
+PRINT '30. Orders with multiple seller balance holds';
+SELECT h.OrderId, COUNT_BIG(*) AS HoldCount,
+       COUNT(DISTINCT h.SellerId) AS SellerCount,
+       MIN(h.AmountIRR) AS MinimumHoldAmountIRR,
+       MAX(h.AmountIRR) AS MaximumHoldAmountIRR
+FROM dbo.SellerBalanceHolds AS h
+WHERE h.OrderId IS NOT NULL
+GROUP BY h.OrderId
+HAVING COUNT_BIG(*) > 1;
