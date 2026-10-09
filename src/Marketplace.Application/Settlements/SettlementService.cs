@@ -48,7 +48,7 @@ public sealed class SettlementService
                     return new SettlementResult(existing.Id, existing.AmountIRR, existing.Status.ToString(), existing.Reference);
                 }
             }
-            balance ??= throw new DomainException("Seller balance not found.");
+            if (balance is null) throw new DomainException("Seller balance not found.");
             var account=await _life.GetSellerBankAccountAsync(seller.Id,bankAccountId,token)??throw new DomainException("Bank account not found.");
             if(!account.IsVerified) throw new DomainException("Seller bank account is not verified.");
             if(amountIRR<=0 || amountIRR>balance.WithdrawableIRR) throw new DomainException("Settlement amount exceeds withdrawable balance.");
