@@ -79,6 +79,22 @@ public sealed class FinancialSchemaConstraintTests
                 await applySchema.ExecuteNonQueryAsync();
             }
 
+            // Verify the canonical bootstrap also includes operational infrastructure,
+            // not only the core commerce schema. Health checks must be read-only over these tables.
+            await using (var operationalSchemaCheck = new SqlCommand("""
+                SELECT CASE WHEN
+                    OBJECT_ID(N'dbo.OutboxMessages', N'U') IS NOT NULL
+                    AND COL_LENGTH(N'dbo.OutboxMessages', N'LockToken') IS NOT NULL
+                    AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.OutboxMessages') AND name=N'IX_OutboxMessages_Poll')
+                    AND OBJECT_ID(N'dbo.AdminAuditEvents', N'U') IS NOT NULL
+                    AND EXISTS (SELECT 1 FROM sys.foreign_keys WHERE parent_object_id=OBJECT_ID(N'dbo.AdminAuditEvents') AND name=N'FK_AdminAuditEvents_Users')
+                    AND EXISTS (SELECT 1 FROM sys.sequences WHERE object_id=OBJECT_ID(N'dbo.MarketplaceSequence'))
+                    THEN 1 ELSE 0 END;
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await operationalSchemaCheck.ExecuteScalarAsync()));
+            }
+
             await using (var constraintCheck = new SqlCommand("""
                 SELECT COUNT(*) FROM sys.check_constraints
                 WHERE name = N'CK_InventoryItems_Qty' AND parent_object_id = OBJECT_ID(N'dbo.InventoryItems');
