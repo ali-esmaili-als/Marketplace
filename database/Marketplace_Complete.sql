@@ -147,16 +147,23 @@ CREATE TABLE dbo.StoreShippingCities(
  Id BIGINT NOT NULL CONSTRAINT PK_StoreShippingCities PRIMARY KEY, StoreId BIGINT NOT NULL, CityId BIGINT NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
  CONSTRAINT UQ_StoreShippingCities_Store_City UNIQUE(StoreId,CityId)
 );
+CREATE TABLE dbo.StoreShippingRates(
+ Id BIGINT NOT NULL CONSTRAINT PK_StoreShippingRates PRIMARY KEY, StoreId BIGINT NOT NULL, CityId BIGINT NOT NULL,
+ ShippingFeeIRR BIGINT NOT NULL, MinDeliveryDays INT NOT NULL, MaxDeliveryDays INT NOT NULL,
+ CreatedAtUtc DATETIME2(7) NOT NULL, UpdatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT UQ_StoreShippingRates_Store_City UNIQUE(StoreId,CityId),
+ CONSTRAINT CK_StoreShippingRates_Values CHECK(ShippingFeeIRR>=0 AND MinDeliveryDays>=0 AND MaxDeliveryDays>=MinDeliveryDays AND MaxDeliveryDays<=365)
+);
 
 CREATE TABLE dbo.Orders(
  Id BIGINT NOT NULL CONSTRAINT PK_Orders PRIMARY KEY, CustomerId BIGINT NOT NULL, RequestKey NVARCHAR(64) NULL, SellerId BIGINT NOT NULL, StoreId BIGINT NOT NULL,
- SubtotalAmountIRR BIGINT NOT NULL, CampaignDiscountIRR BIGINT NOT NULL CONSTRAINT DF_Orders_CampaignDiscount DEFAULT(0),
+ SubtotalAmountIRR BIGINT NOT NULL, ShippingFeeIRR BIGINT NOT NULL CONSTRAINT DF_Orders_ShippingFee DEFAULT(0), CampaignDiscountIRR BIGINT NOT NULL CONSTRAINT DF_Orders_CampaignDiscount DEFAULT(0),
  CouponDiscountIRR BIGINT NOT NULL CONSTRAINT DF_Orders_CouponDiscount DEFAULT(0), CouponCodeSnapshot NVARCHAR(100) NULL,
  TotalAmountIRR BIGINT NOT NULL, SellerAmountIRR BIGINT NOT NULL, DestinationCityId BIGINT NULL,
  DestinationCityNameSnapshot NVARCHAR(200) NULL, DestinationProvinceNameSnapshot NVARCHAR(200) NULL,
  Status TINYINT NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL, PaidAtUtc DATETIME2(7) NULL,
  DeliveredAtUtc DATETIME2(7) NULL, DeliveryExpiresAtUtc DATETIME2(7) NULL, ComplaintExpiresAtUtc DATETIME2(7) NULL,
- CONSTRAINT CK_Orders_Amounts CHECK(SubtotalAmountIRR>0 AND TotalAmountIRR>0 AND TotalAmountIRR<=SubtotalAmountIRR AND SellerAmountIRR>=0 AND SellerAmountIRR<=TotalAmountIRR),
+ CONSTRAINT CK_Orders_Amounts CHECK(SubtotalAmountIRR>0 AND ShippingFeeIRR>=0 AND TotalAmountIRR>0 AND TotalAmountIRR<=SubtotalAmountIRR+ShippingFeeIRR AND SellerAmountIRR>=0 AND SellerAmountIRR<=TotalAmountIRR),
  CONSTRAINT CK_Orders_Status CHECK(Status BETWEEN 1 AND 10)
 );
 CREATE UNIQUE INDEX UX_Orders_Customer_RequestKey ON dbo.Orders(CustomerId,RequestKey) WHERE RequestKey IS NOT NULL;
@@ -515,6 +522,7 @@ CREATE INDEX IX_Carts_Store_Customer ON dbo.Carts(StoreId,CustomerId);
 CREATE INDEX IX_CartItems_Cart ON dbo.CartItems(CartId);
 CREATE INDEX IX_StoreShippingCities_StoreId ON dbo.StoreShippingCities(StoreId);
 CREATE INDEX IX_StoreShippingCities_CityId ON dbo.StoreShippingCities(CityId);
+CREATE INDEX IX_StoreShippingRates_CityId ON dbo.StoreShippingRates(CityId);
 CREATE INDEX IX_Orders_Seller_Status ON dbo.Orders(SellerId,Status);
 CREATE INDEX IX_Orders_Customer_Created ON dbo.Orders(CustomerId,CreatedAtUtc);
 CREATE INDEX IX_Orders_DestinationCityId ON dbo.Orders(DestinationCityId);
@@ -621,6 +629,7 @@ INSERT INTO @ExpectedTables(TableName) VALUES
 (N'CartItems'),
 (N'DeliveryCities'),
 (N'StoreShippingCities'),
+(N'StoreShippingRates'),
 (N'Orders'),
 (N'OrderItems'),
 (N'Payments'),
