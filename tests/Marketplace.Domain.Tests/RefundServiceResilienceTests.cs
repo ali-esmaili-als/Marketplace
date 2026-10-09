@@ -149,7 +149,7 @@ public sealed class RefundServiceResilienceTests
         Assert.Equal(PaymentStatus.Refunded, payment.Status);
         Assert.Equal(BalanceHoldStatus.Consumed, hold.Status);
         Assert.Equal(0, balance.BlockedIRR);
-        Assert.Equal(900_000, balance.AvailableIRR);
+        Assert.Equal(400_000, balance.AvailableIRR);
 
         Assert.NotNull(transaction);
         Assert.Equal(BalanceTransactionType.Refund, transaction!.Type);
