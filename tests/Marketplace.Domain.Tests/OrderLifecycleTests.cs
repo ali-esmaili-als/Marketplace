@@ -48,6 +48,71 @@ public sealed class OrderLifecycleTests
     }
 
     [Fact]
+    public void SuccessfulPayment_WithWrongAmountDoesNotMutateOrderOrBalance()
+    {
+        var order = Order.Create(101, 102, 103, 104, 1_000_000, 1_000_000);
+        var payment = Payment.Create(105, order.Id, order.CustomerId, 999_999);
+        payment.Succeed("WRONG-AMOUNT");
+        var balance = SellerBalance.Create(106, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnPaymentSucceeded(order, payment, balance, 107));
+
+        Assert.Equal(OrderStatus.PendingPayment, order.Status);
+        Assert.Equal(0, balance.PendingIRR);
+    }
+
+    [Fact]
+    public void SuccessfulPayment_ForAnotherCustomerDoesNotMutateOrderOrBalance()
+    {
+        var order = Order.Create(111, 112, 113, 114, 1_000_000, 1_000_000);
+        var payment = Payment.Create(115, order.Id, 999, order.TotalAmountIRR);
+        payment.Succeed("WRONG-CUSTOMER");
+        var balance = SellerBalance.Create(116, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnPaymentSucceeded(order, payment, balance, 117));
+
+        Assert.Equal(OrderStatus.PendingPayment, order.Status);
+        Assert.Equal(0, balance.PendingIRR);
+    }
+
+    [Fact]
+    public void SuccessfulPayment_WithAnotherSellersBalanceDoesNotMutateAggregates()
+    {
+        var order = Order.Create(121, 122, 123, 124, 1_000_000, 1_000_000);
+        var payment = Payment.Create(125, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("WRONG-BALANCE");
+        var balance = SellerBalance.Create(126, 999);
+        var lifecycle = new OrderFinancialLifecycle();
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnPaymentSucceeded(order, payment, balance, 127));
+
+        Assert.Equal(OrderStatus.PendingPayment, order.Status);
+        Assert.Equal(0, balance.PendingIRR);
+    }
+
+    [Fact]
+    public void ZeroSellerShareDoesNotMarkOrderPaidBeforeRejecting()
+    {
+        var order = Order.Create(131, 132, 133, 134, 1_000_000, 1_000_000);
+        order.SetSellerAmount(0);
+        var payment = Payment.Create(135, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("ZERO-SELLER-SHARE");
+        var balance = SellerBalance.Create(136, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnPaymentSucceeded(order, payment, balance, 137));
+
+        Assert.Equal(OrderStatus.PendingPayment, order.Status);
+        Assert.Equal(0, balance.PendingIRR);
+    }
+
+    [Fact]
     public void DeliveredOrder_BlocksSellerShareUntilComplaintWindowEnds()
     {
         var order=Order.Create(1,10,20,30,1_000_000,1_000_000);
