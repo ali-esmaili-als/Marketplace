@@ -95,7 +95,7 @@ public sealed class FinancialSchemaConstraintTests
                 FROM sys.foreign_keys
                 WHERE name IN
                 (
-                    N'FK_Orders_Users',
+                    N'FK_Orders_Customers',
                     N'FK_OrderItems_Orders',
                     N'FK_Payments_Orders',
                     N'FK_Refunds_Orders',
