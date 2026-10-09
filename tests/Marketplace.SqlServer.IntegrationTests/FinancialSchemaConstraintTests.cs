@@ -134,6 +134,40 @@ public sealed class FinancialSchemaConstraintTests
                 await reapplyComplaintPatch.ExecuteNonQueryAsync();
             }
 
+            // Verify the complaint status upgrade patch recreates its check constraint
+            // and can be safely rerun on an already-upgraded installation.
+            await using (var dropComplaintStatusCheck = new SqlCommand("""
+                ALTER TABLE dbo.Complaints DROP CONSTRAINT CK_Complaints_Status;
+                """, connection))
+            {
+                await dropComplaintStatusCheck.ExecuteNonQueryAsync();
+            }
+
+            var complaintStatusPatchPath = Path.Combine(AppContext.BaseDirectory, "database", "012_ComplaintStatusConstraint.sql");
+            Assert.True(File.Exists(complaintStatusPatchPath), $"Complaint status patch was not copied to test output: {complaintStatusPatchPath}");
+            var complaintStatusPatch = await File.ReadAllTextAsync(complaintStatusPatchPath);
+            await using (var applyComplaintStatusPatch = new SqlCommand(complaintStatusPatch, connection) { CommandTimeout = 120 })
+            {
+                await applyComplaintStatusPatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyComplaintStatusCheck = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM sys.check_constraints
+                WHERE parent_object_id = OBJECT_ID(N'dbo.Complaints')
+                  AND name = N'CK_Complaints_Status'
+                  AND is_disabled = 0
+                  AND is_not_trusted = 0;
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyComplaintStatusCheck.ExecuteScalarAsync()));
+            }
+
+            await using (var reapplyComplaintStatusPatch = new SqlCommand(complaintStatusPatch, connection) { CommandTimeout = 120 })
+            {
+                await reapplyComplaintStatusPatch.ExecuteNonQueryAsync();
+            }
+
             await using var invalidInsert = new SqlCommand("""
                 INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
                 VALUES (940001, 940001, 5, 6, 1);
@@ -146,6 +180,7 @@ public sealed class FinancialSchemaConstraintTests
                 WITH RequiredObjects AS
                 (
                     SELECT N'CK_Products_Price' AS ObjectName, N'CHECK' AS ObjectType UNION ALL
+                    SELECT N'CK_Complaints_Status', N'CHECK' UNION ALL
                     SELECT N'CK_Orders_Amounts', N'CHECK' UNION ALL
                     SELECT N'CK_Payments_Amount', N'CHECK' UNION ALL
                     SELECT N'CK_Refunds_Amount', N'CHECK' UNION ALL
@@ -168,7 +203,7 @@ public sealed class FinancialSchemaConstraintTests
                         (SELECT 1 FROM sys.indexes i WHERE i.name = r.ObjectName AND i.is_unique = 1));
                 """, connection))
             {
-                Assert.Equal(12, Convert.ToInt32(await contractCheck.ExecuteScalarAsync()));
+                Assert.Equal(13, Convert.ToInt32(await contractCheck.ExecuteScalarAsync()));
             }
 
             await using (var fkCheck = new SqlCommand("""
