@@ -138,6 +138,95 @@ public sealed class FinancialSchemaConstraintTests
                 Assert.Equal(5, Convert.ToInt32(await fkCheck.ExecuteScalarAsync()));
             }
 
+            // Exercise the filtered unique indexes against the real bootstrap schema.
+            // These are the final database guardrails against duplicate financial side effects.
+            await using (var seedFinancialRows = new SqlCommand("""
+                INSERT INTO dbo.Users (Id, Mobile, PasswordHash, DisplayName, CreatedAtUtc)
+                VALUES (950001, N'+989120000001', N'test-hash', N'Integration Customer', SYSUTCDATETIME());
+                INSERT INTO dbo.Sellers (Id, UserId, Status, CreatedAtUtc)
+                VALUES (950002, 950001, 1, SYSUTCDATETIME());
+                INSERT INTO dbo.Stores (Id, SellerId, Name, Slug, Status, CreatedAtUtc)
+                VALUES (950003, 950002, N'Integration Store', N'integration-store', 1, SYSUTCDATETIME());
+                INSERT INTO dbo.Orders
+                    (Id, CustomerId, SellerId, StoreId, SubtotalAmountIRR, TotalAmountIRR, SellerAmountIRR, Status, CreatedAtUtc)
+                VALUES
+                    (950004, 950001, 950002, 950003, 100000, 100000, 90000, 1, SYSUTCDATETIME()),
+                    (950005, 950001, 950002, 950003, 120000, 120000, 108000, 1, SYSUTCDATETIME());
+                INSERT INTO dbo.Payments (Id, OrderId, CustomerId, AmountIRR, Status, CreatedAtUtc)
+                VALUES
+                    (950006, 950004, 950001, 100000, 1, SYSUTCDATETIME()),
+                    (950007, 950005, 950001, 120000, 1, SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedFinancialRows.ExecuteNonQueryAsync();
+            }
+
+            await using (var seedFirstRefund = new SqlCommand("""
+                INSERT INTO dbo.Refunds (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (950008, 950004, 950006, 950001, 10000, 1, 1, SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedFirstRefund.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicateActiveRefund = new SqlCommand("""
+                INSERT INTO dbo.Refunds (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES (950009, 950004, 950006, 950001, 5000, 1, 2, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicateActiveRefund.ExecuteNonQueryAsync());
+            }
+
+            await using (var seedPaymentTransaction = new SqlCommand("""
+                INSERT INTO dbo.PaymentTransactions (Id, PaymentId, AmountIRR, Status, Provider, Authority, CreatedAtUtc)
+                VALUES (950010, 950006, 100000, 1, N'IntegrationGateway', N'same-authority', SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedPaymentTransaction.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicateAuthority = new SqlCommand("""
+                INSERT INTO dbo.PaymentTransactions (Id, PaymentId, AmountIRR, Status, Provider, Authority, CreatedAtUtc)
+                VALUES (950011, 950007, 120000, 1, N'IntegrationGateway', N'same-authority', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicateAuthority.ExecuteNonQueryAsync());
+            }
+
+            await using (var seedHold = new SqlCommand("""
+                INSERT INTO dbo.SellerBalanceHolds (Id, SellerId, OrderId, AmountIRR, Reason, Status, CreatedAtUtc)
+                VALUES (950012, 950002, 950004, 90000, N'Integration test hold', 1, SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedHold.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicateHold = new SqlCommand("""
+                INSERT INTO dbo.SellerBalanceHolds (Id, SellerId, OrderId, AmountIRR, Reason, Status, CreatedAtUtc)
+                VALUES (950013, 950002, 950004, 90000, N'Duplicate integration test hold', 1, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicateHold.ExecuteNonQueryAsync());
+            }
+
+            await using (var seedSaleLedger = new SqlCommand("""
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, CreatedAtUtc)
+                VALUES (950014, 950002, 950004, 1, 1, 90000, 0, 90000, SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedSaleLedger.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicateSaleLedger = new SqlCommand("""
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, Type, Bucket, AmountIRR, BalanceBeforeIRR, BalanceAfterIRR, CreatedAtUtc)
+                VALUES (950015, 950002, 950004, 1, 1, 90000, 90000, 180000, SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicateSaleLedger.ExecuteNonQueryAsync());
+            }
+
             await using (var identityCheck = new SqlCommand("""
                 SELECT COUNT(*)
                 FROM sys.identity_columns ic
