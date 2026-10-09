@@ -551,6 +551,66 @@ public sealed class FinancialSchemaConstraintTests
                 await reapplyIdempotencyPatch.ExecuteNonQueryAsync();
             }
 
+            // Exercise the refund-specific ledger identity patch against a pre-existing
+            // schema, verify idempotent reapplication, and prove duplicate postings are rejected.
+            await using (var dropRefundLedgerIdentity = new SqlCommand("""
+                DROP INDEX UX_BalanceTransactions_RefundId ON dbo.BalanceTransactions;
+                ALTER TABLE dbo.BalanceTransactions DROP CONSTRAINT FK_BalanceTransactions_Refunds;
+                """, connection))
+            {
+                await dropRefundLedgerIdentity.ExecuteNonQueryAsync();
+            }
+
+            var refundLedgerPatchPath = Path.Combine(AppContext.BaseDirectory, "database", "019_RefundLedgerIdentity.sql");
+            Assert.True(File.Exists(refundLedgerPatchPath), $"Refund ledger identity patch was not copied to test output: {refundLedgerPatchPath}");
+            var refundLedgerPatch = await File.ReadAllTextAsync(refundLedgerPatchPath);
+            await using (var applyRefundLedgerPatch = new SqlCommand(refundLedgerPatch, connection) { CommandTimeout = 120 })
+            {
+                await applyRefundLedgerPatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyRefundLedgerIdentity = new SqlCommand("""
+                SELECT
+                    (SELECT COUNT(*) FROM sys.indexes
+                     WHERE object_id = OBJECT_ID(N'dbo.BalanceTransactions')
+                       AND name = N'UX_BalanceTransactions_RefundId'
+                       AND is_unique = 1 AND has_filter = 1)
+                    +
+                    (SELECT COUNT(*) FROM sys.foreign_keys
+                     WHERE parent_object_id = OBJECT_ID(N'dbo.BalanceTransactions')
+                       AND name = N'FK_BalanceTransactions_Refunds');
+                """, connection))
+            {
+                Assert.Equal(2, Convert.ToInt32(await verifyRefundLedgerIdentity.ExecuteScalarAsync()));
+            }
+
+            await using (var reapplyRefundLedgerPatch = new SqlCommand(refundLedgerPatch, connection) { CommandTimeout = 120 })
+            {
+                await reapplyRefundLedgerPatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var firstRefundLedgerPosting = new SqlCommand("""
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, RefundId, Type, Bucket, AmountIRR,
+                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES (951001, 950002, 950004, 950021, 3, 2, 1000, 10000, 9000,
+                        N'INTEGRATION-REFUND-POSTING', SYSUTCDATETIME());
+                """, connection))
+            {
+                await firstRefundLedgerPosting.ExecuteNonQueryAsync();
+            }
+
+            await using (var duplicateRefundLedgerPosting = new SqlCommand("""
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, RefundId, Type, Bucket, AmountIRR,
+                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES (951002, 950002, 950004, 950021, 3, 2, 1000, 9000, 8000,
+                        N'DUPLICATE-INTEGRATION-REFUND-POSTING', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => duplicateRefundLedgerPosting.ExecuteNonQueryAsync());
+            }
+
             await using (var firstPaymentAuthority = new SqlCommand("""
                 INSERT INTO dbo.PaymentTransactions
                     (Id, PaymentId, AmountIRR, Status, Provider, Authority, Reference, CreatedAtUtc)
