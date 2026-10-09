@@ -41,6 +41,9 @@ public static class DependencyInjection
         services.AddScoped<IPaymentProviderSettingsAdmin,PaymentProviderSettingsAdminRepository>();
         services.AddScoped<ISellerPayoutGateway,NotConfiguredSellerPayoutGateway>();
         services.AddHostedService<Outbox.OutboxDispatcherHostedService>();
+        if (!string.IsNullOrWhiteSpace(configuration["Outbox:Webhook:Url"]) &&
+            !string.IsNullOrWhiteSpace(configuration["Outbox:Webhook:Secret"]))
+            services.AddHttpClient<IOutboxPublisher, Outbox.HttpWebhookOutboxPublisher>();
         return services;
     }
 }
