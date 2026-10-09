@@ -7,6 +7,7 @@ The admin financial-integrity endpoints are read-only diagnostics unless the end
 - `GET /api/admin/financial-integrity/summary`: aggregate payment, refund, and settlement diagnostic counts.
 - `GET /api/admin/financial-integrity/items`: bounded detail lists for payment/order mismatches, processing refunds, and on-hold settlements.
 - `GET /api/admin/financial-integrity/order-flows`: checks commission/order amount and seller alignment, completed refunds missing seller-ledger entries, completed refunds missing commission reversals, and commission-reversal links/amounts. The response returns up to 200 detailed findings and exact total counts by type. New refund ledger postings carry `RefundId` and are matched exactly; legacy rows with no `RefundId` use an order/seller fallback and still require manual corroboration when an order has historical retry attempts.
+- `GET /api/admin/financial-integrity/order-trace/{orderId}`: read-only end-to-end trace for one order, including bounded payment attempts/provider transactions, commission, refunds, commission reversals, linked ledger entries, current seller balance, and the seller’s 50 latest settlements. It returns internal consistency findings and `itemsTruncated` when a section reaches its cap.
 - `GET /api/admin/financial-integrity/ledger`: compares each seller balance bucket with the latest ledger snapshot for that seller/bucket, identifies non-zero buckets without ledger history, missing SellerBalance rows, and mismatches between the reserved balance and active settlement totals. Returns up to 200 findings plus total counts and a truncation flag.
 - `POST /api/admin/financial-integrity/reviews`: records an administrator's review note in `AdminAuditEvents`.
 - `GET /api/admin/financial-integrity/reviews`: returns up to 200 most recent review notes.
@@ -42,3 +43,12 @@ Supported review kinds are `PaymentOrderMismatch`, `PaymentReview`, `RefundProce
 Review notes are persisted as an `AdminAuditEvent` with action `FinancialIntegrity.Reviewed`, entity type, entity key, actor, timestamp, correlation ID, and JSON details. A review entry is an audit trail, not a resolution flag: the finding remains in the diagnostic list until the underlying financial state is corrected through its dedicated workflow.
 
 Do not record credentials, full bank account details, payment-card data, or other secrets in review notes. Internal consistency checks are not a substitute for reconciliation against a bank statement or a provider's authoritative transaction API.
+
+
+## Order financial trace
+
+The admin order trace endpoint requires `Admin.Settlement.Process` and does not mutate financial records. It is intended for investigation by order ID, not as a bank confirmation or a reconstructed double-entry ledger. It checks for missing payment records, payment/order amount mismatch, a succeeded payment with an order still pending payment, missing commission, commission/order seller or amount mismatch, missing sale ledger entries, completed refunds without a matching refund ledger row, missing commission reversals, and missing seller balance rows.
+
+The endpoint bounds the order's payment attempts to 100, provider transactions to 300, refunds to 100, commission reversals to 200, matching ledger transactions to 500, and seller settlement history to 50. The response sets `itemsTruncated` if any section reaches its cap. Historical refund ledger entries with a null `RefundId` are matched only by the legacy order ID and refund transaction type; investigate historical retry cases manually before asserting a definitive match.
+
+The seller balance and settlement list are seller-level pooled finance data. A settlement is associated with the selected order only where a ledger row explicitly links that settlement to the order/refund trace; the endpoint does not allocate pooled settlement amounts to individual orders. A clean result means only that the listed predicates did not detect a mismatch in the returned data. It does not independently verify bank transfers, payment-provider statements, or customer receipt of a refund.
