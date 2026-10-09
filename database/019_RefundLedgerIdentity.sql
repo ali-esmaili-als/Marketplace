@@ -22,14 +22,20 @@ BEGIN TRY
             ADD CONSTRAINT FK_BalanceTransactions_Refunds
             FOREIGN KEY (RefundId) REFERENCES dbo.Refunds(Id);
 
-    IF EXISTS
-    (
-        SELECT 1 FROM dbo.BalanceTransactions
-        WHERE RefundId IS NOT NULL
-        GROUP BY RefundId
-        HAVING COUNT_BIG(*) > 1
-    )
-        THROW 51902, 'Cannot apply migration 019: duplicate refund ledger identities exist.', 1;
+    /*
+      Use dynamic SQL for statements that reference RefundId. SQL Server may compile a
+      whole batch before the preceding ALTER TABLE has added that column.
+    */
+    EXEC sys.sp_executesql N'
+        IF EXISTS
+        (
+            SELECT 1 FROM dbo.BalanceTransactions
+            WHERE RefundId IS NOT NULL
+            GROUP BY RefundId
+            HAVING COUNT_BIG(*) > 1
+        )
+            THROW 51902, ''Cannot apply migration 019: duplicate refund ledger identities exist.'', 1;
+    ';
 
     IF NOT EXISTS
     (
@@ -37,9 +43,9 @@ BEGIN TRY
         WHERE object_id = OBJECT_ID(N'dbo.BalanceTransactions')
           AND name = N'UX_BalanceTransactions_RefundId'
     )
-        CREATE UNIQUE INDEX UX_BalanceTransactions_RefundId
-            ON dbo.BalanceTransactions(RefundId)
-            WHERE RefundId IS NOT NULL;
+        EXEC(N'CREATE UNIQUE INDEX UX_BalanceTransactions_RefundId
+              ON dbo.BalanceTransactions(RefundId)
+              WHERE RefundId IS NOT NULL;');
 
     COMMIT TRANSACTION;
 END TRY
