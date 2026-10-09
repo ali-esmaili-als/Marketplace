@@ -157,3 +157,12 @@ If any precondition fails, do not retry by changing status or balance rows direc
 
 These checks are read-only diagnostics. Some results can arise from legacy or in-flight data; rerun after active transactions finish, correlate the provider/order/complaint/hold/ledger history, and use the authorized application workflow for any repair. Never fix a complaint or hold finding by directly editing financial balances or lifecycle statuses in SQL.
 
+### Complaint/hold ledger evidence (checks 45–48)
+
+- **45 — Delivered-through-completed order has an active hold but no matching ComplaintHold ledger entry:** compare the hold amount/seller with the order snapshot and blocked-bucket ledger. A refund or release must not be inferred solely from the current hold status.
+- **46 — Released hold has no ComplaintHoldReleased ledger entry:** verify the completed-order payout transaction and the before/after blocked-balance values. A released status without its matching ledger movement needs investigation before another close/release attempt.
+- **47 — Consumed hold has no ComplaintHoldConsumed ledger entry:** correlate the confirmed provider refund, refund completion transaction, hold state, and blocked-bucket ledger. Never replay a bank refund or manually consume the hold to silence this result.
+- **48 — Complaint resolution evidence is missing or contradictory:** resolved complaints (CustomerWon/SellerWon) require both a nonblank resolution note and resolution timestamp; Open/UnderReview complaints should not already have resolution evidence. Review audit history and authorized resolution workflow.
+
+For existing installations, apply `database/011_ActiveComplaintUniqueness.sql` after the earlier schema patches. It refuses to create the filtered unique index if duplicate active complaints already exist, so those rows must be reviewed through the supported workflow first. Fresh installations get the same index from `Marketplace_Complete.sql`. The database index is the final concurrency guard; application checks and serializable transactions remain necessary.
+
