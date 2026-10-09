@@ -13,6 +13,8 @@ The admin financial-integrity endpoints are read-only diagnostics unless the end
 
 All endpoints require `Admin.Settlement.Process`.
 
+For an existing database, apply `database/018_RefundLedgerIdentity.sql` before running the updated `database/FinancialConsistencyChecks.sql`. Fresh databases created from `database/Marketplace_Complete.sql` already include the new nullable `RefundId` column, foreign key, and filtered unique index. The migration intentionally does not infer `RefundId` for historical ledger rows.
+
 ## Ledger comparison caveats
 
 New refund ledger postings reference `RefundId`, with a filtered unique index preventing more than one refund ledger row per refund. Existing ledger rows remain nullable for backward compatibility; historical rows are not auto-linked because retry history cannot be safely inferred. The latest `BalanceTransactions.BalanceAfterIRR` is treated as the last recorded snapshot for its specific bucket. The endpoint compares it with the current `SellerBalances` value; it does not reconstruct the entire ledger, infer missing bank transfers, or automatically correct either side. The reserved-bucket comparison also checks active settlement totals for Requested, Processing, and OnHold statuses. Investigate each finding against the underlying records before any correction.
