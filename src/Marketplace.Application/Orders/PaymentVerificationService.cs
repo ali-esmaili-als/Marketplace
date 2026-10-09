@@ -36,7 +36,7 @@ public sealed class PaymentVerificationService
 
         if (!success)
         {
-            await _uow.ExecuteInTransactionAsync(async token =>
+            await _uow.ExecuteInSerializableTransactionAsync(async token =>
             {
                 var current = await _payments.GetAsync(paymentId, token) ?? throw new DomainException("Payment not found.");
                 if (current.Status is PaymentStatus.Pending or PaymentStatus.Redirected)
@@ -85,7 +85,7 @@ public sealed class PaymentVerificationService
 
         if(!result.IsSuccessful)
         {
-            await _uow.ExecuteInTransactionAsync(async token =>
+            await _uow.ExecuteInSerializableTransactionAsync(async token =>
             {
                 var current=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
                 if(current.Status is PaymentStatus.Pending or PaymentStatus.Redirected)
@@ -123,7 +123,7 @@ public sealed class PaymentVerificationService
                 || payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired;
             if(!noLongerPayable) throw;
 
-            await _uow.ExecuteInTransactionAsync(async token =>
+            await _uow.ExecuteInSerializableTransactionAsync(async token =>
             {
                 var current=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
                 if(current.Status is not (PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded))
