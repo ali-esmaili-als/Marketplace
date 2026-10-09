@@ -103,6 +103,38 @@ public sealed class PaymentVerificationSecurityTests
     }
 
     [Fact]
+    public async Task Gateway_timeout_preserves_pending_payment_and_initiated_transaction_for_safe_retry()
+    {
+        var payment = CreateRedirectedPayment();
+        var transaction = PaymentTransaction.Create(21, payment.Id, payment.AmountIRR, "TestBank", "authority-1");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(payment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        payments.Setup(x => x.GetLatestTransactionAsync(payment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(transaction);
+        var orders = new Mock<IOrderRepository>();
+        var gateway = new Mock<IPaymentGateway>();
+        gateway.SetupGet(x => x.ProviderName).Returns("TestBank");
+        gateway.Setup(x => x.VerifyAsync("authority-1", payment.AmountIRR, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("Provider verification timed out; final outcome is unknown."));
+        var gatewayFactory = new Mock<IPaymentGatewayFactory>();
+        gatewayFactory.Setup(x => x.GetAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(gateway.Object);
+        var uow = new Mock<IUnitOfWork>();
+        var lifecycle = CreateLifecycle(orders.Object, payments.Object, uow.Object);
+        var service = new PaymentVerificationService(
+            payments.Object, orders.Object, gatewayFactory.Object, uow.Object, lifecycle);
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            service.VerifyAsync(payment.CustomerId, payment.Id, "authority-1"));
+
+        Assert.Equal(PaymentStatus.Redirected, payment.Status);
+        Assert.Equal(PaymentTransactionStatus.Initiated, transaction.Status);
+        gateway.Verify(x => x.VerifyAsync("authority-1", payment.AmountIRR, It.IsAny<CancellationToken>()), Times.Once);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uow.Verify(x => x.ExecuteInSerializableTransactionAsync(
+            It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Failed_gateway_verification_fails_payment_and_initiated_transaction_together()
     {
         var payment = CreateRedirectedPayment();
