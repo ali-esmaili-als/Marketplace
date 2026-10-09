@@ -326,5 +326,21 @@ public sealed class MarketplaceDbContext : DbContext
             e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<DeliveryCity>().WithMany().HasForeignKey(x => x.CityId).OnDelete(DeleteBehavior.Restrict);
         });
+
+        // Marketplace uses application-generated long IDs for business entities. The SQL
+        // bootstrap script intentionally defines these PKs without IDENTITY. Keep EF's model
+        // aligned so inserts do not target identity columns that do not exist in production.
+        // The three reconciliation audit tables are the only IDENTITY-backed long keys.
+        foreach (var entityType in b.Model.GetEntityTypes())
+        {
+            var idProperty = entityType.FindProperty("Id");
+            if (idProperty?.ClrType == typeof(long) &&
+                entityType.ClrType.Name is not nameof(PaymentReconciliationAudit)
+                    and not nameof(RefundReconciliationAudit)
+                    and not nameof(SettlementReconciliationAudit))
+            {
+                idProperty.ValueGenerated = Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never;
+            }
+        }
     }
 }
