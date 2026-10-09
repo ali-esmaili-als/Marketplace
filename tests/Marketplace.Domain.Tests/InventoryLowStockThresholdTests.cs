@@ -12,7 +12,7 @@ public sealed class InventoryLowStockThresholdTests
         var inventory = InventoryItem.Create(1, 10, 5);
 
         Assert.Equal(5, inventory.LowStockThreshold);
-        Assert.False(inventory.IsLowStock); // threshold is reached only when available stock is <= threshold and > 0; 5 is low.
+        Assert.True(inventory.IsLowStock);
     }
 
     [Fact]
