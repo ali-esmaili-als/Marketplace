@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Finance;
@@ -62,6 +63,7 @@ public sealed class SettlementService
                 await _ids.NextAsync(token),seller.Id,null,settlement.Id,
                 BalanceTransactionType.Settlement,amountIRR,reservedBefore,balance.ReservedForSettlementIRR,"SETTLEMENT_REQUESTED",BalanceBucket.ReservedForSettlement));
 
+            await AddOutboxAsync("Settlement.Requested", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id,amountIRR,settlement.Status.ToString(),null);
         },ct);
@@ -90,6 +92,7 @@ public sealed class SettlementService
             bankName=settlement.BankNameSnapshot;
             iban=settlement.IbanSnapshot;
             holder=settlement.AccountHolderNameSnapshot;
+            await AddOutboxAsync("Settlement.Processing", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
             await _uow.SaveChangesAsync(token);
             return 0;
         },ct);
@@ -118,6 +121,7 @@ public sealed class SettlementService
                 if (settlement?.Status == SettlementStatus.Processing)
                 {
                     settlement.PutOnHold();
+                    await AddOutboxAsync("Settlement.OnHold", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
                     await _uow.SaveChangesAsync(token);
                 }
                 return 0;
@@ -143,6 +147,7 @@ public sealed class SettlementService
                         await _ids.NextAsync(token),sellerId,null,settlement.Id,
                         BalanceTransactionType.SettlementFailed,amount,reservedBefore,balance.ReservedForSettlementIRR,
                         result.Error ?? "SETTLEMENT_FAILED",BalanceBucket.ReservedForSettlement));
+                    await AddOutboxAsync("Settlement.Failed", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
                     await _uow.SaveChangesAsync(token);
                     return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),null);
                 }
@@ -155,6 +160,7 @@ public sealed class SettlementService
                     await _ids.NextAsync(token),sellerId,null,settlement.Id,
                     BalanceTransactionType.Settlement,amount,before,balance.AvailableIRR,result.Reference,BalanceBucket.Available));
 
+                await AddOutboxAsync("Settlement.Completed", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status, settlement.Reference }, token);
                 await _uow.SaveChangesAsync(token);
                 return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),result.Reference);
             },ct);
@@ -243,10 +249,20 @@ public sealed class SettlementService
 
             _life.AddSettlementReconciliationAudit(SettlementReconciliationAudit.Create(
                 settlement.Id, adminUserId, transferCompleted, bankReference, note));
+            await AddOutboxAsync("Settlement.Reconciled", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status, transferCompleted, settlement.Reference }, token);
 
             await _uow.SaveChangesAsync(token);
             return new SettlementResult(settlement.Id, amount, settlement.Status.ToString(), settlement.Reference);
         }, ct);
+    }
+
+    private async Task AddOutboxAsync(string eventType, object payload, CancellationToken ct)
+    {
+        var message = OutboxMessage.Create(
+            await _ids.NextAsync(ct),
+            eventType,
+            JsonSerializer.Serialize(payload));
+        _life.AddOutboxMessage(message);
     }
 
 }
