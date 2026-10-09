@@ -237,6 +237,7 @@ public sealed class NotificationRepository(MarketplaceDbContext db) : INotificat
  public Task<List<Notification>> GetForUserAsync(long userId,int take,CancellationToken ct=default)=>db.Notifications.Where(x=>x.UserId==userId).OrderByDescending(x=>x.CreatedAtUtc).Take(take).ToListAsync(ct);
  public Task<Notification?> GetForUserAsync(long userId,long id,CancellationToken ct=default)=>db.Notifications.SingleOrDefaultAsync(x=>x.UserId==userId&&x.Id==id,ct);
  public Task<int> GetUnreadCountAsync(long userId,CancellationToken ct=default)=>db.Notifications.CountAsync(x=>x.UserId==userId&&x.ReadAtUtc==null,ct);
+ public Task<long?> GetUserIdForSellerAsync(long sellerId,CancellationToken ct=default)=>db.Sellers.Where(x=>x.Id==sellerId).Select(x=>(long?)x.UserId).SingleOrDefaultAsync(ct);
  public async Task<int> MarkAllReadAsync(long userId,CancellationToken ct=default){var unread=await db.Notifications.Where(x=>x.UserId==userId&&x.ReadAtUtc==null).ToListAsync(ct);foreach(var item in unread)item.MarkRead();return unread.Count;}
  public void Add(Notification notification)=>db.Notifications.Add(notification);
 }
