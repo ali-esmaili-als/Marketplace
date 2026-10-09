@@ -17,12 +17,12 @@ public sealed class PaymentProviderSettingsServiceTests
     [InlineData("[]")]
     [InlineData("null")]
     [InlineData("\"secret\"")]
-    public void Configure_RejectsInvalidOrNonObjectConfiguration(string configuration)
+    public async Task Configure_RejectsInvalidOrNonObjectConfiguration(string configuration)
     {
         var admin = new FakePaymentProviderSettingsAdmin();
         var service = new PaymentProviderSettingsService(admin);
 
-        Assert.Throws<DomainException>(() =>
+        await Assert.ThrowsAsync<DomainException>(() =>
             service.ConfigureAsync(PaymentProviderCode.TestBank, true, true, 0, configuration));
 
         Assert.False(admin.ConfigureCalled);
