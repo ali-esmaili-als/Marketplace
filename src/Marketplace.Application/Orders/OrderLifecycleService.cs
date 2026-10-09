@@ -211,7 +211,7 @@ public sealed class OrderLifecycleService
         if(customerWon)
         {
             c.ResolveForCustomer(note);
-            o.RequestRefund();
+            _domain.OnCustomerWon(c,o);
         }
         else
         {
