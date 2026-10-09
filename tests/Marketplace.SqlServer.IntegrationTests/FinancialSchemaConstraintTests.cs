@@ -21,7 +21,8 @@ public sealed class FinancialSchemaConstraintTests
         {
             "PaymentReconciliationAudit",
             "RefundReconciliationAudit",
-            "SettlementReconciliationAudit"
+            "SettlementReconciliationAudit",
+            "AdminAuditEvent"
         };
 
         var mismatches = db.Model.GetEntityTypes()
