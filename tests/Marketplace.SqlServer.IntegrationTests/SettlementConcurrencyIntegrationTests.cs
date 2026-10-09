@@ -1,4 +1,9 @@
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+using Marketplace.Application.Abstractions;
+using Marketplace.Application.Settlements;
+using Marketplace.Domain.Common;
+using Marketplace.Infrastructure.Persistence;
 using Xunit;
 
 namespace Marketplace.SqlServer.IntegrationTests;
@@ -15,8 +20,8 @@ public sealed class SettlementConcurrencyIntegrationTests
         {
             await SeedAsync(cs, 1_000_000);
             var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var a = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "same", 600_000, 91001); });
-            var b = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "same", 600_000, 91002); });
+            var a = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "same", 600_000); });
+            var b = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "same", 600_000); });
             start.SetResult();
             var results = await Task.WhenAll(a, b);
             Assert.Equal(results[0], results[1]);
@@ -48,8 +53,8 @@ public sealed class SettlementConcurrencyIntegrationTests
         {
             await SeedAsync(cs, 1_000_000);
             var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var a = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "key-a", 700_000, 92001); });
-            var b = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "key-b", 700_000, 92002); });
+            var a = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "key-a", 700_000); });
+            var b = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "key-b", 700_000); });
             start.SetResult();
             var results = await Task.WhenAll(a, b);
             Assert.Single(results, x => x.Accepted);
@@ -115,57 +120,34 @@ public sealed class SettlementConcurrencyIntegrationTests
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<(bool Accepted, long Id)> RequestAsync(string cs, string key, long amount, long id)
+    private static async Task<(bool Accepted, long Id)> RequestAsync(string cs, string key, long amount)
     {
-        await using var connection = new SqlConnection(cs);
-        await connection.OpenAsync();
-        await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        // Exercise the production application service and EF/SQL Server repositories, not a
+        // hand-written approximation of the settlement transaction.
+        var options = new DbContextOptionsBuilder<MarketplaceDbContext>()
+            .UseSqlServer(cs)
+            .Options;
+        await using var db = new MarketplaceDbContext(options);
+        var lifecycle = new LifecycleRepository(db);
+        var unitOfWork = new EfUnitOfWork(db);
+        var ids = new SqlIdGenerator(db);
+        var sellers = new SellerManagementRepository(db);
+        var service = new SettlementService(
+            lifecycle,
+            unitOfWork,
+            ids,
+            new NotConfiguredSellerPayoutGateway(),
+            sellers);
+
         try
         {
-            await using (var existing = new SqlCommand("SELECT Id,AmountIRR FROM dbo.Settlements WITH (UPDLOCK,HOLDLOCK) WHERE SellerId=72001 AND RequestKey=@key;", connection, tx))
-            {
-                existing.Parameters.AddWithValue("@key", key);
-                await using var reader = await existing.ExecuteReaderAsync();
-                if (await reader.ReadAsync())
-                {
-                    var oldId = reader.GetInt64(0);
-                    var oldAmount = reader.GetInt64(1);
-                    await reader.CloseAsync();
-                    await tx.CommitAsync();
-                    return (oldAmount == amount, oldId);
-                }
-            }
-            long available;
-            long reserved;
-            await using (var balance = new SqlCommand("SELECT AvailableIRR,ReservedForSettlementIRR FROM dbo.SellerBalances WITH (UPDLOCK,HOLDLOCK) WHERE SellerId=72001;", connection, tx))
-            await using (var reader = await balance.ExecuteReaderAsync())
-            {
-                Assert.True(await reader.ReadAsync());
-                available = reader.GetInt64(0);
-                reserved = reader.GetInt64(1);
-            }
-            if (amount <= 0 || amount > available - reserved) { await tx.RollbackAsync(); return (false, 0); }
-
-            var now = DateTime.UtcNow;
-            await using var write = new SqlCommand("""
-                INSERT dbo.Settlements(Id,SellerId,RequestKey,AmountIRR,Status,BankAccountId,BankNameSnapshot,IbanSnapshot,AccountHolderNameSnapshot,RequestedAtUtc)
-                VALUES(@id,72001,@key,@amount,1,74001,N'Test Bank',N'IR000000000000000000000000',N'Race Seller',@now);
-                UPDATE dbo.SellerBalances SET ReservedForSettlementIRR=ReservedForSettlementIRR+@amount,
-                    UpdatedAtUtc=@now WHERE SellerId=72001;
-                INSERT dbo.BalanceTransactions(Id,SellerId,SettlementId,Type,Bucket,AmountIRR,BalanceBeforeIRR,BalanceAfterIRR,Reference,CreatedAtUtc)
-                VALUES(@ledger,72001,@id,4,4,@amount,@reserved,@reserved+@amount,N'SETTLEMENT_REQUESTED',@now);
-                """, connection, tx);
-            write.Parameters.AddWithValue("@id", id);
-            write.Parameters.AddWithValue("@ledger", id + 100000);
-            write.Parameters.AddWithValue("@key", key);
-            write.Parameters.AddWithValue("@amount", amount);
-            write.Parameters.AddWithValue("@reserved", reserved);
-            write.Parameters.AddWithValue("@now", now);
-            await write.ExecuteNonQueryAsync();
-            await tx.CommitAsync();
-            return (true, id);
+            var result = await service.RequestAsync(71001, 74001, amount, key);
+            return (true, result.SettlementId);
         }
-        catch { try { await tx.RollbackAsync(); } catch { } throw; }
+        catch (DomainException)
+        {
+            return (false, 0);
+        }
     }
 
     private static async Task DropAsync(string db, string master)
