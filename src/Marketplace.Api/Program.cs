@@ -2030,6 +2030,49 @@ app.MapGet("/api/admin/orders/{orderId:long}", async (
     return Results.Ok(new { order, items, payment });
 }).RequirePermission("Admin.Order.Read");
 
+app.MapGet("/api/me/saved-products", async (System.Security.Claims.ClaimsPrincipal user, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var items = await (from saved in db.SavedProducts.AsNoTracking()
+        join product in db.Products.AsNoTracking() on saved.ProductId equals product.Id
+        join store in db.Stores.AsNoTracking() on product.StoreId equals store.Id
+        where saved.CustomerId == customerId && product.Status == Marketplace.Domain.Catalog.ProductStatus.Active
+        orderby saved.CreatedAtUtc descending
+        select new { saved.Id, productId = product.Id, product.Name, product.Slug, product.Description,
+            product.BasePriceIRR, product.HasVariants, storeId = store.Id, store.Name, store.Slug, saved.CreatedAtUtc })
+        .Take(200).ToListAsync(ct);
+    return Results.Ok(items);
+}).RequirePermission("Order.ReadOwn");
+
+app.MapPost("/api/me/saved-products/{productId:long}", async (System.Security.Claims.ClaimsPrincipal user, long productId,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, Marketplace.Application.Abstractions.IIdGenerator ids, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var product = await db.Products.AsNoTracking()
+        .Where(x => x.Id == productId && x.Status == Marketplace.Domain.Catalog.ProductStatus.Active)
+        .Select(x => new { x.Id }).SingleOrDefaultAsync(ct);
+    if (product is null) return Results.NotFound(new { detail = "محصول فعال پیدا نشد." });
+    if (await db.SavedProducts.AnyAsync(x => x.CustomerId == customerId && x.ProductId == productId, ct))
+        return Results.Ok(new { productId, saved = true });
+    db.SavedProducts.Add(Marketplace.Domain.Catalog.SavedProduct.Create(await ids.NextAsync(ct), customerId, productId));
+    try { await db.SaveChangesAsync(ct); }
+    catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+    {
+        db.ChangeTracker.Clear();
+        if (!await db.SavedProducts.AsNoTracking().AnyAsync(x => x.CustomerId == customerId && x.ProductId == productId, ct)) throw;
+    }
+    return Results.Ok(new { productId, saved = true });
+}).RequirePermission("Order.ReadOwn");
+
+app.MapDelete("/api/me/saved-products/{productId:long}", async (System.Security.Claims.ClaimsPrincipal user, long productId,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var saved = await db.SavedProducts.SingleOrDefaultAsync(x => x.CustomerId == customerId && x.ProductId == productId, ct);
+    if (saved is not null) { db.SavedProducts.Remove(saved); await db.SaveChangesAsync(ct); }
+    return Results.NoContent();
+}).RequirePermission("Order.ReadOwn");
+
 app.MapGet("/api/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrdersAsync(CurrentUserId(user),ct))).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrderAsync(CurrentUserId(user),orderId,ct))).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/seller/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrdersAsync(seller.Id,ct));}).RequirePermission("Order.ReadOwn");
