@@ -258,7 +258,7 @@ app.MapGet("/api/public/stores", async (int? take, Marketplace.Infrastructure.Pe
         orderby s.CreatedAtUtc descending
         select new
         {
-            s.Id, s.Name, s.Slug, s.Description, s.CreatedAtUtc,
+            s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.CreatedAtUtc,
             ProductCount = db.Products.Count(p => p.StoreId == s.Id && p.Status == Marketplace.Domain.Catalog.ProductStatus.Active)
         }).Take(limit).ToListAsync(ct);
     return Results.Ok(stores);
@@ -272,7 +272,7 @@ app.MapGet("/api/public/stores/{storeId:long}/{slug}", async (long storeId, stri
         where s.Id == storeId && s.Slug == slug
               && s.Status == Marketplace.Domain.Sellers.StoreStatus.Active
               && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active
-        select new { s.Id, s.Name, s.Slug, s.Description, s.CreatedAtUtc }
+        select new { s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.CreatedAtUtc }
     ).SingleOrDefaultAsync(ct);
     return store is null ? Results.NotFound() : Results.Ok(store);
 });
@@ -407,6 +407,20 @@ app.MapPost("/api/sellers/me/stores",async(System.Security.Claims.ClaimsPrincipa
 app.MapPut("/api/sellers/me/stores/{storeId:long}",async(System.Security.Claims.ClaimsPrincipal user,long storeId,UpdateStoreRequest request,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
     await service.UpdateStoreAsync(CurrentUserId(user),storeId,request.Name,request.Slug,request.Description,ct); return Results.NoContent();
 }).RequirePermission("Seller.Shipping.Configure");
+
+app.MapPut("/api/sellers/me/stores/{storeId:long}/theme", async (
+    System.Security.Claims.ClaimsPrincipal user, long storeId, StoreThemeRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    Marketplace.Application.Abstractions.ISellerManagementRepository sellers, CancellationToken ct) =>
+{
+    var seller = await sellers.GetSellerByUserIdAsync(CurrentUserId(user), ct);
+    if (seller is null) return Results.Forbid();
+    var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == seller.Id, ct);
+    if (store is null) return Results.NotFound();
+    store.ConfigureTheme(request.ThemeCode);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { store.Id, store.ThemeCode });
+}).RequirePermission("Seller.Catalog.Manage");
 
 app.MapPost("/api/sellers/me/stores/{storeId:long}/activate",async(System.Security.Claims.ClaimsPrincipal user,long storeId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
     await service.ActivateStoreAsync(CurrentUserId(user),storeId,ct); return Results.NoContent();
@@ -2579,6 +2593,7 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey,long? AddressId = null);
 public sealed record CustomerAddressRequest(long CityId,string RecipientName,string RecipientMobile,string AddressLine,string PostalCode,string? DeliveryNote,bool IsDefault);
+public sealed record StoreThemeRequest(string ThemeCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record StoreShippingRateRequest(long CityId, long ShippingFeeIRR, int MinDeliveryDays, int MaxDeliveryDays);
 public sealed record StoreShippingRatesRequest(StoreShippingRateRequest[] Rates);
