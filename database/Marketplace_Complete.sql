@@ -450,6 +450,8 @@ ALTER TABLE dbo.CartItems ADD CONSTRAINT FK_CartItems_Carts FOREIGN KEY(CartId) 
                            CONSTRAINT FK_CartItems_Warranties FOREIGN KEY(WarrantyId) REFERENCES dbo.Warranties(Id);
 ALTER TABLE dbo.StoreShippingCities ADD CONSTRAINT FK_StoreShippingCities_Stores FOREIGN KEY(StoreId) REFERENCES dbo.Stores(Id) ON DELETE CASCADE,
                                     CONSTRAINT FK_StoreShippingCities_DeliveryCities FOREIGN KEY(CityId) REFERENCES dbo.DeliveryCities(Id);
+ALTER TABLE dbo.StoreShippingRates ADD CONSTRAINT FK_StoreShippingRates_Stores FOREIGN KEY(StoreId) REFERENCES dbo.Stores(Id) ON DELETE CASCADE,
+                                    CONSTRAINT FK_StoreShippingRates_DeliveryCities FOREIGN KEY(CityId) REFERENCES dbo.DeliveryCities(Id);
 ALTER TABLE dbo.Orders ADD CONSTRAINT FK_Orders_Customers FOREIGN KEY(CustomerId) REFERENCES dbo.Users(Id),
                         CONSTRAINT FK_Orders_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id),
                         CONSTRAINT FK_Orders_Stores FOREIGN KEY(StoreId) REFERENCES dbo.Stores(Id),
