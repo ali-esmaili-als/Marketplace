@@ -202,6 +202,45 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
     }
 
     [Fact]
+    public async Task Outbox_health_detects_dead_letters_overdue_pending_and_expired_processing_leases()
+    {
+        await using (var connection = new SqlConnection(_targetConnectionString))
+        {
+            await connection.OpenAsync();
+            await ExecuteAsync(connection, """
+                UPDATE dbo.OutboxMessages
+                SET OccurredAtUtc = DATEADD(MINUTE, -45, SYSUTCDATETIME()),
+                    NextAttemptAtUtc = DATEADD(MINUTE, -30, SYSUTCDATETIME())
+                WHERE Id = 91001;
+
+                INSERT dbo.OutboxMessages
+                    (Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc, LockedUntilUtc, LockToken,
+                     NextAttemptAtUtc, Attempts, Status, LastError)
+                VALUES
+                    (91003, '91003000-0000-0000-0000-000000000003', N'Settlement.Processing', N'{"settlementId":3}',
+                     DATEADD(MINUTE, -40, SYSUTCDATETIME()), NULL, DATEADD(MINUTE, -10, SYSUTCDATETIME()),
+                     '91003000-0000-0000-0000-000000000004', DATEADD(MINUTE, -40, SYSUTCDATETIME()), 2, N'Processing', NULL);
+                """);
+        }
+
+        SetBearerToken(CustomerUserId);
+        using var denied = await Client.GetAsync("/api/admin/outbox/health");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+
+        SetBearerToken(AuthorizedUserId);
+        using var response = await Client.GetAsync("/api/admin/outbox/health");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"status\":\"Critical\"", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Outbox.DeadLetter", json);
+        Assert.Contains("Outbox.StaleProcessing", json);
+        Assert.Contains("Outbox.PendingBacklog", json);
+        Assert.Contains("\"overduePendingCount\":1", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"staleProcessingCount\":1", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"deadLetterCount\":1", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Dead_letter_retry_is_audited_and_resets_message_for_delivery()
     {
         SetBearerToken(AuthorizedUserId);
