@@ -107,7 +107,7 @@ public sealed class PaymentAndDeliveryRegressionTests
         Assert.False(code.Verify(null!, now));
         Assert.False(code.Verify("   ", now.AddSeconds(1)));
         Assert.False(code.Verify("", now.AddSeconds(2)));
-        Assert.False(code.Verify("\\t", now.AddSeconds(3)));
+        Assert.False(code.Verify("\t", now.AddSeconds(3)));
         Assert.False(code.Verify("  ", now.AddSeconds(4)));
         Assert.Equal(5, code.FailedAttempts);
         Assert.False(code.Verify("123456", now.AddSeconds(5)));
