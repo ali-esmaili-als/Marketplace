@@ -55,6 +55,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<CommissionReversal> CommissionReversals => Set<CommissionReversal>();
     public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<SettlementReconciliationAudit> SettlementReconciliationAudits => Set<SettlementReconciliationAudit>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<PaymentProviderSetting> PaymentProviderSettings => Set<PaymentProviderSetting>();
     public DbSet<Marketplace.Domain.Auditing.AdminAuditEvent> AdminAuditEvents => Set<Marketplace.Domain.Auditing.AdminAuditEvent>();
     public DbSet<DeliveryCity> DeliveryCities => Set<DeliveryCity>();
@@ -243,6 +244,22 @@ public sealed class MarketplaceDbContext : DbContext
         b.Entity<BalanceTransaction>(e => { e.ToTable("BalanceTransactions", t => t.HasCheckConstraint("CK_BalanceTransactions_Amounts", "AmountIRR >= 0 AND BalanceBeforeIRR >= 0 AND BalanceAfterIRR >= 0")); e.HasKey(x => x.Id); e.Property(x => x.Type).HasConversion<byte>(); e.Property(x=>x.Bucket).HasConversion<byte>(); e.Property(x => x.Reference).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.CreatedAtUtc }); e.HasIndex(x => new { x.OrderId, x.Type }); e.HasIndex(x => x.OrderId).IsUnique().HasFilter("[OrderId] IS NOT NULL AND [Type] = 1"); e.HasIndex(x => x.RefundId).IsUnique().HasFilter("[RefundId] IS NOT NULL"); e.HasOne<Refund>().WithMany().HasForeignKey(x => x.RefundId).OnDelete(DeleteBehavior.Restrict); e.HasOne<Settlement>().WithMany().HasForeignKey(x => x.SettlementId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Commission>(e => { e.ToTable("Commissions", t => t.HasCheckConstraint("CK_Commissions_Amounts", "OrderAmountIRR >= 0 AND CommissionRate >= 0 AND CommissionRate <= 100 AND MinimumCommissionIRR >= 0 AND CalculatedCommissionIRR >= 0 AND CommissionAmountIRR >= 0 AND SellerAmountIRR >= 0")); e.HasKey(x => x.Id); e.Property(x => x.CommissionRate).HasPrecision(9,4); e.HasIndex(x => x.OrderId).IsUnique(); });
         b.Entity<CommissionReversal>(e => { e.ToTable("CommissionReversals", t => t.HasCheckConstraint("CK_CommissionReversals_Amounts", "RefundAmountIRR > 0 AND ReversedCommissionIRR >= 0 AND ReversedCommissionIRR <= RefundAmountIRR")); e.HasKey(x => x.Id); e.HasIndex(x => new { x.CommissionId, x.RefundId }).IsUnique(); });
+        b.Entity<OutboxMessage>(e =>
+        {
+            e.ToTable("OutboxMessages", t =>
+            {
+                t.HasCheckConstraint("CK_OutboxMessages_Status", "Status IN ('Pending','Processing','Processed','DeadLetter')");
+                t.HasCheckConstraint("CK_OutboxMessages_Attempts", "Attempts >= 0");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.EventType).HasMaxLength(200).IsRequired();
+            e.Property(x => x.PayloadJson).HasColumnType("nvarchar(max)").IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.LastError).HasMaxLength(2000);
+            e.HasIndex(x => new { x.Status, x.NextAttemptAtUtc, x.Id });
+            e.HasIndex(x => x.MessageId).IsUnique();
+        });
         b.Entity<SettlementReconciliationAudit>(e => { e.ToTable("SettlementReconciliationAudits"); e.HasKey(x => x.Id); e.Property(x => x.Id).ValueGeneratedOnAdd(); e.Property(x => x.Note).HasMaxLength(2000).IsRequired(); e.Property(x => x.BankReference).HasMaxLength(200); e.HasIndex(x => new { x.SettlementId, x.CreatedAtUtc }); e.HasOne<Settlement>().WithMany().HasForeignKey(x => x.SettlementId).OnDelete(DeleteBehavior.Restrict); });
         b.Entity<Settlement>(e =>
         {
