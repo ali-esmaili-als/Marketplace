@@ -27,10 +27,10 @@ public sealed class OrderFinancialLifecycle
         balance.Block(order.SellerAmountIRR);
     }
 
-    public void OnDeliveryExpired(Order order, DeliveryEntity delivery, SellerBalance balance)
+    public void OnDeliveryExpired(Order order, DeliveryEntity delivery, SellerBalance balance, DateTime? nowUtc = null)
     {
         if(delivery.Status!=DeliveryStatus.Expired) throw new DomainException("Delivery must be expired.");
-        order.MarkDeliveryExpired(DateTime.UtcNow);
+        order.MarkDeliveryExpired(nowUtc ?? DateTime.UtcNow);
         order.RequestRefund();
         balance.RemovePending(order.SellerAmountIRR);
     }
