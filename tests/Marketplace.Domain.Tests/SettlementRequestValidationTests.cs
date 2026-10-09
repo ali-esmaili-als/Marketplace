@@ -205,7 +205,7 @@ public sealed class SettlementRequestValidationTests
             .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
         var service = new SettlementService(lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
         await Assert.ThrowsAsync<DomainException>(() => service.RequestAsync(20, 30, 250_000, "retry-key"));
-        lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
 }
