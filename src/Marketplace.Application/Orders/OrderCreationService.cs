@@ -13,7 +13,7 @@ using Marketplace.Application.Pricing;
 namespace Marketplace.Application.Orders;
 
 public sealed record CheckoutResult(long OrderId,long PaymentId,string Provider,string Authority,string RedirectUrl,long TotalAmountIRR,long SubtotalAmountIRR,long CampaignDiscountIRR,long CouponDiscountIRR,string? CouponCode);
-public sealed record CheckoutQuoteLine(long ProductId,long VariantId,string ProductName,string SKU,string VariantKey,int Quantity,long UnitPriceIRR,long WarrantyUnitPriceIRR,string? WarrantyName,long CampaignDiscountIRR,long CouponDiscountIRR,long FinalLineIRR,int AvailableQuantity,string? CampaignName);
+public sealed record CheckoutQuoteLine(long ProductId,long VariantId,string ProductName,string SKU,string VariantKey,int Quantity,long UnitPriceIRR,long WarrantyUnitPriceIRR,string? WarrantyName,long CampaignDiscountIRR,long CouponDiscountIRR,long FinalLineIRR,long AvailableQuantity,string? CampaignName);
 public sealed record CheckoutQuoteResult(long StoreId,string StoreName,long DestinationCityId,string DestinationCityName,long SubtotalIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long TotalIRR,string? CouponCode,IReadOnlyList<CheckoutQuoteLine> Lines,DateTime QuotedAtUtc);
 
 
