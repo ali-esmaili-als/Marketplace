@@ -62,6 +62,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<Marketplace.Domain.Auditing.AdminAuditEvent> AdminAuditEvents => Set<Marketplace.Domain.Auditing.AdminAuditEvent>();
     public DbSet<DeliveryCity> DeliveryCities => Set<DeliveryCity>();
     public DbSet<StoreShippingCity> StoreShippingCities => Set<StoreShippingCity>();
+    public DbSet<StoreShippingRate> StoreShippingRates => Set<StoreShippingRate>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<Rule> Rules => Set<Rule>();
@@ -219,8 +220,8 @@ public sealed class MarketplaceDbContext : DbContext
             e.HasIndex(x => new { x.CartId, x.ProductVariantId, x.WarrantyId }).IsUnique();
         });
 
-        b.Entity<Order>(e => { e.ToTable("Orders", t => t.HasCheckConstraint("CK_Orders_Amounts", "SubtotalAmountIRR > 0 AND TotalAmountIRR > 0 AND TotalAmountIRR <= SubtotalAmountIRR AND SellerAmountIRR >= 0 AND SellerAmountIRR <= TotalAmountIRR")); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>();
-            e.Property(x => x.SubtotalAmountIRR).IsRequired(); e.Property(x => x.RequestKey).HasMaxLength(64); e.HasIndex(x => new { x.CustomerId, x.RequestKey }).IsUnique().HasFilter("[RequestKey] IS NOT NULL"); e.Property(x => x.CouponCodeSnapshot).HasMaxLength(100); e.Property(x => x.DestinationCityNameSnapshot).HasMaxLength(200);
+        b.Entity<Order>(e => { e.ToTable("Orders", t => t.HasCheckConstraint("CK_Orders_Amounts", "SubtotalAmountIRR > 0 AND ShippingFeeIRR >= 0 AND TotalAmountIRR > 0 AND TotalAmountIRR <= SubtotalAmountIRR + ShippingFeeIRR AND SellerAmountIRR >= 0 AND SellerAmountIRR <= TotalAmountIRR")); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.SubtotalAmountIRR).IsRequired(); e.Property(x => x.ShippingFeeIRR).HasDefaultValue(0L); e.Property(x => x.RequestKey).HasMaxLength(64); e.HasIndex(x => new { x.CustomerId, x.RequestKey }).IsUnique().HasFilter("[RequestKey] IS NOT NULL"); e.Property(x => x.CouponCodeSnapshot).HasMaxLength(100); e.Property(x => x.DestinationCityNameSnapshot).HasMaxLength(200);
             e.Property(x => x.DestinationProvinceNameSnapshot).HasMaxLength(200); e.HasIndex(x => new { x.SellerId, x.Status }); e.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc }); e.HasIndex(x => x.DestinationCityId); });
         b.Entity<OrderItem>(e => { e.ToTable("OrderItems", t => t.HasCheckConstraint("CK_OrderItems_Amounts", "BaseUnitPriceIRR >= 0 AND UnitPriceIRR >= 0 AND WarrantyPriceIRR >= 0 AND CampaignDiscountIRR >= 0 AND CouponDiscountIRR >= 0 AND Quantity > 0 AND LineTotalIRR >= 0")); e.HasKey(x => x.Id); e.Property(x => x.ProductNameSnapshot).HasMaxLength(300).IsRequired(); e.Property(x => x.VariantSnapshot).HasMaxLength(1000); e.Property(x => x.WarrantySnapshot).HasMaxLength(500); e.Property(x => x.CampaignNameSnapshot).HasMaxLength(250); e.HasIndex(x => x.OrderId); });
         b.Entity<Payment>(e => { e.ToTable("Payments", t => t.HasCheckConstraint("CK_Payments_Amount", "AmountIRR > 0")); e.HasKey(x => x.Id); e.Property(x => x.Status).HasConversion<byte>(); e.Property(x => x.Provider).HasMaxLength(100); e.Property(x => x.Authority).HasMaxLength(200); e.Property(x => x.RedirectUrl).HasMaxLength(2048); e.Property(x => x.ReferenceNumber).HasMaxLength(200); e.HasIndex(x => x.OrderId).IsUnique(); e.HasIndex(x => x.Authority); });
@@ -371,6 +372,14 @@ public sealed class MarketplaceDbContext : DbContext
             e.Property(x => x.Code).HasMaxLength(50).IsRequired();
             e.HasIndex(x => x.Code).IsUnique();
             e.HasIndex(x => new { x.IsActive, x.ProvinceName, x.Name });
+        });
+        b.Entity<StoreShippingRate>(e =>
+        {
+            e.ToTable("StoreShippingRates", t => t.HasCheckConstraint("CK_StoreShippingRates_Values", "ShippingFeeIRR >= 0 AND MinDeliveryDays >= 0 AND MaxDeliveryDays >= MinDeliveryDays AND MaxDeliveryDays <= 365"));
+            e.HasKey(x => x.Id); e.HasIndex(x => new { x.StoreId, x.CityId }).IsUnique();
+            e.HasIndex(x => x.CityId);
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<DeliveryCity>().WithMany().HasForeignKey(x => x.CityId).OnDelete(DeleteBehavior.Restrict);
         });
         b.Entity<StoreShippingCity>(e =>
         {
