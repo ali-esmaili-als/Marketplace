@@ -99,6 +99,20 @@ public sealed class PaymentAndDeliveryRegressionTests
     }
 
     [Fact]
+    public void DeliveryCode_BlankValuesCountTowardLockoutWithoutThrowing()
+    {
+        var code = DeliveryCode.Create(101, 102, "123456", DateTime.UtcNow.AddHours(1));
+        var now = DateTime.UtcNow;
+
+        Assert.False(code.Verify(null!, now));
+        Assert.False(code.Verify("   ", now.AddSeconds(1)));
+        Assert.Equal(2, code.FailedAttempts);
+        Assert.False(code.Verify("123456", now.AddSeconds(2)));
+        Assert.Equal(2, code.FailedAttempts);
+        Assert.Null(code.UsedAtUtc);
+    }
+
+    [Fact]
     public void DeliveryCode_CannotBeUsedAfterExpiry()
     {
         var code = DeliveryCode.Create(1, 2, "123456", DateTime.UtcNow.AddMinutes(1));
