@@ -2450,6 +2450,7 @@ app.MapPut("/api/me/profile", async (
 
 app.Run();
 
+public sealed record CustomerProfileUpdateRequest(string DisplayName, string? Email);
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey);
