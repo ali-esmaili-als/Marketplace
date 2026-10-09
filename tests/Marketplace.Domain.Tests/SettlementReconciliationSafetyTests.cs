@@ -79,7 +79,8 @@ public sealed class SettlementReconciliationSafetyTests
         await Assert.ThrowsAsync<DomainException>(() => service.ReconcileAsync(
             settlement.Id, 910, false, null, "Attempt duplicate reconciliation"));
         Assert.Equal(0, balance.ReservedForSettlementIRR);
-        Assert.Equal(1, capturedAudit.AdminUserId == 909 ? 1 : 0);
+        lifecycle.Verify(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
