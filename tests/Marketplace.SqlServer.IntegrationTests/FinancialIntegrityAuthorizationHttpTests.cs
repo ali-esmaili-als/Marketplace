@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.AspNetCore.Authorization;
+using Marketplace.Api.Auth;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
@@ -52,11 +55,16 @@ public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<Web
             builder.ConfigureTestServices(services =>
             {
                 foreach (var descriptor in services
-                    .Where(x => x.ImplementationType == typeof(global::MarketplaceMaintenanceHostedService))
+                    .Where(x => x.ImplementationType == typeof(global::MarketplaceMaintenanceHostedService)
+                        || x.ImplementationType == typeof(PermissionHandler))
                     .ToArray())
                 {
                     services.Remove(descriptor);
                 }
+
+                // Keep the real JWT + policy pipeline, but make permission grants deterministic
+                // so these HTTP tests never need to seed user-rule records in SQL Server.
+                services.AddSingleton<IAuthorizationHandler, TestPermissionHandler>();
             });
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
@@ -84,14 +92,41 @@ public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<Web
     }
 
     [Fact]
-    public async Task Financial_integrity_route_rejects_authenticated_token_without_numeric_user_identity()
+    public async Task Financial_integrity_route_rejects_authenticated_user_without_required_permission()
     {
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreateToken(
-            new Claim(ClaimTypes.NameIdentifier, "not-a-numeric-user-id")));
+            new Claim(ClaimTypes.NameIdentifier, "71001")));
 
         using var response = await _client.GetAsync("/api/admin/financial-integrity/order-trace/123");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Financial_integrity_route_runs_after_required_permission_is_granted()
+    {
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreateToken(
+            new Claim(ClaimTypes.NameIdentifier, "71001"),
+            new Claim("test:permission", "Admin.Settlement.Process")));
+
+        // The endpoint validates the ID before touching SQL Server. A 400 proves the request
+        // passed authentication and the permission policy, without relying on database state.
+        using var response = await _client.GetAsync("/api/admin/financial-integrity/order-trace/0");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private sealed class TestPermissionHandler : AuthorizationHandler<PermissionRequirement>
+    {
+        protected override Task HandleRequirementAsync(
+            AuthorizationHandlerContext context,
+            PermissionRequirement requirement)
+        {
+            if (context.User.HasClaim("test:permission", requirement.Permission))
+                context.Succeed(requirement);
+
+            return Task.CompletedTask;
+        }
     }
 
     private static string CreateToken(params Claim[] claims)
