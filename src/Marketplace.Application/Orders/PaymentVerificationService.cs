@@ -4,7 +4,7 @@ using Marketplace.Domain.Payments;
 
 namespace Marketplace.Application.Orders;
 
-public sealed record PaymentVerificationResult(bool Paid, string? Reference, string? Error);
+public sealed record PaymentVerificationResult(bool Paid, string? Reference, string? Error, bool OutcomeUnknown=false);
 
 public sealed class PaymentVerificationService
 {
@@ -53,6 +53,9 @@ public sealed class PaymentVerificationService
 
         var gateway = await _gatewayFactory.GetForExistingPaymentAsync(PaymentProviderCode.TestBank, ct);
         var verification = await gateway.VerifyAsync(authority, payment.AmountIRR, ct);
+        if (!verification.IsOutcomeDefinitive)
+            return new PaymentVerificationResult(false, verification.Reference,
+                verification.Error ?? "Payment outcome is unknown. Refresh status; do not start another payment.", true);
         if (!verification.IsSuccessful)
             return new PaymentVerificationResult(false, null, verification.Error);
 
@@ -82,6 +85,10 @@ public sealed class PaymentVerificationService
         var provider=Enum.TryParse<PaymentProviderCode>(payment.Provider,true,out var parsed) ? parsed : throw new DomainException("Invalid payment provider.");
         var gateway=await _gatewayFactory.GetAsync(provider,ct);
         var result=await gateway.VerifyAsync(authority,payment.AmountIRR,ct);
+
+        if(!result.IsOutcomeDefinitive)
+            return new PaymentVerificationResult(false,result.Reference,
+                result.Error ?? "Payment outcome is unknown. Refresh status; do not start another payment.",true);
 
         if(!result.IsSuccessful)
         {
