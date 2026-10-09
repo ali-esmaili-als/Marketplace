@@ -488,6 +488,8 @@ ALTER TABLE dbo.Complaints ADD CONSTRAINT FK_Complaints_Orders FOREIGN KEY(Order
 ALTER TABLE dbo.InventoryItems ADD CONSTRAINT FK_InventoryItems_Variants FOREIGN KEY(ProductVariantId) REFERENCES dbo.ProductVariants(Id);
 ALTER TABLE dbo.InventoryReservations ADD CONSTRAINT FK_InventoryReservations_Variants FOREIGN KEY(ProductVariantId) REFERENCES dbo.ProductVariants(Id),
                                        CONSTRAINT FK_InventoryReservations_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id);
+ALTER TABLE dbo.InventoryStockMovements ADD CONSTRAINT FK_InventoryStockMovements_Variants FOREIGN KEY(ProductVariantId) REFERENCES dbo.ProductVariants(Id),
+                                         CONSTRAINT FK_InventoryStockMovements_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id);
 ALTER TABLE dbo.SellerBalances ADD CONSTRAINT FK_SellerBalances_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id);
 ALTER TABLE dbo.SellerBalanceHolds ADD CONSTRAINT FK_SellerBalanceHolds_Sellers FOREIGN KEY(SellerId) REFERENCES dbo.Sellers(Id),
                                      CONSTRAINT FK_SellerBalanceHolds_Orders FOREIGN KEY(OrderId) REFERENCES dbo.Orders(Id);
