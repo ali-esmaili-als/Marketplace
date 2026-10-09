@@ -25,7 +25,18 @@ public sealed class EfUnitOfWork(MarketplaceDbContext db) : IUnitOfWork
         }
         catch
         {
-            await tx.RollbackAsync(ct);
+            try
+            {
+                // EF Core does not automatically restore tracked entity values after a failed
+                // transaction. Clear them after rollback so subsequent recovery/retry operations
+                // reload the committed database state instead of reusing rolled-back mutations.
+                await tx.RollbackAsync(CancellationToken.None);
+            }
+            finally
+            {
+                db.ChangeTracker.Clear();
+            }
+
             throw;
         }
     }
