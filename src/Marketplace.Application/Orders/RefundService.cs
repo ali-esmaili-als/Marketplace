@@ -42,6 +42,12 @@ public sealed class RefundService
 
             if(order.Status==OrderStatus.DeliveryExpired && reason==RefundReason.DeliveryExpired)
                 order.RequestRefund();
+            else if(order.Status==OrderStatus.RefundRequested && reason==RefundReason.DeliveryExpired
+                && order.DeliveredAtUtc is null && order.DeliveryExpiresAtUtc.HasValue)
+            {
+                // A prior refund attempt may have failed or been manually reconciled as not transferred.
+                // Preserve the original delivery-expiry eligibility so the customer can retry.
+            }
             else if(order.Status==OrderStatus.RefundRequested && reason==RefundReason.ComplaintCustomerWon)
             {
                 var complaint=await _life.GetOpenComplaintByOrderAsync(orderId,token);
