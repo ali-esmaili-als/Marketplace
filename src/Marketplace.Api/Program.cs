@@ -481,6 +481,24 @@ app.MapGet("/api/sellers/me/coupons",async(System.Security.Claims.ClaimsPrincipa
         .Take(200).ToListAsync(ct));
 }).RequirePermission("Seller.Coupon.Manage");
 
+app.MapPost("/api/sellers/me/campaigns/{campaignId:long}/deactivate",async(System.Security.Claims.ClaimsPrincipal user,long campaignId,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
+    var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
+    var campaign=await db.Campaigns.SingleOrDefaultAsync(x=>x.Id==campaignId,ct)??throw new Marketplace.Domain.Common.DomainException("Campaign not found.");
+    if(!await sellers.StoreBelongsToSellerAsync(campaign.StoreId,seller.Id,ct))throw new UnauthorizedAccessException();
+    campaign.Deactivate();
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).RequirePermission("Seller.Campaign.Manage");
+
+app.MapPost("/api/sellers/me/coupons/{couponId:long}/deactivate",async(System.Security.Claims.ClaimsPrincipal user,long couponId,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
+    var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
+    var coupon=await db.Coupons.SingleOrDefaultAsync(x=>x.Id==couponId,ct)??throw new Marketplace.Domain.Common.DomainException("Coupon not found.");
+    if(coupon.SellerId!=seller.Id)throw new UnauthorizedAccessException();
+    coupon.Deactivate();
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).RequirePermission("Seller.Coupon.Manage");
+
 app.MapPost("/api/sellers/me/campaigns",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Pricing.CreateCampaignRequest request,Marketplace.Application.Pricing.PricingManagementService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
     var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();
     var variants=request.VariantIds??Array.Empty<long>();
