@@ -1691,18 +1691,19 @@ app.MapGet("/api/admin/orders", async (
 
     page = Math.Max(1, page);
     pageSize = Math.Clamp(pageSize <= 0 ? 25 : pageSize, 1, 100);
-    var query = db.Orders.AsNoTracking().AsQueryable();
-    if (status.HasValue) query = query.Where(x => (int)x.Status == status.Value);
-    if (orderId.HasValue) query = query.Where(x => x.Id == orderId.Value);
-    if (sellerId.HasValue) query = query.Where(x => x.SellerId == sellerId.Value);
-    if (storeId.HasValue) query = query.Where(x => x.StoreId == storeId.Value);
-    if (fromUtc.HasValue) query = query.Where(x => x.CreatedAtUtc >= fromUtc.Value);
-    if (toUtc.HasValue) query = query.Where(x => x.CreatedAtUtc <= toUtc.Value);
-
-    var total = await query.LongCountAsync(ct);
-    var statusCounts = await query.GroupBy(x => x.Status)
+    var statusCountsQuery = db.Orders.AsNoTracking().AsQueryable();
+    if (orderId.HasValue) statusCountsQuery = statusCountsQuery.Where(x => x.Id == orderId.Value);
+    if (sellerId.HasValue) statusCountsQuery = statusCountsQuery.Where(x => x.SellerId == sellerId.Value);
+    if (storeId.HasValue) statusCountsQuery = statusCountsQuery.Where(x => x.StoreId == storeId.Value);
+    if (fromUtc.HasValue) statusCountsQuery = statusCountsQuery.Where(x => x.CreatedAtUtc >= fromUtc.Value);
+    if (toUtc.HasValue) statusCountsQuery = statusCountsQuery.Where(x => x.CreatedAtUtc <= toUtc.Value);
+    var statusCounts = await statusCountsQuery.GroupBy(x => x.Status)
         .Select(g => new { status = (int)g.Key, count = g.LongCount() })
         .ToListAsync(ct);
+
+    var query = statusCountsQuery;
+    if (status.HasValue) query = query.Where(x => (int)x.Status == status.Value);
+    var total = await query.LongCountAsync(ct);
     var items = await query.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
         .Skip((page - 1) * pageSize).Take(pageSize)
         .Select(x => new
