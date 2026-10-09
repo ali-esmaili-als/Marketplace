@@ -1307,9 +1307,10 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
         if (commission.SellerId != order.SellerId || commission.OrderAmountIRR != order.TotalAmountIRR
             || commission.SellerAmountIRR != commission.OrderAmountIRR - commission.CommissionAmountIRR)
             findings.Add(new { code = "CommissionOrderMismatch", severity = "error", message = "مبلغ یا فروشنده ثبت‌شده در کمیسیون با سفارش هم‌خوانی ندارد." });
-        if (!ledger.Any(x => x.OrderId == orderId && x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Sale))
-            findings.Add(new { code = "SaleLedgerMissing", severity = "warning", message = "ثبت فروش مرتبط با سفارش در دفتر مالی پیدا نشد." });
     }
+    if (!ledger.Any(x => x.OrderId == orderId && x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Sale))
+        findings.Add(new { code = "SaleLedgerMissing", severity = "warning", message = "ثبت فروش مرتبط با سفارش در دفتر مالی پیدا نشد." });
+
     foreach (var refund in refunds.Where(x => x.status == (int)Marketplace.Domain.Refunds.RefundStatus.Completed))
     {
         var refundLedgerExists = ledger.Any(x => x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Refund
@@ -1338,7 +1339,7 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
         findings,
         findingCount = findings.Count,
         itemsTruncated = payments.Count >= 100 || paymentTransactions.Count >= 300
-            || refunds.Count >= 100 || reversals.Count >= 200 || ledger.Count >= 500
+            || refunds.Count >= 100 || reversals.Count >= 200 || ledger.Count >= 500 || settlements.Count >= 50
     });
 }).RequirePermission("Admin.Settlement.Process");
 
