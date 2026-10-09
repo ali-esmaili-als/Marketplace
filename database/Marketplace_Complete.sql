@@ -3,7 +3,7 @@
  Branch: develop
  Generated from the current Domain model + MarketplaceDbContext + database patches.
  Run this script against an EMPTY Marketplace database.
- It is intentionally self-contained; do not run the old 004..009 patch files afterward.
+ It is intentionally self-contained for a fresh/empty database and includes current shipping, delivery-code, balance bucket, SMS-provider, payment-provider, settlement, and payment-reconciliation schema. Do not run the incremental patch scripts after this file on a fresh database; use those only to upgrade an existing installation.
 */
 
 SET NOCOUNT ON;
