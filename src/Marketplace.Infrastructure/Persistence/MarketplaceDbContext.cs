@@ -178,7 +178,7 @@ public sealed class MarketplaceDbContext : DbContext
             e.Property(x => x.CreatedAtUtc).HasColumnType("datetime2(7)");
             e.HasIndex(x => new { x.CustomerId, x.ProductId }).IsUnique();
             e.HasIndex(x => new { x.CustomerId, x.CreatedAtUtc });
-            e.HasOne<Marketplace.Domain.Identity.User>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Marketplace.Domain.Identity.User>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Marketplace.Domain.Catalog.Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
         });
 
