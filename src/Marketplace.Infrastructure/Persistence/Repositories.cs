@@ -160,7 +160,12 @@ public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRep
     public Task<Complaint?> GetOpenComplaintByOrderAsync(long orderId,CancellationToken ct=default)=>db.Complaints.SingleOrDefaultAsync(x=>x.OrderId==orderId&&x.Status!=ComplaintStatus.Closed&&x.Status!=ComplaintStatus.Cancelled,ct);
     public Task<Refund?> GetActiveRefundByOrderAsync(long orderId,CancellationToken ct=default)=>db.Refunds.SingleOrDefaultAsync(x=>x.OrderId==orderId&&x.Status!=RefundStatus.Completed&&x.Status!=RefundStatus.Rejected&&x.Status!=RefundStatus.Failed,ct);
     public Task<Refund?> GetRefundAsync(long refundId,CancellationToken ct=default)=>db.Refunds.SingleOrDefaultAsync(x=>x.Id==refundId,ct);
-    public Task<SellerBalance?> GetSellerBalanceAsync(long sellerId,CancellationToken ct=default)=>db.SellerBalances.SingleOrDefaultAsync(x=>x.SellerId==sellerId,ct);
+    public Task<SellerBalance?> GetSellerBalanceAsync(long sellerId,CancellationToken ct=default)
+        // Settlement requests mutate the same seller balance. An update lock prevents two
+        // serializable transactions from both taking shared locks and deadlocking on promotion.
+        => db.SellerBalances
+            .FromSqlInterpolated($"SELECT * FROM dbo.SellerBalances WITH (UPDLOCK, HOLDLOCK) WHERE SellerId = {sellerId}")
+            .SingleOrDefaultAsync(ct);
     public Task<SellerBalanceHold?> GetActiveHoldByOrderAsync(long orderId,CancellationToken ct=default)=>db.SellerBalanceHolds.SingleOrDefaultAsync(x=>x.OrderId==orderId&&x.Status==BalanceHoldStatus.Active,ct);
     public Task<Commission?> GetCommissionByOrderAsync(long orderId,CancellationToken ct=default)=>db.Commissions.SingleOrDefaultAsync(x=>x.OrderId==orderId,ct);
     public Task<List<InventoryReservation>> GetReservationsByOrderAsync(long orderId,CancellationToken ct=default)=>db.InventoryReservations.Where(x=>x.OrderId==orderId).ToListAsync(ct);
