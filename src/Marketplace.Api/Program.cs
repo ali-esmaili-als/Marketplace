@@ -2435,6 +2435,19 @@ app.MapPost("/api/admin/users/{userId:long}/active", async (
     return Results.NoContent();
 }).RequirePermission("Admin.Identity.Manage");
 
+app.MapPut("/api/me/profile", async (
+    System.Security.Claims.ClaimsPrincipal user,
+    CustomerProfileUpdateRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var account = await db.Users.SingleOrDefaultAsync(x => x.Id == CurrentUserId(user), ct);
+    if (account is null) return Results.NotFound();
+    account.UpdateProfile(request.DisplayName, request.Email);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { account.Id, account.Mobile, account.Email, account.DisplayName, account.IsMobileVerified });
+}).RequireAuthorization();
+
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
