@@ -1298,13 +1298,19 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
     if (payments.Any(x => x.AmountIRR != order.TotalAmountIRR))
         findings.Add(new { code = "PaymentAmountMismatch", severity = "error", message = "مبلغ حداقل یکی از پرداخت‌ها با مبلغ سفارش متفاوت است." });
     if (payments.Any(x => x.status == (int)Marketplace.Domain.Payments.PaymentStatus.Succeeded)
-        && order.Status == (int)Marketplace.Domain.Orders.OrderStatus.PendingPayment)
-        findings.Add(new { code = "SucceededPaymentOrderPending", severity = "error", message = "پرداخت موفق ثبت شده اما سفارش هنوز در انتظار پرداخت است." });
+        && order.Status is (int)Marketplace.Domain.Orders.OrderStatus.PendingPayment
+            or (int)Marketplace.Domain.Orders.OrderStatus.Cancelled
+            or (int)Marketplace.Domain.Orders.OrderStatus.Refunded)
+        findings.Add(new { code = "SucceededPaymentOrderMismatch", severity = "error", message = "پرداخت موفق ثبت شده اما وضعیت سفارش با آن سازگار نیست." });
+    if (payments.Any(x => x.status == (int)Marketplace.Domain.Payments.PaymentStatus.Refunded)
+        && order.Status != (int)Marketplace.Domain.Orders.OrderStatus.Refunded)
+        findings.Add(new { code = "RefundedPaymentOrderMismatch", severity = "error", message = "پرداخت بازپرداخت‌شده است اما سفارش در وضعیت بازپرداخت‌شده نیست." });
     if (commission is null)
         findings.Add(new { code = "CommissionMissing", severity = "warning", message = "رکورد کمیسیون برای سفارش وجود ندارد." });
     else
     {
         if (commission.SellerId != order.SellerId || commission.OrderAmountIRR != order.TotalAmountIRR
+            || commission.SellerAmountIRR != order.SellerAmountIRR
             || commission.SellerAmountIRR != commission.OrderAmountIRR - commission.CommissionAmountIRR)
             findings.Add(new { code = "CommissionOrderMismatch", severity = "error", message = "مبلغ یا فروشنده ثبت‌شده در کمیسیون با سفارش هم‌خوانی ندارد." });
     }
