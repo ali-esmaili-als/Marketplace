@@ -1780,6 +1780,14 @@ app.MapGet("/api/admin/outbox/health", async (
         generatedAtUtc = now,
         status = severity,
         dispatcher = new { enabled = dispatcherEnabled, webhookConfigured = publisherConfigured },
+        retention = new
+        {
+            enabled = configuration.GetValue<bool>("Outbox:Retention:Enabled"),
+            processedRetentionDays = ReadThreshold(configuration, "Outbox:Retention:ProcessedRetentionDays", 90, 7, 3650),
+            batchSize = ReadThreshold(configuration, "Outbox:Retention:BatchSize", 500, 1, 5000),
+            intervalMinutes = ReadThreshold(configuration, "Outbox:Retention:IntervalMinutes", 60, 5, 1440),
+            archiveTableRequired = true
+        },
         thresholds = new { pendingAgeMinutes, leaseGraceMinutes, deadLetterWarningCount },
         metrics = new { duePendingCount, overduePendingCount = pendingCount, staleProcessingCount, deadLetterCount },
         oldestDuePending = oldestPending,
