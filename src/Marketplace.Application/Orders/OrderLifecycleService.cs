@@ -233,8 +233,21 @@ public sealed class OrderLifecycleService
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
         var h=await _life.GetActiveHoldByOrderAsync(orderId,token)??throw new DomainException("Seller hold not found.");
 
-        var blockedBefore=b.BlockedIRR;
+        // Preflight every cross-aggregate invariant before mutating the order, balance, or hold.
+        // This also keeps the operation safe when the unit-of-work implementation is mocked
+        // or when corrupted persisted data reaches the lifecycle service.
+        if (b.SellerId != o.SellerId)
+            throw new DomainException("Seller balance does not belong to this order's seller.");
+        if (h.OrderId != o.Id || h.SellerId != o.SellerId || h.AmountIRR != o.SellerAmountIRR)
+            throw new DomainException("Seller hold does not match the order and seller.");
+        if (h.Status != BalanceHoldStatus.Active)
+            throw new DomainException("Seller hold is not active.");
+        if (b.BlockedIRR < o.SellerAmountIRR)
+            throw new DomainException("Insufficient blocked seller balance.");
+
+        // Complete validates the complaint-window deadline and order state before any money moves.
         o.Complete(now);
+        var blockedBefore=b.BlockedIRR;
         b.ReleaseBlock(o.SellerAmountIRR);
         h.Release();
 
