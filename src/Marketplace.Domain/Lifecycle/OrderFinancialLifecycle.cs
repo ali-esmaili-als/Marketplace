@@ -13,10 +13,25 @@ public sealed class OrderFinancialLifecycle
 {
     public SellerBalanceHold OnPaymentSucceeded(Order order, Payment payment, SellerBalance balance, long holdId)
     {
-        if(payment.Status!=PaymentStatus.Succeeded) throw new DomainException("Payment must be successful.");
+        if (payment.Status != PaymentStatus.Succeeded)
+            throw new DomainException("Payment must be successful.");
+        if (payment.OrderId != order.Id || payment.CustomerId != order.CustomerId)
+            throw new DomainException("Payment does not belong to this order and customer.");
+        if (payment.AmountIRR != order.TotalAmountIRR)
+            throw new DomainException("Payment amount does not match the order total.");
+        if (order.SellerAmountIRR <= 0)
+            throw new DomainException("Seller share must be positive before payment can be finalized.");
+        if (balance.SellerId != order.SellerId)
+            throw new DomainException("Seller balance does not belong to this order's seller.");
+        if (holdId <= 0)
+            throw new DomainException("A valid balance hold ID is required.");
+
+        // Validate all cross-aggregate invariants before mutating any aggregate.
+        var hold = SellerBalanceHold.Create(holdId, order.SellerId, order.Id, order.SellerAmountIRR,
+            "Secure payment pending delivery and complaint window");
         order.MarkPaid();
         balance.AddPending(order.SellerAmountIRR);
-        return SellerBalanceHold.Create(holdId,order.SellerId,order.Id,order.SellerAmountIRR,"Secure payment pending delivery and complaint window");
+        return hold;
     }
 
     public void OnDelivered(Order order, DeliveryEntity delivery, SellerBalance balance, DateTime now, DateTime complaintExpiresAtUtc)
