@@ -52,3 +52,18 @@ The admin order trace endpoint requires `Admin.Settlement.Process` and does not 
 The endpoint bounds the order's payment attempts to 100, provider transactions to 300, refunds to 100, commission reversals to 200, matching ledger transactions to 500, and seller settlement history to 50. The response sets `itemsTruncated` if any section reaches its cap. Historical refund ledger entries with a null `RefundId` are matched only by the legacy order ID and refund transaction type; investigate historical retry cases manually before asserting a definitive match.
 
 The seller balance and settlement list are seller-level pooled finance data. A settlement is associated with the selected order only where a ledger row explicitly links that settlement to the order/refund trace; the endpoint does not allocate pooled settlement amounts to individual orders. A clean result means only that the listed predicates did not detect a mismatch in the returned data. It does not independently verify bank transfers, payment-provider statements, or customer receipt of a refund.
+
+
+## End-to-end trace SQL integration coverage
+
+`tests/Marketplace.SqlServer.IntegrationTests/OrderFinancialTraceIntegrationTests.cs` seeds an isolated SQL Server database from the complete bootstrap schema and verifies the key relationships used by the admin order trace:
+
+- order to payment and provider transaction;
+- order to commission and seller amount;
+- completed refund to its payment and order;
+- commission reversal to the exact commission/refund pair;
+- seller balance and seller-level settlement linked through an explicit settlement ledger entry;
+- detection of a completed refund after its refund-linked ledger entry is removed;
+- rejection of duplicate commission reversal for the same commission/refund pair.
+
+The test uses the `MARKETPLACE_SQLSERVER` integration-test connection, creates and drops its own dedicated database, and does not connect to or mutate any production database. It verifies database relationships and diagnostic predicates; it does not call a live bank, prove settlement reached a bank account, or replace HTTP endpoint authorization/response tests.
