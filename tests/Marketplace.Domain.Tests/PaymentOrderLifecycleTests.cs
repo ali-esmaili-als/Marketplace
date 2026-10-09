@@ -87,7 +87,7 @@ public sealed class PaymentOrderLifecycleTests
     [Fact]
     public void Duplicate_delivery_confirmation_is_rejected()
     {
-        var delivery = Delivery.Create(1, 2, 3, Future);
+        var delivery = DeliveryEntity.Create(1, 2, 3, Future);
         delivery.MarkReady();
         delivery.ConfirmDelivered("proof-1", DateTime.UtcNow);
 
@@ -100,7 +100,7 @@ public sealed class PaymentOrderLifecycleTests
     public void Delivery_confirmation_after_expiry_is_rejected()
     {
         var expiresAt = DateTime.UtcNow.AddMinutes(1);
-        var delivery = Delivery.Create(1, 2, 3, expiresAt);
+        var delivery = DeliveryEntity.Create(1, 2, 3, expiresAt);
         delivery.MarkReady();
 
         Assert.Throws<DomainException>(() => delivery.ConfirmDelivered("proof", expiresAt.AddTicks(1)));
