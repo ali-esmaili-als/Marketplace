@@ -63,6 +63,23 @@ public sealed class OutboxMessageTests
     }
 
     [Fact]
+    public void Lease_token_is_cleared_on_success_and_failure()
+    {
+        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var success = OutboxMessage.Create(1004, "Settlement.Completed", "{}", now);
+        var token = Guid.NewGuid();
+        success.MarkProcessing(now, TimeSpan.FromMinutes(1), token);
+        Assert.Equal(token, success.LockToken);
+        success.MarkProcessed(now.AddSeconds(1));
+        Assert.Null(success.LockToken);
+
+        var failed = OutboxMessage.Create(1005, "Settlement.Failed", "{}", now);
+        failed.MarkProcessing(now, TimeSpan.FromMinutes(1), token);
+        failed.MarkFailed(now, "temporary", maxAttempts: 2, retryDelay: TimeSpan.FromSeconds(1));
+        Assert.Null(failed.LockToken);
+    }
+
+    [Fact]
     public void Invalid_outbox_data_is_rejected()
     {
         Assert.Throws<DomainException>(() => OutboxMessage.Create(0, "Settlement.Completed", "{}"));
