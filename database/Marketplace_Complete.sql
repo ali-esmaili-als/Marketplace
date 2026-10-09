@@ -261,9 +261,9 @@ CREATE TABLE dbo.Complaints(
 
 CREATE TABLE dbo.InventoryItems(
  Id BIGINT NOT NULL CONSTRAINT PK_InventoryItems PRIMARY KEY, ProductVariantId BIGINT NOT NULL, StockQuantity BIGINT NOT NULL,
- ReservedQuantity BIGINT NOT NULL CONSTRAINT DF_InventoryItems_Reserved DEFAULT(0), IsActive BIT NOT NULL CONSTRAINT DF_InventoryItems_IsActive DEFAULT(1),
+ ReservedQuantity BIGINT NOT NULL CONSTRAINT DF_InventoryItems_Reserved DEFAULT(0), LowStockThreshold BIGINT NOT NULL CONSTRAINT DF_InventoryItems_LowStockThreshold DEFAULT(5), IsActive BIT NOT NULL CONSTRAINT DF_InventoryItems_IsActive DEFAULT(1),
  CONSTRAINT UQ_InventoryItems_Variant UNIQUE(ProductVariantId),
- CONSTRAINT CK_InventoryItems_Qty CHECK(StockQuantity>=0 AND ReservedQuantity>=0 AND ReservedQuantity<=StockQuantity)
+ CONSTRAINT CK_InventoryItems_Qty CHECK(StockQuantity>=0 AND ReservedQuantity>=0 AND ReservedQuantity<=StockQuantity AND LowStockThreshold>=0)
 );
 CREATE TABLE dbo.InventoryStockMovements(
  Id BIGINT NOT NULL CONSTRAINT PK_InventoryStockMovements PRIMARY KEY,
