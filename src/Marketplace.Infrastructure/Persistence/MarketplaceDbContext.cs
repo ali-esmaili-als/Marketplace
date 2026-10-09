@@ -26,6 +26,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+    public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
     public DbSet<ProductAttribute> ProductAttributes => Set<ProductAttribute>();
     public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
     public DbSet<ProductAttributeAssignment> ProductAttributeAssignments => Set<ProductAttributeAssignment>();
@@ -164,6 +165,25 @@ public sealed class MarketplaceDbContext : DbContext
             e.Property(x => x.Description).HasMaxLength(5000);
             e.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
             e.HasIndex(x => new { x.StoreId, x.Status });
+        });
+        b.Entity<ProductReview>(e =>
+        {
+            e.ToTable("ProductReviews", t =>
+            {
+                t.HasCheckConstraint("CK_ProductReviews_Rating", "Rating BETWEEN 1 AND 5");
+                t.HasCheckConstraint("CK_ProductReviews_Status", "Status BETWEEN 1 AND 3");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.Title).HasMaxLength(150).IsRequired();
+            e.Property(x => x.Body).HasMaxLength(3000).IsRequired();
+            e.Property(x => x.ModerationNote).HasMaxLength(1000);
+            e.HasIndex(x => new { x.CustomerId, x.ProductId }).IsUnique();
+            e.HasIndex(x => new { x.ProductId, x.Status, x.CreatedAtUtc });
+            e.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Order>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ModeratorUserId).OnDelete(DeleteBehavior.Restrict);
         });
         b.Entity<ProductVariant>(e =>
         {
