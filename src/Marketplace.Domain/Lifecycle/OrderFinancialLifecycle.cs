@@ -36,7 +36,16 @@ public sealed class OrderFinancialLifecycle
 
     public void OnDelivered(Order order, DeliveryEntity delivery, SellerBalance balance, DateTime now, DateTime complaintExpiresAtUtc)
     {
-        if(delivery.Status!=DeliveryStatus.Delivered) throw new DomainException("Delivery must be confirmed.");
+        if (delivery.Status != DeliveryStatus.Delivered)
+            throw new DomainException("Delivery must be confirmed.");
+        if (delivery.OrderId != order.Id || delivery.SellerId != order.SellerId || balance.SellerId != order.SellerId)
+            throw new DomainException("Delivery and balance must belong to the order's seller.");
+        if (balance.PendingIRR < order.SellerAmountIRR)
+            throw new DomainException("Insufficient pending seller balance.");
+        if (complaintExpiresAtUtc <= now)
+            throw new DomainException("Complaint expiry must be after delivery.");
+
+        // Preflight all checks before changing order or balance buckets.
         order.MarkDelivered(now, complaintExpiresAtUtc);
         balance.ReleasePending(order.SellerAmountIRR);
         balance.Block(order.SellerAmountIRR);
@@ -44,8 +53,17 @@ public sealed class OrderFinancialLifecycle
 
     public void OnDeliveryExpired(Order order, DeliveryEntity delivery, SellerBalance balance, DateTime? nowUtc = null)
     {
-        if(delivery.Status!=DeliveryStatus.Expired) throw new DomainException("Delivery must be expired.");
-        order.MarkDeliveryExpired(nowUtc ?? DateTime.UtcNow);
+        var now = nowUtc ?? DateTime.UtcNow;
+        if (delivery.Status != DeliveryStatus.Expired)
+            throw new DomainException("Delivery must be expired.");
+        if (delivery.OrderId != order.Id || delivery.SellerId != order.SellerId || balance.SellerId != order.SellerId)
+            throw new DomainException("Delivery and balance must belong to the order's seller.");
+        if (order.Status != OrderStatus.ReadyForDelivery || order.DeliveryExpiresAtUtc is null || now < order.DeliveryExpiresAtUtc.Value)
+            throw new DomainException("Order delivery has not expired.");
+        if (balance.PendingIRR < order.SellerAmountIRR)
+            throw new DomainException("Insufficient pending seller balance.");
+
+        order.MarkDeliveryExpired(now);
         order.RequestRefund();
         balance.RemovePending(order.SellerAmountIRR);
     }
