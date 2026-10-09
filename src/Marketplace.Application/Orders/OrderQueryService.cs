@@ -4,7 +4,7 @@ public sealed class OrderQueryService
 {
  private readonly IOrderQueryRepository _repo;
  public OrderQueryService(IOrderQueryRepository repo)=>_repo=repo;
- private static OrderSummary Map(Marketplace.Domain.Orders.Order o)=>new(o.Id,o.StoreId,o.SellerId,o.CustomerId,o.Status,o.SubtotalAmountIRR,o.CampaignDiscountIRR,o.CouponDiscountIRR,o.TotalAmountIRR,o.CouponCodeSnapshot,o.CreatedAtUtc);
+ private static OrderSummary Map(Marketplace.Domain.Orders.Order o)=>new(o.Id,o.StoreId,o.SellerId,o.CustomerId,o.Status,o.SubtotalAmountIRR,o.CampaignDiscountIRR,o.CouponDiscountIRR,o.TotalAmountIRR,o.CouponCodeSnapshot,o.CreatedAtUtc,o.ShippingFeeIRR);
  public async Task<IReadOnlyList<OrderSummary>> GetCustomerOrdersAsync(long customerId,CancellationToken ct=default)=>(await _repo.GetCustomerOrdersAsync(customerId,ct)).Select(Map).ToList();
  public async Task<IReadOnlyList<OrderSummary>> GetSellerOrdersAsync(long sellerId,CancellationToken ct=default)=>(await _repo.GetSellerOrdersAsync(sellerId,ct)).Select(Map).ToList();
  public async Task<OrderDetails> GetCustomerOrderAsync(long customerId,long orderId,CancellationToken ct=default){var o=await _repo.GetAsync(orderId,ct)??throw new Marketplace.Domain.Common.DomainException("Order not found.");if(o.CustomerId!=customerId)throw new Marketplace.Domain.Common.DomainException("Customer does not own this order.");return await Details(o,ct);}
