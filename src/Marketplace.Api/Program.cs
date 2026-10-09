@@ -1675,6 +1675,133 @@ app.MapGet("/api/orders",async(System.Security.Claims.ClaimsPrincipal user,Marke
 app.MapGet("/api/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrderAsync(CurrentUserId(user),orderId,ct))).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/seller/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrdersAsync(seller.Id,ct));}).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/seller/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrderAsync(seller.Id,orderId,ct));}).RequirePermission("Order.ReadOwn");
+
+app.MapGet("/api/admin/outbox/summary", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var statusCounts = await db.OutboxMessages.AsNoTracking()
+        .GroupBy(x => x.Status)
+        .Select(g => new { status = g.Key, count = g.Count() })
+        .ToListAsync(ct);
+    var eventCounts = await db.OutboxMessages.AsNoTracking()
+        .Where(x => x.Status != "Processed")
+        .GroupBy(x => x.EventType)
+        .Select(g => new { eventType = g.Key, count = g.Count() })
+        .OrderByDescending(x => x.count)
+        .Take(20)
+        .ToListAsync(ct);
+    var recentFailures = await db.OutboxMessages.AsNoTracking()
+        .Where(x => x.Status == "DeadLetter" || x.LastError != null)
+        .OrderByDescending(x => x.OccurredAtUtc)
+        .Take(10)
+        .Select(x => new
+        {
+            x.Id, x.MessageId, x.EventType, x.Status, x.Attempts,
+            x.LastError, x.OccurredAtUtc, x.NextAttemptAtUtc, x.ProcessedAtUtc
+        }).ToListAsync(ct);
+
+    var counts = statusCounts.ToDictionary(x => x.status, x => x.count);
+    return Results.Ok(new
+    {
+        generatedAtUtc = DateTime.UtcNow,
+        total = counts.Values.Sum(),
+        pending = counts.GetValueOrDefault("Pending"),
+        processing = counts.GetValueOrDefault("Processing"),
+        processed = counts.GetValueOrDefault("Processed"),
+        deadLetter = counts.GetValueOrDefault("DeadLetter"),
+        statusCounts = counts,
+        eventCounts,
+        recentFailures
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapGet("/api/admin/outbox/messages", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    string? status,
+    string? eventType,
+    DateTime? fromUtc,
+    DateTime? toUtc,
+    int page,
+    int pageSize,
+    CancellationToken ct) =>
+{
+    var allowedStatuses = new[] { "Pending", "Processing", "Processed", "DeadLetter" };
+    if (!string.IsNullOrWhiteSpace(status) && !allowedStatuses.Contains(status, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported outbox status.");
+    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value > toUtc.Value)
+        throw new Marketplace.Domain.Common.DomainException("fromUtc must not be later than toUtc.");
+
+    page = Math.Max(1, page);
+    pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100);
+    var query = db.OutboxMessages.AsNoTracking().AsQueryable();
+    if (!string.IsNullOrWhiteSpace(status)) query = query.Where(x => x.Status == status);
+    if (!string.IsNullOrWhiteSpace(eventType))
+    {
+        var eventTypeFilter = eventType.Trim();
+        query = query.Where(x => x.EventType.Contains(eventTypeFilter));
+    }
+    if (fromUtc.HasValue) query = query.Where(x => x.OccurredAtUtc >= fromUtc.Value);
+    if (toUtc.HasValue) query = query.Where(x => x.OccurredAtUtc <= toUtc.Value);
+
+    var total = await query.CountAsync(ct);
+    var items = await query.OrderByDescending(x => x.OccurredAtUtc).ThenByDescending(x => x.Id)
+        .Skip((page - 1) * pageSize).Take(pageSize)
+        .Select(x => new
+        {
+            x.Id, x.MessageId, x.EventType, x.Status, x.Attempts,
+            x.OccurredAtUtc, x.ProcessedAtUtc, x.LockedUntilUtc, x.NextAttemptAtUtc,
+            x.LastError,
+            payloadPreview = x.PayloadJson.Length > 500 ? x.PayloadJson.Substring(0, 500) : x.PayloadJson
+        }).ToListAsync(ct);
+
+    return Results.Ok(new { page, pageSize, total, pageCount = (int)Math.Ceiling(total / (double)pageSize), items });
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapGet("/api/admin/outbox/messages/{id:long}", async (
+    long id,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var item = await db.OutboxMessages.AsNoTracking().Where(x => x.Id == id)
+        .Select(x => new
+        {
+            x.Id, x.MessageId, x.EventType, x.Status, x.Attempts,
+            x.OccurredAtUtc, x.ProcessedAtUtc, x.LockedUntilUtc, x.NextAttemptAtUtc,
+            x.LastError, x.PayloadJson
+        }).SingleOrDefaultAsync(ct);
+    return item is null ? Results.NotFound() : Results.Ok(item);
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapPost("/api/admin/outbox/messages/{id:long}/retry", async (
+    long id,
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    var message = await db.OutboxMessages.SingleOrDefaultAsync(x => x.Id == id, ct);
+    if (message is null) return Results.NotFound();
+    if (message.Status != "DeadLetter")
+        return Results.Conflict(new { message = "Only DeadLetter messages can be retried manually.", status = message.Status });
+
+    var previousAttempts = message.Attempts;
+    var previousError = message.LastError;
+    message.RetryFromDeadLetter(DateTime.UtcNow);
+    var actorUserId = CurrentUserId(user);
+    var correlationId = http.TraceIdentifier;
+    var audit = Marketplace.Domain.Auditing.AdminAuditEvent.Create(
+        actorUserId,
+        "Outbox.MessageRetried",
+        "OutboxMessage",
+        id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        System.Text.Json.JsonSerializer.Serialize(new { message.MessageId, message.EventType, previousAttempts, previousError }),
+        correlationId.Length <= 100 ? correlationId : correlationId[..100]);
+    db.AdminAuditEvents.Add(audit);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { id = message.Id, message.MessageId, status = message.Status, retriedAtUtc = DateTime.UtcNow, auditId = audit.Id });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.Run();
 
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
