@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Marketplace.Application.Abstractions;
 using Marketplace.Application.Orders;
 using Marketplace.Domain.Common;
+using Marketplace.Domain.Complaints;
 using DeliveryEntity = Marketplace.Domain.Delivery.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Inventory;
@@ -402,6 +403,94 @@ public sealed class OrderLifecycleServiceTests
         lifecycle.Verify(x => x.AddBalanceTransaction(
             It.Is<BalanceTransaction>(t => t.Bucket == BalanceBucket.Pending &&
                 t.AmountIRR == order.SellerAmountIRR && t.Type == BalanceTransactionType.PendingRemoved)), Times.Once);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+
+
+    [Fact]
+    public async Task Customer_won_complaint_requests_refund_without_releasing_seller_hold()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(801, 802, 803, 804, 600_000, 600_000);
+        order.MarkPaid(now.AddDays(-3));
+        order.MarkReady();
+        order.MarkDelivered(now.AddDays(-2), now.AddDays(1));
+        var balance = SellerBalance.Create(805, order.SellerId);
+        balance.AddAvailable(order.SellerAmountIRR);
+        balance.Block(order.SellerAmountIRR);
+        var hold = SellerBalanceHold.Create(806, order.SellerId, order.Id, order.SellerAmountIRR, "Secure order hold");
+        var complaint = Complaint.Create(807, order.Id, order.CustomerId, order.SellerId, "Item arrived damaged");
+        complaint.StartReview();
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetComplaintAsync(complaint.Id, It.IsAny<CancellationToken>())).ReturnsAsync(complaint);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
+        lifecycle.Setup(x => x.GetActiveHoldByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(hold);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await service.ResolveComplaintAsync(complaint.Id, true, "Evidence confirms item was damaged");
+
+        Assert.Equal(ComplaintStatus.CustomerWon, complaint.Status);
+        Assert.Equal(OrderStatus.RefundRequested, order.Status);
+        Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
+        Assert.Equal(0, balance.AvailableIRR);
+        Assert.Equal(BalanceHoldStatus.Active, hold.Status);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Seller_won_complaint_releases_blocked_funds_and_records_ledger_once()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(811, 812, 813, 814, 750_000, 750_000);
+        order.MarkPaid(now.AddDays(-4));
+        order.MarkReady();
+        order.MarkDelivered(now.AddDays(-3), now.AddDays(-1));
+        var balance = SellerBalance.Create(815, order.SellerId);
+        balance.AddAvailable(order.SellerAmountIRR);
+        balance.Block(order.SellerAmountIRR);
+        var hold = SellerBalanceHold.Create(816, order.SellerId, order.Id, order.SellerAmountIRR, "Secure order hold");
+        var complaint = Complaint.Create(817, order.Id, order.CustomerId, order.SellerId, "Customer reported a defect");
+        complaint.StartReview();
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetComplaintAsync(complaint.Id, It.IsAny<CancellationToken>())).ReturnsAsync(complaint);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
+        lifecycle.Setup(x => x.GetActiveHoldByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(hold);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var nextId = 900L;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken _) => Task.FromResult(Interlocked.Increment(ref nextId)));
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, ids.Object, new Mock<INotificationRepository>().Object);
+
+        await service.ResolveComplaintAsync(complaint.Id, false, "Evidence confirms delivery matched the listing");
+
+        Assert.Equal(ComplaintStatus.SellerWon, complaint.Status);
+        Assert.Equal(OrderStatus.Completed, order.Status);
+        Assert.Equal(0, balance.BlockedIRR);
+        Assert.Equal(order.SellerAmountIRR, balance.AvailableIRR);
+        Assert.Equal(BalanceHoldStatus.Released, hold.Status);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Blocked && t.AmountIRR == order.SellerAmountIRR)), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
