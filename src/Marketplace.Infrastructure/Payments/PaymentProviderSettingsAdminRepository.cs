@@ -32,9 +32,9 @@ public sealed class PaymentProviderSettingsAdminRepository(
             var previousEnabled = setting.IsEnabled;
             var previousVisible = setting.IsVisible;
             var previousSortOrder = setting.SortOrder;
-            var configurationChanged = !string.Equals(setting.ConfigurationJson, configurationJson, StringComparison.Ordinal);
             var mergedConfiguration = PaymentProviderConfigurationSanitizer.MergePreservingSecrets(
                 setting.ConfigurationJson, configurationJson);
+            var configurationChanged = !string.Equals(setting.ConfigurationJson, mergedConfiguration, StringComparison.Ordinal);
 
             if(isEnabled)
             {
