@@ -70,13 +70,24 @@ public sealed class OrderFinancialLifecycle
 
     public Refund OpenRefund(Order order, Payment payment, long refundId, RefundReason reason)
     {
-        if(order.Status!=OrderStatus.RefundRequested) throw new DomainException("Order is not awaiting refund.");
-        return Refund.Create(refundId,order.Id,payment.Id,order.CustomerId,order.TotalAmountIRR,reason);
+        if (order.Status != OrderStatus.RefundRequested)
+            throw new DomainException("Order is not awaiting refund.");
+        if (payment.OrderId != order.Id || payment.CustomerId != order.CustomerId)
+            throw new DomainException("Payment does not belong to this order and customer.");
+        if (payment.AmountIRR != order.TotalAmountIRR)
+            throw new DomainException("Payment amount does not match the order total.");
+        if (payment.Status is not (PaymentStatus.Succeeded or PaymentStatus.ReconciliationRequired))
+            throw new DomainException("Payment is not eligible for refund.");
+        return Refund.Create(refundId, order.Id, payment.Id, order.CustomerId, order.TotalAmountIRR, reason);
     }
 
     public void OnCustomerWon(Complaint complaint, Order order)
     {
-        if(complaint.Status!=ComplaintStatus.CustomerWon) throw new DomainException("Complaint is not resolved for customer.");
+        if (complaint.Status != ComplaintStatus.CustomerWon)
+            throw new DomainException("Complaint is not resolved for customer.");
+        if (complaint.OrderId != order.Id || complaint.CustomerId != order.CustomerId ||
+            complaint.SellerId != order.SellerId)
+            throw new DomainException("Complaint does not belong to this order and its parties.");
         order.RequestRefund();
     }
 
@@ -84,6 +95,9 @@ public sealed class OrderFinancialLifecycle
     {
         if (complaint.Status != ComplaintStatus.SellerWon)
             throw new DomainException("Complaint is not resolved for seller.");
+        if (complaint.OrderId != order.Id || complaint.CustomerId != order.CustomerId ||
+            complaint.SellerId != order.SellerId)
+            throw new DomainException("Complaint does not belong to this order and its parties.");
         if (balance.SellerId != order.SellerId || hold.SellerId != order.SellerId ||
             hold.OrderId != order.Id || hold.AmountIRR != order.SellerAmountIRR)
             throw new DomainException("Balance hold does not match the order and seller.");
@@ -103,11 +117,30 @@ public sealed class OrderFinancialLifecycle
 
     public void CompleteRefund(Order order, Payment payment, Refund refund, SellerBalance balance, SellerBalanceHold hold)
     {
-        if(refund.Status!=RefundStatus.Completed) throw new DomainException("Refund is not completed.");
+        if (refund.Status != RefundStatus.Completed)
+            throw new DomainException("Refund is not completed.");
+        if (order.Status != OrderStatus.RefundRequested)
+            throw new DomainException("Order is not awaiting refund.");
+        if (refund.OrderId != order.Id || refund.PaymentId != payment.Id ||
+            refund.CustomerId != order.CustomerId || refund.AmountIRR != order.TotalAmountIRR)
+            throw new DomainException("Refund does not match the order and payment.");
+        if (payment.OrderId != order.Id || payment.CustomerId != order.CustomerId ||
+            payment.AmountIRR != order.TotalAmountIRR ||
+            payment.Status is not (PaymentStatus.Succeeded or PaymentStatus.PartiallyRefunded or PaymentStatus.ReconciliationRequired))
+            throw new DomainException("Payment is not eligible for this refund.");
+        if (balance.SellerId != order.SellerId || hold.SellerId != order.SellerId ||
+            hold.OrderId != order.Id || hold.AmountIRR != order.SellerAmountIRR)
+            throw new DomainException("Balance hold does not match the order and seller.");
+        if (hold.Status != BalanceHoldStatus.Active)
+            throw new DomainException("Balance hold is not active.");
+        if (balance.BlockedIRR < order.SellerAmountIRR && balance.PendingIRR < order.SellerAmountIRR)
+            throw new DomainException("Insufficient seller funds to complete refund.");
+
+        // Preflight every cross-aggregate condition before mutating payment, balance, hold or order.
         payment.MarkRefunded();
-        if(balance.BlockedIRR>=order.SellerAmountIRR)
+        if (balance.BlockedIRR >= order.SellerAmountIRR)
             balance.ConsumeBlock(order.SellerAmountIRR);
-        else if(balance.PendingIRR>=order.SellerAmountIRR)
+        else
             balance.RemovePending(order.SellerAmountIRR);
         hold.Consume();
         order.MarkRefunded();
