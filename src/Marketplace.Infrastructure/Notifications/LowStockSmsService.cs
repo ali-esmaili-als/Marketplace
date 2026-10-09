@@ -27,11 +27,17 @@ public sealed class LowStockSmsService(
                 StoreName = store.Name, ProductName = product.Name, VariantKey = variant.VariantKey
             }).SingleOrDefaultAsync(ct);
 
-        if (details is null || !details.Inventory.IsLowStock || details.Inventory.LowStockAlertSent)
+        if (details is null) return;
+        if (!details.Inventory.IsLowStock)
         {
-            if (details is not null) details.Inventory.ResetLowStockAlert();
+            if (details.Inventory.LowStockAlertSent)
+            {
+                details.Inventory.ResetLowStockAlert();
+                await db.SaveChangesAsync(ct);
+            }
             return;
         }
+        if (details.Inventory.LowStockAlertSent) return;
 
         var automation = await db.SmsAutomationSettings.SingleOrDefaultAsync(x => x.Id == 1, ct);
         if (automation is null || !automation.AutomaticSmsEnabled || !automation.LowStockSmsEnabled) return;
