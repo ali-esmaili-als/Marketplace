@@ -117,7 +117,7 @@ public sealed class OrderFinancialTraceIntegrationTests
                     (SELECT COUNT(*) FROM dbo.BalanceTransactions bt WHERE bt.OrderId = 75001 OR bt.RefundId = 78001 OR bt.SettlementId = 81001) AS LedgerCount,
                     (SELECT COUNT(*) FROM dbo.BalanceTransactions bt WHERE bt.SettlementId = 81001 AND bt.OrderId IS NULL) AS PooledSettlementLedgerCount,
                     (SELECT COUNT(*) FROM dbo.SellerBalances b WHERE b.SellerId = 72001) AS SellerBalanceCount;
-                """, connection);
+                """, connection))
             await using (var reader = await trace.ExecuteReaderAsync())
             {
                 Assert.True(await reader.ReadAsync());
