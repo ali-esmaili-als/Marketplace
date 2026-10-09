@@ -52,8 +52,8 @@ public sealed class SettlementConcurrencyIntegrationTests
             var b = Task.Run(async () => { await start.Task; return await RequestAsync(cs, "key-b", 700_000, 92002); });
             start.SetResult();
             var results = await Task.WhenAll(a, b);
-            Assert.Single(results.Where(x => x.Accepted));
-            Assert.Single(results.Where(x => !x.Accepted));
+            Assert.Single(results, x => x.Accepted);
+            Assert.Single(results, x => !x.Accepted);
 
             await using var connection = new SqlConnection(cs);
             await connection.OpenAsync();
@@ -144,14 +144,14 @@ public sealed class SettlementConcurrencyIntegrationTests
                 available = reader.GetInt64(0);
                 reserved = reader.GetInt64(1);
             }
-            if (amount <= 0 || amount > available) { await tx.RollbackAsync(); return (false, 0); }
+            if (amount <= 0 || amount > available - reserved) { await tx.RollbackAsync(); return (false, 0); }
 
             var now = DateTime.UtcNow;
             await using var write = new SqlCommand("""
                 INSERT dbo.Settlements(Id,SellerId,RequestKey,AmountIRR,Status,BankAccountId,BankNameSnapshot,IbanSnapshot,AccountHolderNameSnapshot,RequestedAtUtc)
                 VALUES(@id,72001,@key,@amount,1,74001,N'Test Bank',N'IR000000000000000000000000',N'Race Seller',@now);
-                UPDATE dbo.SellerBalances SET AvailableIRR=AvailableIRR-@amount,
-                    ReservedForSettlementIRR=ReservedForSettlementIRR+@amount,UpdatedAtUtc=@now WHERE SellerId=72001;
+                UPDATE dbo.SellerBalances SET ReservedForSettlementIRR=ReservedForSettlementIRR+@amount,
+                    UpdatedAtUtc=@now WHERE SellerId=72001;
                 INSERT dbo.BalanceTransactions(Id,SellerId,SettlementId,Type,Bucket,AmountIRR,BalanceBeforeIRR,BalanceAfterIRR,Reference,CreatedAtUtc)
                 VALUES(@ledger,72001,@id,4,4,@amount,@reserved,@reserved+@amount,N'SETTLEMENT_REQUESTED',@now);
                 """, connection, tx);
