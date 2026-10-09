@@ -773,7 +773,18 @@ app.MapGet("/api/orders/checkout/quote",async(System.Security.Claims.ClaimsPrinc
 
 app.MapPost("/api/orders/checkout",async(System.Security.Claims.ClaimsPrincipal user,CheckoutRequest request,Marketplace.Application.Orders.OrderCreationService service,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Infrastructure.Notifications.LowStockSmsService lowStockSms,CancellationToken ct)=>{
     if(string.IsNullOrWhiteSpace(request.RequestKey)||request.RequestKey.Length<16||request.RequestKey.Length>64) return Results.BadRequest(new { detail="A valid checkout request key is required." });
-    var result=await service.CheckoutAsync(CurrentUserId(user),request.Provider,request.DestinationCityId,request.CouponCode,request.RequestKey,ct);
+    var customerId = CurrentUserId(user);
+    if (!request.AddressId.HasValue || request.AddressId.Value <= 0)
+        return Results.BadRequest(new { detail = "پیش از ثبت سفارش، نشانی تحویل را انتخاب کنید." });
+    var address = await db.CustomerAddresses.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.Id == request.AddressId.Value && x.CustomerId == customerId, ct);
+    if (address is null)
+        return Results.BadRequest(new { detail = "نشانی انتخاب‌شده متعلق به حساب شما نیست یا حذف شده است." });
+    if (address.CityId != request.DestinationCityId)
+        return Results.BadRequest(new { detail = "شهر نشانی با شهر انتخاب‌شده برای ارسال یکسان نیست." });
+    var snapshot = new Marketplace.Application.Orders.CustomerAddressSnapshot(
+        address.RecipientName, address.RecipientMobile, address.AddressLine, address.PostalCode, address.DeliveryNote);
+    var result=await service.CheckoutAsync(customerId,request.Provider,request.DestinationCityId,request.CouponCode,request.RequestKey,ct,snapshot);
     var variants=await db.OrderItems.AsNoTracking().Where(x=>x.OrderId==result.OrderId&&x.VariantId.HasValue).Select(x=>x.VariantId!.Value).Distinct().ToListAsync(ct);
     foreach(var variantId in variants) await lowStockSms.NotifyIfLowAsync(variantId,ct);
     return Results.Ok(result);
@@ -2560,7 +2571,8 @@ app.Run();
 public sealed record CustomerProfileUpdateRequest(string DisplayName, string? Email);
 public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
-public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey,long? AddressId = null);\npublic sealed record CustomerAddressRequest(long CityId,string RecipientName,string RecipientMobile,string AddressLine,string PostalCode,string? DeliveryNote,bool IsDefault);
+public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey,long? AddressId = null);
+public sealed record CustomerAddressRequest(long CityId,string RecipientName,string RecipientMobile,string AddressLine,string PostalCode,string? DeliveryNote,bool IsDefault);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record StoreShippingRateRequest(long CityId, long ShippingFeeIRR, int MinDeliveryDays, int MaxDeliveryDays);
 public sealed record StoreShippingRatesRequest(StoreShippingRateRequest[] Rates);
