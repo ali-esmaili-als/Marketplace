@@ -523,7 +523,7 @@ public sealed class FinancialSchemaConstraintTests
             }
 
             await using (var resolveLegacyRefundDuplicate = new SqlCommand(
-                "UPDATE dbo.Refunds SET Status = 5 WHERE Id = 949973;", connection))
+                "UPDATE dbo.Refunds SET Status = 5 WHERE Id IN (949972, 949973);", connection))
             {
                 await resolveLegacyRefundDuplicate.ExecuteNonQueryAsync();
             }
