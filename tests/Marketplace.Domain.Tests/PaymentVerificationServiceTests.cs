@@ -90,7 +90,6 @@ public sealed class PaymentVerificationServiceTests
         var payments = new Mock<IPaymentRepository>();
         payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
         var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
-        gateway.SetupGet(x => x.ProviderName).Returns("TestBank");
         gateway.Setup(x => x.VerifyAsync("AUTH-10", 500_000, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new TimeoutException("Provider response timed out."));
         var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
