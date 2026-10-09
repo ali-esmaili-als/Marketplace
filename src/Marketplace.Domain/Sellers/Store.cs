@@ -10,6 +10,7 @@ public sealed class Store : AggregateRoot<long>
     public string Name { get; private set; } = null!;
     public string Slug { get; private set; } = null!;
     public string? Description { get; private set; }
+    public string ThemeCode { get; private set; } = "classic";
     public StoreStatus Status { get; private set; }
     public int CommissionRateBasisPoints { get; private set; }
     public long MinimumCommissionIRR { get; private set; }
@@ -51,6 +52,14 @@ public sealed class Store : AggregateRoot<long>
     }
 
     public void SetDescription(string? description) => Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+
+    public void ConfigureTheme(string themeCode)
+    {
+        var normalized = themeCode?.Trim().ToLowerInvariant();
+        if (normalized is not ("classic" or "minimal" or "vibrant"))
+            throw new DomainException("Theme must be classic, minimal, or vibrant.");
+        ThemeCode = normalized;
+    }
 
     public void ConfigureCommission(int rateBasisPoints, long minimumCommissionIrr)
     {
