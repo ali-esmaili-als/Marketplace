@@ -10,6 +10,38 @@ namespace Marketplace.SqlServer.IntegrationTests;
 public sealed class FinancialSchemaConstraintTests
 {
     [Fact]
+    public void Ef_long_key_generation_matches_application_generated_id_contract()
+    {
+        var options = new DbContextOptionsBuilder<MarketplaceDbContext>()
+            .UseSqlServer("Server=localhost;Database=ModelOnly;User ID=sa;Password=NotARealPassword123!;TrustServerCertificate=True")
+            .Options;
+
+        using var db = new MarketplaceDbContext(options);
+        var identityAuditTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "PaymentReconciliationAudit",
+            "RefundReconciliationAudit",
+            "SettlementReconciliationAudit"
+        };
+
+        var mismatches = db.Model.GetEntityTypes()
+            .Select(entity => new
+            {
+                Name = entity.ClrType.Name,
+                Id = entity.FindProperty("Id")
+            })
+            .Where(x => x.Id?.ClrType == typeof(long))
+            .Where(x => identityAuditTypes.Contains(x.Name)
+                ? x.Id!.ValueGenerated != Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.OnAdd
+                : x.Id!.ValueGenerated != Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never)
+            .Select(x => $"{x.Name}.Id => {x.Id!.ValueGenerated}")
+            .ToArray();
+
+        Assert.True(mismatches.Length == 0,
+            "Unexpected EF key-generation configuration: " + string.Join(", ", mismatches));
+    }
+
+    [Fact]
     public async Task Complete_bootstrap_script_creates_real_schema_and_enforces_inventory_constraints()
     {
         var connectionString = Environment.GetEnvironmentVariable("MARKETPLACE_SQLSERVER");
@@ -104,6 +136,23 @@ public sealed class FinancialSchemaConstraintTests
                 """, connection))
             {
                 Assert.Equal(5, Convert.ToInt32(await fkCheck.ExecuteScalarAsync()));
+            }
+
+            await using (var identityCheck = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM sys.identity_columns ic
+                INNER JOIN sys.tables t ON t.object_id = ic.object_id
+                INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+                WHERE s.name = N'dbo'
+                  AND t.name IN
+                  (
+                    N'PaymentReconciliationAudits',
+                    N'RefundReconciliationAudits',
+                    N'SettlementReconciliationAudits'
+                  );
+                """, connection))
+            {
+                Assert.Equal(3, Convert.ToInt32(await identityCheck.ExecuteScalarAsync()));
             }
         }
         finally
