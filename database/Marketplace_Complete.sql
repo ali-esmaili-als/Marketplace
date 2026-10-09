@@ -444,6 +444,9 @@ CREATE INDEX IX_Refunds_Order_Status ON dbo.Refunds(OrderId,Status);
 CREATE UNIQUE INDEX UX_Refunds_OneActivePerOrder ON dbo.Refunds(OrderId) WHERE Status < 4;
 CREATE INDEX IX_RefundReconciliationAudits_Refund_Created ON dbo.RefundReconciliationAudits(RefundId,CreatedAtUtc);
 CREATE INDEX IX_Complaints_Order_Status ON dbo.Complaints(OrderId,Status);
+-- Database-level protection against two concurrent active complaints for one order.
+-- Resolved/cancelled complaints release the slot for valid future lifecycle cases.
+CREATE UNIQUE INDEX UX_Complaints_OneActivePerOrder ON dbo.Complaints(OrderId) WHERE Status IN (1, 2);
 CREATE INDEX IX_InventoryReservations_Order_Status ON dbo.InventoryReservations(OrderId,Status);
 CREATE INDEX IX_InventoryReservations_Status_Expiry ON dbo.InventoryReservations(Status,ExpiresAtUtc);
 CREATE INDEX IX_SellerBalanceHolds_Order_Status ON dbo.SellerBalanceHolds(OrderId,Status);
