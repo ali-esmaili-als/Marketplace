@@ -66,6 +66,19 @@ public sealed class OutboxMessage : Entity<long>
         LastError = null;
     }
 
+    public void RetryFromDeadLetter(DateTime nowUtc)
+    {
+        if (Status != "DeadLetter")
+            throw new DomainException("Only a dead-letter outbox message can be retried manually.");
+
+        Status = "Pending";
+        Attempts = 0;
+        NextAttemptAtUtc = nowUtc;
+        LockedUntilUtc = null;
+        LockToken = null;
+        ProcessedAtUtc = null;
+    }
+
     public void MarkFailed(DateTime nowUtc, string error, int maxAttempts, TimeSpan retryDelay)
     {
         if (Status != "Processing") throw new DomainException("Only a processing outbox message can fail.");
