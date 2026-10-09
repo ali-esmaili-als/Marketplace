@@ -23,7 +23,7 @@ public sealed class CustomerAddressTests
     [Theory]
     [InlineData("", "09120000000", "خیابان نمونه", "1234567890")]
     [InlineData("Ali", "12", "خیابان نمونه", "1234567890")]
-    [InlineData("Ali", "09120000000", "خیابان", "1234567890")]
+    [InlineData("Ali", "09120000000", "کوچه", "1234567890")]
     [InlineData("Ali", "09120000000", "خیابان نمونه", "123")]
     public void Create_RejectsIncompleteAddress(string name, string mobile, string line, string postal)
     {
