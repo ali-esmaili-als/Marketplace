@@ -192,6 +192,11 @@ app.MapPost("/api/cart/items",async(System.Security.Claims.ClaimsPrincipal user,
     return Results.Ok();
 }).RequirePermission("Cart.Read");
 
+app.MapPut("/api/cart/items/{variantId:long}",async(System.Security.Claims.ClaimsPrincipal user,long variantId,CartQuantityRequest request,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
+    await service.SetQuantityAsync(CurrentUserId(user),variantId,request.WarrantyId,request.Quantity,ct);
+    return Results.NoContent();
+}).RequirePermission("Cart.Read");
+
 app.MapDelete("/api/cart/items/{variantId:long}",async(System.Security.Claims.ClaimsPrincipal user,long variantId,long? warrantyId,Marketplace.Application.Cart.CartService service,CancellationToken ct)=>{
     await service.RemoveItemAsync(CurrentUserId(user),variantId,warrantyId,ct); return Results.Ok();
 }).RequirePermission("Cart.Read");
@@ -566,7 +571,7 @@ app.MapGet("/api/seller/orders",async(System.Security.Claims.ClaimsPrincipal use
 app.MapGet("/api/seller/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrderAsync(seller.Id,orderId,ct));}).RequirePermission("Order.ReadOwn");
 app.Run();
 
-public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);
+public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,long ProductId,long VariantId,int Quantity,long? WarrantyId);\npublic sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
