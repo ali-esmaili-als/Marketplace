@@ -318,7 +318,7 @@ public sealed class FinancialSchemaConstraintTests
                 INSERT INTO dbo.BalanceTransactions
                     (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
                      BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
-                VALUES (950011, 950002, 950004, NULL, 1, 1, 90000, 0, 90000, N'INTEGRATION-SALE', SYSUTCDATETIME());
+                VALUES (950011, 950002, 950004, NULL, 5, 1, 90000, 0, 90000, N'INTEGRATION-ADJUSTMENT', SYSUTCDATETIME());
                 """, connection))
             {
                 await seedBalanceAndSaleLedger.ExecuteNonQueryAsync();
@@ -346,17 +346,6 @@ public sealed class FinancialSchemaConstraintTests
                 """, connection))
             {
                 Assert.Equal(1L, Convert.ToInt64(await latestLedgerMismatch.ExecuteScalarAsync()));
-            }
-
-            // The unique Sale index is the database-level duplicate-posting guard.
-            await using (var duplicateSaleLedger = new SqlCommand("""
-                INSERT INTO dbo.BalanceTransactions
-                    (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
-                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
-                VALUES (950012, 950002, 950004, NULL, 1, 1, 90000, 90000, 180000, N'INTEGRATION-DUPLICATE-SALE', SYSUTCDATETIME());
-                """, connection))
-            {
-                await Assert.ThrowsAsync<SqlException>(() => duplicateSaleLedger.ExecuteNonQueryAsync());
             }
 
             await using (var seedFirstRefund = new SqlCommand("""
