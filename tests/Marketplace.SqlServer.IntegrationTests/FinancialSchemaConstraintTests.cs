@@ -97,6 +97,43 @@ public sealed class FinancialSchemaConstraintTests
                 await runDiagnostics.ExecuteNonQueryAsync();
             }
 
+            // Exercise the upgrade patch against a pre-existing schema state, then ensure
+            // reapplying it is safe. The bootstrap script created the same index, so drop it
+            // to simulate an installation that has not yet received patch 011.
+            await using (var dropComplaintIndex = new SqlCommand("""
+                DROP INDEX UX_Complaints_OneActivePerOrder ON dbo.Complaints;
+                """, connection))
+            {
+                await dropComplaintIndex.ExecuteNonQueryAsync();
+            }
+
+            var complaintPatchPath = Path.Combine(AppContext.BaseDirectory, "database", "011_ActiveComplaintUniqueness.sql");
+            Assert.True(File.Exists(complaintPatchPath), $"Complaint uniqueness patch was not copied to test output: {complaintPatchPath}");
+            var complaintPatch = await File.ReadAllTextAsync(complaintPatchPath);
+            await using (var applyComplaintPatch = new SqlCommand(complaintPatch, connection) { CommandTimeout = 120 })
+            {
+                await applyComplaintPatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyComplaintIndex = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N'dbo.Complaints')
+                  AND name = N'UX_Complaints_OneActivePerOrder'
+                  AND is_unique = 1
+                  AND has_filter = 1
+                  AND filter_definition LIKE N'%Status%1%2%';
+                """, connection))
+            {
+                Assert.Equal(1, Convert.ToInt32(await verifyComplaintIndex.ExecuteScalarAsync()));
+            }
+
+            // The patch is intentionally idempotent for deployments that need safe retries.
+            await using (var reapplyComplaintPatch = new SqlCommand(complaintPatch, connection) { CommandTimeout = 120 })
+            {
+                await reapplyComplaintPatch.ExecuteNonQueryAsync();
+            }
+
             await using var invalidInsert = new SqlCommand("""
                 INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
                 VALUES (940001, 940001, 5, 6, 1);
