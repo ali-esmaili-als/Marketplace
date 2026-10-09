@@ -501,14 +501,69 @@ VALUES(s.Id,s.Provider,s.DisplayName,s.IsEnabled,s.IsVisible,s.SortOrder,SYSUTCD
 
 COMMIT;
 
--- Validation: all expected tables must exist.
+-- Fail the script if any required table was not created.
+DECLARE @ExpectedTables TABLE (TableName SYSNAME NOT NULL PRIMARY KEY);
+INSERT INTO @ExpectedTables(TableName) VALUES
+(N'Users'),
+(N'Roles'),
+(N'Rules'),
+(N'UserRules'),
+(N'UserRoleAssignments'),
+(N'Sellers'),
+(N'Stores'),
+(N'SellerBankAccounts'),
+(N'Categories'),
+(N'Products'),
+(N'ProductVariants'),
+(N'ProductAttributes'),
+(N'ProductAttributeValues'),
+(N'ProductAttributeAssignments'),
+(N'VariantAttributeValues'),
+(N'Warranties'),
+(N'ProductWarranties'),
+(N'Carts'),
+(N'CartItems'),
+(N'DeliveryCities'),
+(N'StoreShippingCities'),
+(N'Orders'),
+(N'OrderItems'),
+(N'Payments'),
+(N'PaymentTransactions'),
+(N'PaymentProviderSettings'),
+(N'Deliveries'),
+(N'DeliveryCodes'),
+(N'Refunds'),
+(N'Complaints'),
+(N'InventoryItems'),
+(N'InventoryReservations'),
+(N'SellerBalances'),
+(N'SellerBalanceHolds'),
+(N'Settlements'),
+(N'BalanceTransactions'),
+(N'Commissions'),
+(N'CommissionReversals'),
+(N'Campaigns'),
+(N'CampaignProducts'),
+(N'Coupons'),
+(N'CouponProducts'),
+(N'CouponCategories'),
+(N'CouponUsages'),
+(N'Notifications'),
+(N'SmsProviderSettings'),
+(N'PaymentReconciliationAudits'),
+(N'RefundReconciliationAudits'),
+(N'SettlementReconciliationAudits');
+
+IF EXISTS (
+    SELECT 1
+    FROM @ExpectedTables e
+    LEFT JOIN sys.tables t ON t.name=e.TableName AND t.schema_id=SCHEMA_ID(N'dbo')
+    WHERE t.object_id IS NULL
+)
+    THROW 51000, 'Marketplace schema validation failed: one or more required tables are missing.', 1;
+
 SELECT t.name AS TableName
 FROM sys.tables t
-WHERE t.name IN
-('Users','Roles','Rules','UserRules','UserRoleAssignments','Sellers','Stores','SellerBankAccounts',
-'Categories','Products','ProductVariants','ProductAttributes','ProductAttributeValues','ProductAttributeAssignments','VariantAttributeValues',
-'Warranties','ProductWarranties','Carts','CartItems','DeliveryCities','StoreShippingCities','Orders','OrderItems','Payments','PaymentTransactions',
-'PaymentProviderSettings','Deliveries','DeliveryCodes','Refunds','Complaints','InventoryItems','InventoryReservations','SellerBalances','SellerBalanceHolds',
-'Settlements','BalanceTransactions','Commissions','CommissionReversals','Campaigns','CampaignProducts','Coupons','CouponProducts','CouponCategories','CouponUsages','Notifications',
-'SmsProviderSettings','PaymentReconciliationAudits','RefundReconciliationAudits','SettlementReconciliationAudits')
+INNER JOIN @ExpectedTables e ON e.TableName=t.name
+WHERE t.schema_id=SCHEMA_ID(N'dbo')
 ORDER BY t.name;
