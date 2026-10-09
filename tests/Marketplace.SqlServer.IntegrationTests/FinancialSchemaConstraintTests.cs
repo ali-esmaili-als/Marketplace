@@ -86,6 +86,17 @@ public sealed class FinancialSchemaConstraintTests
                 Assert.Equal(1, Convert.ToInt32(await constraintCheck.ExecuteScalarAsync()));
             }
 
+            // Compile and execute every read-only operational diagnostic against a freshly
+            // bootstrapped SQL Server schema. This catches drift in table/column names and
+            // invalid T-SQL as the diagnostic suite grows.
+            var diagnosticsPath = Path.Combine(AppContext.BaseDirectory, "database", "FinancialConsistencyChecks.sql");
+            Assert.True(File.Exists(diagnosticsPath), $"Financial diagnostics SQL was not copied to test output: {diagnosticsPath}");
+            var diagnostics = await File.ReadAllTextAsync(diagnosticsPath);
+            await using (var runDiagnostics = new SqlCommand(diagnostics, connection) { CommandTimeout = 120 })
+            {
+                await runDiagnostics.ExecuteNonQueryAsync();
+            }
+
             await using var invalidInsert = new SqlCommand("""
                 INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
                 VALUES (940001, 940001, 5, 6, 1);
