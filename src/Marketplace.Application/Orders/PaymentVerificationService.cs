@@ -9,13 +9,14 @@ public sealed record PaymentVerificationResult(bool Paid, string? Reference, str
 public sealed class PaymentVerificationService
 {
     private readonly IPaymentRepository _payments;
+    private readonly IOrderRepository _orders;
     private readonly IPaymentGatewayFactory _gatewayFactory;
     private readonly IUnitOfWork _uow;
     private readonly OrderLifecycleService _lifecycle;
 
-    public PaymentVerificationService(IPaymentRepository payments,IPaymentGatewayFactory gatewayFactory,IUnitOfWork uow,OrderLifecycleService lifecycle)
+    public PaymentVerificationService(IPaymentRepository payments,IOrderRepository orders,IPaymentGatewayFactory gatewayFactory,IUnitOfWork uow,OrderLifecycleService lifecycle)
     {
-        _payments=payments; _gatewayFactory=gatewayFactory; _uow=uow; _lifecycle=lifecycle;
+        _payments=payments; _orders=orders; _gatewayFactory=gatewayFactory; _uow=uow; _lifecycle=lifecycle;
     }
 
     public async Task<PaymentVerificationResult> VerifyTestReturnAsync(long paymentId,string authority,bool success,CancellationToken ct=default)
@@ -30,7 +31,7 @@ public sealed class PaymentVerificationService
 
         if (payment.Status == PaymentStatus.Succeeded)
             return new PaymentVerificationResult(true, payment.ReferenceNumber, null);
-        if (payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled)
+        if (payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired)
             return new PaymentVerificationResult(false, null, "Payment is no longer payable.");
 
         if (!success)
@@ -55,8 +56,12 @@ public sealed class PaymentVerificationService
         if (!verification.IsSuccessful)
             return new PaymentVerificationResult(false, null, verification.Error);
 
-        await _lifecycle.PaymentSucceededAsync(payment.OrderId, verification.Reference ?? authority, ct);
-        return new PaymentVerificationResult(true, verification.Reference ?? authority, null);
+        var reference = verification.Reference ?? authority;
+        await FinalizeVerifiedPaymentAsync(payment.Id, payment.OrderId, reference, ct);
+        var current = await _payments.GetAsync(payment.Id, ct) ?? throw new DomainException("Payment not found.");
+        return current.Status == PaymentStatus.ReconciliationRequired
+            ? new PaymentVerificationResult(false, reference, "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required.")
+            : new PaymentVerificationResult(true, reference, null);
     }
 
     public async Task<PaymentVerificationResult> VerifyAsync(long userId,long paymentId,string authority,CancellationToken ct=default)
@@ -71,7 +76,7 @@ public sealed class PaymentVerificationService
         if(payment.Status==PaymentStatus.Succeeded)
             return new PaymentVerificationResult(true,payment.ReferenceNumber,null);
 
-        if(payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled)
+        if(payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired)
             return new PaymentVerificationResult(false,null,"Payment is no longer payable.");
 
         var provider=Enum.TryParse<PaymentProviderCode>(payment.Provider,true,out var parsed) ? parsed : throw new DomainException("Invalid payment provider.");
@@ -97,8 +102,35 @@ public sealed class PaymentVerificationService
         }
 
         // Payment status and seller financial movement are finalized together by the lifecycle service.
-        await _lifecycle.PaymentSucceededAsync(payment.OrderId,result.Reference ?? authority,ct);
+        var reference = result.Reference ?? authority;
+        await FinalizeVerifiedPaymentAsync(payment.Id, payment.OrderId, reference, ct);
+        var currentPayment = await _payments.GetAsync(payment.Id, ct) ?? throw new DomainException("Payment not found.");
+        return currentPayment.Status == PaymentStatus.ReconciliationRequired
+            ? new PaymentVerificationResult(false, reference, "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required.")
+            : new PaymentVerificationResult(true, reference, null);
+    }
+    private async Task FinalizeVerifiedPaymentAsync(long paymentId,long orderId,string reference,CancellationToken ct)
+    {
+        try
+        {
+            await _lifecycle.PaymentSucceededAsync(orderId,reference,ct);
+        }
+        catch(DomainException)
+        {
+            var payment=await _payments.GetAsync(paymentId,ct)??throw new DomainException("Payment not found.");
+            var order=await _orders.GetAsync(orderId,ct)??throw new DomainException("Order not found.");
+            var noLongerPayable = order.Status != Marketplace.Domain.Orders.OrderStatus.PendingPayment
+                || payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired;
+            if(!noLongerPayable) throw;
 
-        return new PaymentVerificationResult(true,result.Reference ?? authority,null);
+            await _uow.ExecuteInTransactionAsync(async token =>
+            {
+                var current=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
+                if(current.Status is not (PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded))
+                    current.RequireReconciliation(reference);
+                await _uow.SaveChangesAsync(token);
+                return 0;
+            },ct);
+        }
     }
 }
