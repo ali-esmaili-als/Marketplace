@@ -89,13 +89,41 @@ SET Status = N'Processing',
                         await publisher.PublishAsync(
                             new OutboxEnvelope(message.MessageId, message.EventType, message.PayloadJson, message.OccurredAtUtc),
                             stoppingToken);
-                        message.MarkProcessed(DateTime.UtcNow);
-                        await db.SaveChangesAsync(stoppingToken);
-                        _logger.LogInformation("Published outbox message {MessageId} ({EventType}).", message.MessageId, message.EventType);
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
                         throw;
+                    }
+                    catch (Exception publishError)
+                    {
+                        var delaySeconds = Math.Min(3600, Math.Pow(2, Math.Min(message.Attempts, 10)));
+                        message.MarkFailed(DateTime.UtcNow, publishError.Message, maxAttempts, TimeSpan.FromSeconds(delaySeconds));
+                        try
+                        {
+                            await db.SaveChangesAsync(stoppingToken);
+                            _logger.LogWarning(publishError, "Outbox publish failed for {MessageId}; attempt {Attempt}/{MaxAttempts}, status {Status}.",
+                                message.MessageId, message.Attempts, maxAttempts, message.Status);
+                        }
+                        catch (DbUpdateConcurrencyException concurrency)
+                        {
+                            _logger.LogWarning(concurrency, "Outbox lease was lost while recording failure for {MessageId}.", message.MessageId);
+                            db.Entry(message).State = EntityState.Detached;
+                        }
+                        catch (Exception persistenceError)
+                        {
+                            // Leave the row Processing. Its lease will expire and another worker
+                            // will retry it; never overwrite a possibly newer owner.
+                            _logger.LogError(persistenceError, "Could not persist outbox failure for {MessageId}; lease expiry will recover it.", message.MessageId);
+                            db.Entry(message).State = EntityState.Detached;
+                        }
+                        continue;
+                    }
+
+                    try
+                    {
+                        message.MarkProcessed(DateTime.UtcNow);
+                        await db.SaveChangesAsync(stoppingToken);
+                        _logger.LogInformation("Published outbox message {MessageId} ({EventType}).", message.MessageId, message.EventType);
                     }
                     catch (DbUpdateConcurrencyException ex)
                     {
@@ -106,19 +134,10 @@ SET Status = N'Processing',
                     }
                     catch (Exception ex)
                     {
-                        var delaySeconds = Math.Min(3600, Math.Pow(2, Math.Min(message.Attempts, 10)));
-                        message.MarkFailed(DateTime.UtcNow, ex.Message, maxAttempts, TimeSpan.FromSeconds(delaySeconds));
-                        try
-                        {
-                            await db.SaveChangesAsync(stoppingToken);
-                            _logger.LogWarning(ex, "Outbox publish failed for {MessageId}; attempt {Attempt}/{MaxAttempts}, status {Status}.",
-                                message.MessageId, message.Attempts, maxAttempts, message.Status);
-                        }
-                        catch (DbUpdateConcurrencyException concurrency)
-                        {
-                            _logger.LogWarning(concurrency, "Outbox lease was lost while recording failure for {MessageId}.", message.MessageId);
-                            db.Entry(message).State = EntityState.Detached;
-                        }
+                        // Publishing succeeded but finalization did not. Delivery may happen
+                        // again after lease expiry, which is why consumers deduplicate MessageId.
+                        _logger.LogError(ex, "Published outbox message {MessageId}, but could not persist completion; it may be delivered again.", message.MessageId);
+                        db.Entry(message).State = EntityState.Detached;
                     }
                 }
 
