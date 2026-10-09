@@ -40,7 +40,7 @@ public sealed class SettlementFinalizationFailureTests
             .ReturnsAsync((true, "BANK-REF-501", (string?)null));
 
         var service = new SettlementService(
-            lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), payout.Object, Mock.Of<ISellerManagementRepository>());
+            lifecycle.Object, uow.Object, CreateIdGenerator(), payout.Object, Mock.Of<ISellerManagementRepository>());
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ProcessAsync(settlement.Id));
 
@@ -55,4 +55,13 @@ public sealed class SettlementFinalizationFailureTests
         uow.Verify(x => x.ExecuteInSerializableTransactionAsync(
             It.IsAny<Func<CancellationToken, Task<int>>>(), CancellationToken.None), Times.Exactly(2));
     }
+    private static IIdGenerator CreateIdGenerator()
+    {
+        long next = 12000;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Interlocked.Increment(ref next));
+        return ids.Object;
+    }
+
 }
