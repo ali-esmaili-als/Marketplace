@@ -12,9 +12,9 @@ using Marketplace.Application.Pricing;
 
 namespace Marketplace.Application.Orders;
 
-public sealed record CheckoutResult(long OrderId,long PaymentId,string Provider,string Authority,string RedirectUrl,long TotalAmountIRR,long SubtotalAmountIRR,long CampaignDiscountIRR,long CouponDiscountIRR,string? CouponCode);
+public sealed record CheckoutResult(long OrderId,long PaymentId,string Provider,string Authority,string RedirectUrl,long TotalAmountIRR,long SubtotalAmountIRR,long CampaignDiscountIRR,long CouponDiscountIRR,string? CouponCode,long ShippingFeeIRR=0);
 public sealed record CheckoutQuoteLine(long ProductId,long VariantId,string ProductName,string SKU,string VariantKey,int Quantity,long UnitPriceIRR,long WarrantyUnitPriceIRR,string? WarrantyName,long CampaignDiscountIRR,long CouponDiscountIRR,long FinalLineIRR,long AvailableQuantity,string? CampaignName);
-public sealed record CheckoutQuoteResult(long StoreId,string StoreName,long DestinationCityId,string DestinationCityName,long SubtotalIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long TotalIRR,string? CouponCode,IReadOnlyList<CheckoutQuoteLine> Lines,DateTime QuotedAtUtc);
+public sealed record CheckoutQuoteResult(long StoreId,string StoreName,long DestinationCityId,string DestinationCityName,long SubtotalIRR,long CampaignDiscountIRR,long CouponDiscountIRR,long ShippingFeeIRR,int MinDeliveryDays,int MaxDeliveryDays,long TotalIRR,string? CouponCode,IReadOnlyList<CheckoutQuoteLine> Lines,DateTime QuotedAtUtc);
 
 
 public sealed class OrderCreationService
@@ -39,6 +39,7 @@ public sealed class OrderCreationService
         var city=await _shipping.GetCityAsync(destinationCityId,ct)??throw new DomainException("Destination city was not found.");
         if(!city.IsActive)throw new DomainException("Destination city is not active.");
         if(!await _shipping.StoreShipsToCityAsync(store.Id,city.Id,ct))throw new DomainException($"This store does not ship to {city.Name}.");
+        var shippingRate=await _shipping.GetStoreShippingRateAsync(store.Id,city.Id,ct)??throw new DomainException($"Shipping fee is not configured for {city.Name}.");
         var input=new List<(CartItem,CheckoutLineData)>(items.Count);
         foreach(var item in items)
         {
@@ -51,7 +52,7 @@ public sealed class OrderCreationService
         }
         var priced=await _pricing.PriceAsync(customerId,store.Id,store.SellerId,input,couponCode,DateTime.UtcNow,ct);
         var lines=priced.Lines.Select(x=>new CheckoutQuoteLine(x.Data.Product.Id,x.Data.Variant.Id,x.Data.Product.Name,x.Data.Variant.SKU,x.Data.Variant.VariantKey,x.Item.Quantity,x.BaseUnitIRR,x.WarrantyIRR,x.Data.Warranty?.Name,x.CampaignDiscountIRR,x.CouponDiscountIRR,x.FinalLineIRR,x.Data.Inventory.AvailableQuantity,x.Campaign?.Name)).ToList();
-        return new CheckoutQuoteResult(store.Id,store.Name,city.Id,city.Name,priced.SubtotalIRR,priced.CampaignDiscountIRR,priced.CouponDiscountIRR,priced.TotalIRR,priced.Coupon?.Code,lines,DateTime.UtcNow);
+        return new CheckoutQuoteResult(store.Id,store.Name,city.Id,city.Name,priced.SubtotalIRR,priced.CampaignDiscountIRR,priced.CouponDiscountIRR,shippingRate.ShippingFeeIRR,shippingRate.MinDeliveryDays,shippingRate.MaxDeliveryDays,checked(priced.TotalIRR+shippingRate.ShippingFeeIRR),priced.Coupon?.Code,lines,DateTime.UtcNow);
     }
 
     public Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,CancellationToken ct=default)
@@ -61,7 +62,7 @@ public sealed class OrderCreationService
     {
         requestKey=string.IsNullOrWhiteSpace(requestKey)?null:requestKey.Trim();
         if(requestKey is not null&&(requestKey.Length<16||requestKey.Length>64))throw new DomainException("Invalid checkout request key.");
-        long orderId=0,paymentId=0,total=0,subtotal=0,campaignDiscount=0,couponDiscount=0; string? appliedCoupon=null;
+        long orderId=0,paymentId=0,total=0,subtotal=0,campaignDiscount=0,couponDiscount=0,shippingFee=0; string? appliedCoupon=null;
         string? savedRedirectUrl=null,savedProvider=null,savedAuthority=null;
         var reused=false;
 
@@ -74,7 +75,7 @@ public sealed class OrderCreationService
                 {
                     var existingPayment=await _payments.GetByOrderAsync(existing.Id,token)??throw new DomainException("Existing checkout payment is missing; reconciliation is required.");
                     orderId=existing.Id;paymentId=existingPayment.Id;total=existing.TotalAmountIRR;subtotal=existing.SubtotalAmountIRR;
-                    campaignDiscount=existing.CampaignDiscountIRR;couponDiscount=existing.CouponDiscountIRR;appliedCoupon=existing.CouponCodeSnapshot;
+                    campaignDiscount=existing.CampaignDiscountIRR;couponDiscount=existing.CouponDiscountIRR;shippingFee=existing.ShippingFeeIRR;appliedCoupon=existing.CouponCodeSnapshot;
                     savedRedirectUrl=existingPayment.RedirectUrl;savedProvider=existingPayment.Provider;savedAuthority=existingPayment.Authority;reused=true;
                     return 0;
                 }
@@ -89,6 +90,8 @@ public sealed class OrderCreationService
             var city=await _shipping.GetCityAsync(destinationCityId,token)??throw new DomainException("Destination city was not found.");
             if(!city.IsActive) throw new DomainException("Destination city is not active.");
             if(!await _shipping.StoreShipsToCityAsync(store.Id,city.Id,token)) throw new DomainException($"This store does not ship to {city.Name}.");
+            var shippingRate=await _shipping.GetStoreShippingRateAsync(store.Id,city.Id,token)??throw new DomainException($"Shipping fee is not configured for {city.Name}.");
+            shippingFee=shippingRate.ShippingFeeIRR;
 
             var input=new List<(CartItem,CheckoutLineData)>(items.Count);
             foreach(var item in items)
@@ -102,13 +105,13 @@ public sealed class OrderCreationService
             }
 
             var priced=await _pricing.PriceAsync(customerId,store.Id,store.SellerId,input,couponCode,DateTime.UtcNow,token);
-            subtotal=priced.SubtotalIRR;campaignDiscount=priced.CampaignDiscountIRR;couponDiscount=priced.CouponDiscountIRR;total=priced.TotalIRR;appliedCoupon=priced.Coupon?.Code;
+            subtotal=priced.SubtotalIRR;campaignDiscount=priced.CampaignDiscountIRR;couponDiscount=priced.CouponDiscountIRR;total=checked(priced.TotalIRR+shippingFee);appliedCoupon=priced.Coupon?.Code;
             if(total<=0) throw new DomainException("Order total must be positive.");
 
             orderId=await _ids.NextAsync(token); paymentId=await _ids.NextAsync(token);
             var commissionRate=store.CommissionRateBasisPoints/100m;
-            var commission=Commission.Create(await _ids.NextAsync(token),orderId,store.Id,store.SellerId,total,commissionRate,store.MinimumCommissionIRR);
-            var order=Order.Create(orderId,customerId,store.SellerId,store.Id,subtotal,total,requestKey);
+            var commission=Commission.Create(await _ids.NextAsync(token),orderId,store.Id,store.SellerId,total,commissionRate,store.MinimumCommissionIRR,shippingFee);
+            var order=Order.Create(orderId,customerId,store.SellerId,store.Id,subtotal,total,requestKey,shippingFee);
             order.SetDiscounts(campaignDiscount,couponDiscount,appliedCoupon);
             order.SetShippingDestination(city.Id,city.Name,city.ProvinceName);
             order.SetSellerAmount(commission.SellerAmountIRR);
@@ -132,7 +135,7 @@ public sealed class OrderCreationService
         },ct);
 
         if(reused && !string.IsNullOrWhiteSpace(savedRedirectUrl))
-            return new CheckoutResult(orderId,paymentId,savedProvider??string.Empty,savedAuthority??string.Empty,savedRedirectUrl,total,subtotal,campaignDiscount,couponDiscount,appliedCoupon);
+            return new CheckoutResult(orderId,paymentId,savedProvider??string.Empty,savedAuthority??string.Empty,savedRedirectUrl,total,subtotal,campaignDiscount,couponDiscount,appliedCoupon,shippingFee);
 
         var paymentBeforeGateway=await _payments.GetAsync(paymentId,ct)??throw new DomainException("Payment not found.");
         if(paymentBeforeGateway.Status!=PaymentStatus.Pending)
@@ -146,6 +149,6 @@ public sealed class OrderCreationService
             _payments.AddTransaction(PaymentTransaction.Create(await _ids.NextAsync(token),payment.Id,payment.AmountIRR,redirect.Provider,redirect.Authority));
             await _uow.SaveChangesAsync(token); return 0;
         },ct);
-        return new CheckoutResult(orderId,paymentId,redirect.Provider,redirect.Authority,redirect.Url,total,subtotal,campaignDiscount,couponDiscount,appliedCoupon);
+        return new CheckoutResult(orderId,paymentId,redirect.Provider,redirect.Authority,redirect.Url,total,subtotal,campaignDiscount,couponDiscount,appliedCoupon,shippingFee);
     }
 }
