@@ -52,7 +52,8 @@ public sealed class OrderCreationService
         }
         var priced=await _pricing.PriceAsync(customerId,store.Id,store.SellerId,input,couponCode,DateTime.UtcNow,ct);
         var lines=priced.Lines.Select(x=>new CheckoutQuoteLine(x.Data.Product.Id,x.Data.Variant.Id,x.Data.Product.Name,x.Data.Variant.SKU,x.Data.Variant.VariantKey,x.Item.Quantity,x.BaseUnitIRR,x.WarrantyIRR,x.Data.Warranty?.Name,x.CampaignDiscountIRR,x.CouponDiscountIRR,x.FinalLineIRR,x.Data.Inventory.AvailableQuantity,x.Campaign?.Name)).ToList();
-        return new CheckoutQuoteResult(store.Id,store.Name,city.Id,city.Name,priced.SubtotalIRR,priced.CampaignDiscountIRR,priced.CouponDiscountIRR,shippingRate.ShippingFeeIRR,shippingRate.MinDeliveryDays,shippingRate.MaxDeliveryDays,checked(priced.TotalIRR+shippingRate.ShippingFeeIRR),priced.Coupon?.Code,lines,DateTime.UtcNow);
+        if(shippingRate.ShippingFeeIRR>long.MaxValue-priced.TotalIRR)throw new DomainException("Order total exceeds the supported amount range.");
+        return new CheckoutQuoteResult(store.Id,store.Name,city.Id,city.Name,priced.SubtotalIRR,priced.CampaignDiscountIRR,priced.CouponDiscountIRR,shippingRate.ShippingFeeIRR,shippingRate.MinDeliveryDays,shippingRate.MaxDeliveryDays,priced.TotalIRR+shippingRate.ShippingFeeIRR,priced.Coupon?.Code,lines,DateTime.UtcNow);
     }
 
     public Task<CheckoutResult> CheckoutAsync(long customerId,PaymentProviderCode provider,long destinationCityId,string? couponCode,CancellationToken ct=default)
@@ -105,7 +106,8 @@ public sealed class OrderCreationService
             }
 
             var priced=await _pricing.PriceAsync(customerId,store.Id,store.SellerId,input,couponCode,DateTime.UtcNow,token);
-            subtotal=priced.SubtotalIRR;campaignDiscount=priced.CampaignDiscountIRR;couponDiscount=priced.CouponDiscountIRR;total=checked(priced.TotalIRR+shippingFee);appliedCoupon=priced.Coupon?.Code;
+            if(shippingFee>long.MaxValue-priced.TotalIRR)throw new DomainException("Order total exceeds the supported amount range.");
+            subtotal=priced.SubtotalIRR;campaignDiscount=priced.CampaignDiscountIRR;couponDiscount=priced.CouponDiscountIRR;total=priced.TotalIRR+shippingFee;appliedCoupon=priced.Coupon?.Code;
             if(total<=0) throw new DomainException("Order total must be positive.");
 
             orderId=await _ids.NextAsync(token); paymentId=await _ids.NextAsync(token);
