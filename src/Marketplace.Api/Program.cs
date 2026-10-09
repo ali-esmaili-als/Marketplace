@@ -475,6 +475,13 @@ app.MapPost("/api/admin/payments/{paymentId:long}/reconcile",async(long paymentI
     return Results.Ok(new { paymentId, status=payment.Status.ToString(), action=request.Action });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/payments/reconciliation/history",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
+    Results.Ok(await (from a in db.PaymentReconciliationAudits.AsNoTracking()
+                      join p in db.Payments.AsNoTracking() on a.PaymentId equals p.Id
+                      orderby a.CreatedAtUtc descending
+                      select new { auditId=a.Id,paymentId=p.Id,orderId=p.OrderId,customerId=p.CustomerId,amountIRR=p.AmountIRR,action=a.Action,note=a.Note,bankReference=a.BankReference,adminUserId=a.AdminUserId,createdAtUtc=a.CreatedAtUtc })
+                     .Take(200).ToListAsync(ct))).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/refunds",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
     Results.Ok(await (from r in db.Refunds.AsNoTracking()
                       join o in db.Orders.AsNoTracking() on r.OrderId equals o.Id
