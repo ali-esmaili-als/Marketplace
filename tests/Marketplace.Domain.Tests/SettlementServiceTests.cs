@@ -138,6 +138,43 @@ public sealed class SettlementServiceTests
             Times.Once);
     }
     [Fact]
+    public async Task OnHoldSettlement_CannotBeRetriedBeforeReconciliation()
+    {
+        var settlement = Settlement.Create(41, 42, 300_000, 43, "Test Bank", "IR0043", "Seller");
+        settlement.MarkProcessing();
+        settlement.PutOnHold();
+
+        var balance = SellerBalance.Create(44, settlement.SellerId);
+        balance.AddAvailable(800_000);
+        balance.ReserveForSettlement(settlement.AmountIRR);
+
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementAsync(settlement.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlement);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+
+        var payout = new Mock<ISellerPayoutGateway>(MockBehavior.Strict);
+        var service = new SettlementService(
+            lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), payout.Object, Mock.Of<ISellerManagementRepository>());
+
+        await Assert.ThrowsAsync<Marketplace.Domain.Common.DomainException>(
+            () => service.ProcessAsync(settlement.Id));
+
+        Assert.Equal(SettlementStatus.OnHold, settlement.Status);
+        Assert.Equal(800_000, balance.AvailableIRR);
+        Assert.Equal(300_000, balance.ReservedForSettlementIRR);
+        Assert.Equal(500_000, balance.WithdrawableIRR);
+        payout.Verify(x => x.TransferAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task DefinitivePayoutFailure_ReleasesReservationAndWritesFailureLedgerExactlyOnce()
     {
         var settlement = Settlement.Create(45, 46, 400_000, 47, "Test Bank", "IR0047", "Seller");
