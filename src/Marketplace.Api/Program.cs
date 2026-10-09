@@ -1288,7 +1288,7 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
         .Select(x => new
         {
             x.SellerId, x.AvailableIRR, x.PendingIRR, x.BlockedIRR,
-            x.ReservedForSettlementIRR, x.LiabilityIRR, x.WithdrawableIRR,
+            x.ReservedForSettlementIRR, x.LiabilityIRR, WithdrawableIRR = Math.Max(0, x.AvailableIRR - x.ReservedForSettlementIRR),
             x.UpdatedAtUtc
         }).SingleOrDefaultAsync(ct);
 
