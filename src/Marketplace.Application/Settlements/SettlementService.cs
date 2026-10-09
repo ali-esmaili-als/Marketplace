@@ -106,37 +106,72 @@ public sealed class SettlementService
             throw;
         }
 
-        return await _uow.ExecuteInSerializableTransactionAsync(async token =>
+        try
         {
-            var settlement=await _life.GetSettlementAsync(settlementId,token)??throw new DomainException("Settlement not found.");
-            var balance=await _life.GetSellerBalanceAsync(sellerId,token)??throw new DomainException("Seller balance not found.");
-            if(settlement.Status==SettlementStatus.Completed)
-                return new SettlementResult(settlement.Id,settlement.AmountIRR,settlement.Status.ToString(),settlement.Reference);
-
-            if(!result.Success)
+            return await _uow.ExecuteInSerializableTransactionAsync(async token =>
             {
-                settlement.Fail(result.Error??"Payout failed.");
-                var reservedBefore=balance.ReservedForSettlementIRR;
-                balance.FailSettlement(amount);
+                var settlement=await _life.GetSettlementAsync(settlementId,token)??throw new DomainException("Settlement not found.");
+                var balance=await _life.GetSellerBalanceAsync(sellerId,token)??throw new DomainException("Seller balance not found.");
+                if(settlement.Status==SettlementStatus.Completed)
+                    return new SettlementResult(settlement.Id,settlement.AmountIRR,settlement.Status.ToString(),settlement.Reference);
+
+                if(!result.Success)
+                {
+                    settlement.Fail(result.Error??"Payout failed.");
+                    var reservedBefore=balance.ReservedForSettlementIRR;
+                    balance.FailSettlement(amount);
+                    _life.AddBalanceTransaction(BalanceTransaction.Create(
+                        await _ids.NextAsync(token),sellerId,null,settlement.Id,
+                        BalanceTransactionType.SettlementFailed,amount,reservedBefore,balance.ReservedForSettlementIRR,
+                        result.Error ?? "SETTLEMENT_FAILED",BalanceBucket.ReservedForSettlement));
+                    await _uow.SaveChangesAsync(token);
+                    return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),null);
+                }
+
+                settlement.Complete(result.Reference);
+                var before=balance.AvailableIRR;
+                balance.CompleteSettlement(amount);
+                balance.RemoveAvailable(amount);
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token),sellerId,null,settlement.Id,
-                    BalanceTransactionType.SettlementFailed,amount,reservedBefore,balance.ReservedForSettlementIRR,
-                    result.Error ?? "SETTLEMENT_FAILED",BalanceBucket.ReservedForSettlement));
+                    BalanceTransactionType.Settlement,amount,before,balance.AvailableIRR,result.Reference,BalanceBucket.Available));
+
                 await _uow.SaveChangesAsync(token);
-                return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),null);
-            }
+                return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),result.Reference);
+            },ct);
+        }
+        catch
+        {
+            // The bank has already returned a result, but our database finalization did not
+            // complete reliably. The provider outcome may now disagree with persisted state.
+            // Best-effort transition Processing -> OnHold and keep funds reserved for manual
+            // reconciliation; never let a persistence failure trigger an automatic second payout.
+            await TryPutOnHoldAfterFinalizationFailureAsync(settlementId);
+            throw;
+        }
+    }
 
-            settlement.Complete(result.Reference);
-            var before=balance.AvailableIRR;
-            balance.CompleteSettlement(amount);
-            balance.RemoveAvailable(amount);
-            _life.AddBalanceTransaction(BalanceTransaction.Create(
-                await _ids.NextAsync(token),sellerId,null,settlement.Id,
-                BalanceTransactionType.Settlement,amount,before,balance.AvailableIRR,result.Reference,BalanceBucket.Available));
-
-            await _uow.SaveChangesAsync(token);
-            return new SettlementResult(settlement.Id,amount,settlement.Status.ToString(),result.Reference);
-        },ct);
+    private async Task TryPutOnHoldAfterFinalizationFailureAsync(long settlementId)
+    {
+        try
+        {
+            await _uow.ExecuteInSerializableTransactionAsync(async token =>
+            {
+                var settlement = await _life.GetSettlementAsync(settlementId, token);
+                if (settlement?.Status == SettlementStatus.Processing)
+                {
+                    settlement.PutOnHold();
+                    await _uow.SaveChangesAsync(token);
+                }
+                return 0;
+            }, CancellationToken.None);
+        }
+        catch
+        {
+            // Preserve the original finalization exception. A database outage can also prevent
+            // the recovery write; the still-reserved Processing settlement then needs operations
+            // intervention once persistence is available again.
+        }
     }
 
     public async Task<SettlementResult> ReconcileAsync(long settlementId, long adminUserId, bool transferCompleted, string? bankReference, string note, CancellationToken ct=default)
