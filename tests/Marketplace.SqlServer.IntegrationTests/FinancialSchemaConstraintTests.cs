@@ -553,10 +553,10 @@ public sealed class FinancialSchemaConstraintTests
                 await seedSellerBalance.ExecuteNonQueryAsync();
             }
 
-// Exercise the new operational diagnostics against deliberate inconsistencies.
+            // Exercise the new operational diagnostics against deliberate inconsistencies.
             // The SQL is read-only: these fixtures prove the checks surface a mismatch, not repair it.
             await using (var seedBalanceAndSaleLedger = new SqlCommand("""
-INSERT INTO dbo.BalanceTransactions
+                INSERT INTO dbo.BalanceTransactions
                     (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
                      BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
                 VALUES (950040, 950002, 950004, NULL, 5, 1, 90000, 0, 90000, N'INTEGRATION-ADJUSTMENT', SYSUTCDATETIME());
