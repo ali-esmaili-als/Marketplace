@@ -84,4 +84,57 @@ public sealed class OrderLifecycleTests
         Assert.Equal(1_000_000,balance.AvailableIRR);
         Assert.Equal(BalanceHoldStatus.Released,hold.Status);
     }
+    [Fact]
+    public void DeliveryExpired_RequestsRefundAndRemovesPendingSellerFundsExactlyOnce()
+    {
+        var order = Order.Create(21, 22, 23, 24, 3_000_000, 3_000_000);
+        var payment = Payment.Create(25, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("REF-EXP");
+        var balance = SellerBalance.Create(26, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        lifecycle.OnPaymentSucceeded(order, payment, balance, 27);
+
+        order.MarkReady();
+        var expiresAt = DateTime.UtcNow.AddMinutes(30);
+        order.SetDeliveryExpiry(expiresAt);
+        var delivery = DeliveryEntity.Create(28, order.Id, order.SellerId, expiresAt);
+        delivery.MarkReady();
+        var expiredAt = expiresAt.AddSeconds(1);
+        delivery.Expire(expiredAt);
+
+        lifecycle.OnDeliveryExpired(order, delivery, balance, expiredAt);
+
+        Assert.Equal(OrderStatus.RefundRequested, order.Status);
+        Assert.Equal(0, balance.PendingIRR);
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnDeliveryExpired(order, delivery, balance, expiredAt.AddSeconds(1)));
+        Assert.Equal(0, balance.PendingIRR);
+    }
+
+    [Fact]
+    public void LateSuccessfulGatewayPayment_CanBeMarkedForManualReconciliation()
+    {
+        var payment = Payment.Create(31, 32, 33, 500_000);
+        payment.Redirect("TestBank", "AUTH-31");
+        payment.Cancel();
+
+        payment.RequireReconciliation("BANK-31");
+
+        Assert.Equal(PaymentStatus.ReconciliationRequired, payment.Status);
+        Assert.Equal("BANK-31", payment.ReferenceNumber);
+    }
+
+    [Fact]
+    public void RefundedPayment_CannotBeMovedBackToReconciliation()
+    {
+        var payment = Payment.Create(41, 42, 43, 500_000);
+        payment.Redirect("TestBank", "AUTH-41");
+        payment.Succeed("BANK-41");
+        payment.MarkRefunded();
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            payment.RequireReconciliation("BANK-42"));
+        Assert.Equal(PaymentStatus.Refunded, payment.Status);
+    }
+
 }
