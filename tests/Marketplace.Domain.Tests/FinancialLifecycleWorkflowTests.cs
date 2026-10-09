@@ -142,4 +142,81 @@ public sealed class FinancialLifecycleWorkflowTests
         Assert.Equal(800_000, balance.BlockedIRR);
         Assert.Equal(BalanceHoldStatus.Active, hold.Status);
     }
+    [Fact]
+    public void SellerWonComplaintForAnotherOrderCannotReleaseBlockedFunds()
+    {
+        var order = Order.Create(51, 52, 53, 54, 900_000, 900_000);
+        var payment = Payment.Create(55, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("PAYMENT");
+        var balance = SellerBalance.Create(56, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        var hold = lifecycle.OnPaymentSucceeded(order, payment, balance, 57);
+        order.MarkReady();
+        var now = DateTime.UtcNow;
+        var delivery = DeliveryEntity.Create(58, order.Id, order.SellerId, now.AddDays(1));
+        delivery.MarkReady();
+        delivery.ConfirmDelivered("DELIVERY", now);
+        lifecycle.OnDelivered(order, delivery, balance, now, now.AddDays(-1));
+
+        var unrelatedComplaint = Complaint.Create(59, 999, order.CustomerId, order.SellerId, "Other order");
+        unrelatedComplaint.StartReview();
+        unrelatedComplaint.ResolveForSeller("Evidence accepted");
+
+        Assert.Throws<DomainException>(() =>
+            lifecycle.OnSellerWon(unrelatedComplaint, order, balance, hold));
+        Assert.Equal(OrderStatus.Delivered, order.Status);
+        Assert.Equal(900_000, balance.BlockedIRR);
+        Assert.Equal(BalanceHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
+    public void OpenRefund_RejectsFailedPayment()
+    {
+        var order = Order.Create(61, 62, 63, 64, 700_000, 700_000);
+        order.MarkPaid();
+        order.MarkReady();
+        var now = DateTime.UtcNow;
+        order.MarkDelivered(now, now.AddDays(1));
+        order.RequestRefund();
+        var payment = Payment.Create(65, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Fail();
+
+        var lifecycle = new OrderFinancialLifecycle();
+
+        Assert.Throws<DomainException>(() =>
+            lifecycle.OpenRefund(order, payment, 66, RefundReason.AdminAdjustment));
+        Assert.Equal(OrderStatus.RefundRequested, order.Status);
+        Assert.Equal(PaymentStatus.Failed, payment.Status);
+    }
+
+    [Fact]
+    public void CompleteRefund_WithInsufficientSellerFundsLeavesAllStateUnchanged()
+    {
+        var order = Order.Create(71, 72, 73, 74, 600_000, 600_000);
+        var payment = Payment.Create(75, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("PAYMENT");
+        var balance = SellerBalance.Create(76, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        var hold = lifecycle.OnPaymentSucceeded(order, payment, balance, 77);
+        order.MarkReady();
+        var now = DateTime.UtcNow;
+        var delivery = DeliveryEntity.Create(78, order.Id, order.SellerId, now.AddDays(1));
+        delivery.MarkReady();
+        delivery.ConfirmDelivered("DELIVERY", now);
+        lifecycle.OnDelivered(order, delivery, balance, now, now.AddDays(2));
+        order.RequestRefund();
+        balance.ConsumeBlock(order.SellerAmountIRR);
+
+        var refund = Refund.Create(79, order.Id, payment.Id, order.CustomerId, order.TotalAmountIRR, RefundReason.AdminAdjustment);
+        refund.Approve();
+        refund.Complete("REFUND");
+
+        Assert.Throws<DomainException>(() =>
+            lifecycle.CompleteRefund(order, payment, refund, balance, hold));
+        Assert.Equal(OrderStatus.RefundRequested, order.Status);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        Assert.Equal(0, balance.BlockedIRR);
+        Assert.Equal(BalanceHoldStatus.Active, hold.Status);
+    }
+
 }
