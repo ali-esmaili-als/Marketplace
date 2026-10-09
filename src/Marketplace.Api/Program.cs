@@ -728,6 +728,20 @@ app.MapPost("/api/products/{productId:long}/reviews", async (System.Security.Cla
     return Results.Created($"/api/products/{productId}/reviews", new { review.Id, status = review.Status.ToString(), review.CreatedAtUtc });
 }).RequirePermission("Order.ReadOwn");
 
+app.MapGet("/api/products/{productId:long}/reviewable-orders", async (System.Security.Claims.ClaimsPrincipal user, long productId, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var orders = await (from order in db.Orders.AsNoTracking()
+        join item in db.OrderItems.AsNoTracking() on order.Id equals item.OrderId
+        where order.CustomerId == customerId && item.ProductId == productId &&
+            (order.Status == Marketplace.Domain.Orders.OrderStatus.Delivered || order.Status == Marketplace.Domain.Orders.OrderStatus.Completed) &&
+            !db.ProductReviews.Any(review => review.CustomerId == customerId && review.ProductId == productId)
+        orderby order.DeliveredAtUtc descending, order.CreatedAtUtc descending
+        select new { orderId = order.Id, order.CreatedAtUtc, order.DeliveredAtUtc })
+        .Distinct().Take(20).ToListAsync(ct);
+    return Results.Ok(orders);
+}).RequirePermission("Order.ReadOwn");
+
 app.MapGet("/api/admin/product-reviews", async (int? status, int? take, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var query = from review in db.ProductReviews.AsNoTracking()
