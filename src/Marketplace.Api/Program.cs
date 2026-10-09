@@ -307,6 +307,64 @@ app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeI
     }));
 });
 
+app.MapGet("/api/public/stores/{storeId:long}/{storeSlug}/products/{productSlug}", async (long storeId, string storeSlug, string productSlug, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var product = await (
+        from p in db.Products.AsNoTracking()
+        join s in db.Stores.AsNoTracking() on p.StoreId equals s.Id
+        join seller in db.Sellers.AsNoTracking() on s.SellerId equals seller.Id
+        join category in db.Categories.AsNoTracking() on p.CategoryId equals category.Id
+        where p.StoreId == storeId && s.Slug == storeSlug && p.Slug == productSlug
+              && p.Status == Marketplace.Domain.Catalog.ProductStatus.Active
+              && s.Status == Marketplace.Domain.Sellers.StoreStatus.Active
+              && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active && category.IsActive
+        select new
+        {
+            p.Id, p.StoreId, SellerId = s.SellerId, StoreName = s.Name, StoreSlug = s.Slug,
+            p.CategoryId, CategoryName = category.Name, p.Name, p.Slug, p.Description,
+            p.BasePriceIRR, p.HasVariants, p.CreatedAtUtc
+        }).SingleOrDefaultAsync(ct);
+    if (product is null) return Results.NotFound();
+
+    var variants = await (
+        from v in db.ProductVariants.AsNoTracking()
+        join inv0 in db.InventoryItems.AsNoTracking().Where(x => x.IsActive) on v.Id equals inv0.ProductVariantId into invs
+        from inv in invs.DefaultIfEmpty()
+        where v.ProductId == product.Id && v.IsActive
+        orderby v.Id
+        select new { v.Id, v.SKU, v.VariantKey, PriceIRR = v.PriceIRR ?? product.BasePriceIRR,
+            AvailableQuantity = inv == null ? 0L : inv.StockQuantity - inv.ReservedQuantity }
+    ).ToListAsync(ct);
+    var variantIds = variants.Select(v => v.Id).ToArray();
+    var attributes = await (
+        from link in db.VariantAttributeValues.AsNoTracking()
+        join value in db.ProductAttributeValues.AsNoTracking() on link.ProductAttributeValueId equals value.Id
+        join attribute in db.ProductAttributes.AsNoTracking() on value.ProductAttributeId equals attribute.Id
+        where variantIds.Contains(link.ProductVariantId) && value.IsActive && attribute.IsActive
+        select new { link.ProductVariantId, AttributeName = attribute.Name, value.Value }
+    ).ToListAsync(ct);
+    var warranties = await (
+        from pw in db.ProductWarranties.AsNoTracking()
+        join w in db.Warranties.AsNoTracking() on pw.WarrantyId equals w.Id
+        where pw.ProductId == product.Id && pw.IsActive && w.IsActive
+        select new { Id = w.Id, w.Name, w.PriceIRR, pw.IsDefault }
+    ).ToListAsync(ct);
+
+    return Results.Ok(new
+    {
+        product.Id, product.StoreId, product.SellerId, product.StoreName, product.StoreSlug,
+        product.CategoryId, product.CategoryName, product.Name, product.Slug, product.Description,
+        product.BasePriceIRR, product.HasVariants, product.CreatedAtUtc,
+        Variants = variants.Select(v => new
+        {
+            v.Id, v.SKU, v.VariantKey, v.PriceIRR, v.AvailableQuantity,
+            Attributes = attributes.Where(a => a.ProductVariantId == v.Id)
+                .Select(a => new { a.AttributeName, a.Value })
+        }),
+        Warranties = warranties
+    });
+});
+
 app.MapPost("/api/admin/categories",async(CategoryRequest request,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>Results.Ok(new{id=await service.CreateAsync(request.Name,request.Slug,request.ParentCategoryId,ct)})).RequirePermission("Admin.Identity.Manage");
 app.MapPut("/api/admin/categories/{categoryId:long}",async(long categoryId,CategoryRequest request,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>{await service.RenameAsync(categoryId,request.Name,request.Slug,ct);return Results.NoContent();}).RequirePermission("Admin.Identity.Manage");
 app.MapPost("/api/admin/categories/{categoryId:long}/deactivate",async(long categoryId,Marketplace.Application.Catalog.CategoryManagementService service,CancellationToken ct)=>{await service.DeactivateAsync(categoryId,ct);return Results.NoContent();}).RequirePermission("Admin.Identity.Manage");
