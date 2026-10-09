@@ -190,3 +190,75 @@ FROM dbo.Settlements AS s
 JOIN dbo.BalanceTransactions AS bt ON bt.SettlementId = s.Id
 WHERE (s.Status = 3 AND bt.Type = 14) -- Completed but marked failed in ledger
    OR (s.Status = 4 AND bt.Type = 4 AND bt.Bucket = 1); -- Failed but marked paid in ledger
+
+PRINT '17. Completed refunds without a matching refund ledger entry for the same order and seller'; 
+SELECT r.Id AS RefundId, r.OrderId, o.SellerId, r.AmountIRR, r.Status,
+       r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 4
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.BalanceTransactions AS bt
+      WHERE bt.OrderId = r.OrderId
+        AND bt.SellerId = o.SellerId
+        AND bt.Type = 3 -- Refund
+  );
+
+PRINT '18. Orders with multiple refund ledger entries (manual review required)';
+SELECT bt.OrderId, COUNT_BIG(*) AS RefundLedgerCount,
+       SUM(bt.AmountIRR) AS TotalRefundLedgerAmountIRR
+FROM dbo.BalanceTransactions AS bt
+WHERE bt.OrderId IS NOT NULL
+  AND bt.Type = 3 -- Refund
+GROUP BY bt.OrderId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '19. Refund ledger entries whose seller does not match the order seller';
+SELECT bt.Id AS LedgerTransactionId, bt.OrderId,
+       bt.SellerId AS LedgerSellerId, o.SellerId AS OrderSellerId,
+       bt.AmountIRR, bt.Bucket, bt.CreatedAtUtc
+FROM dbo.BalanceTransactions AS bt
+JOIN dbo.Orders AS o ON o.Id = bt.OrderId
+WHERE bt.Type = 3
+  AND bt.SellerId <> o.SellerId;
+
+PRINT '20. Completed refunds whose order or payment is not marked refunded';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       o.Status AS OrderStatus, p.Status AS PaymentStatus,
+       r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 4
+  AND (o.Status <> 10 OR p.Status <> 4); -- Order Refunded, Payment Refunded
+
+PRINT '21. Processing refunds whose order or payment has already reached a terminal state';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       r.Status AS RefundStatus, o.Status AS OrderStatus, p.Status AS PaymentStatus
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 3
+  AND (o.Status = 10 OR p.Status = 4); -- A processing refund should not already be finalized
+
+PRINT '22. Commission reversals whose order/refund/commission linkage is inconsistent';
+SELECT cr.Id AS CommissionReversalId, cr.OrderId, cr.RefundId,
+       cr.CommissionId, c.OrderId AS CommissionOrderId,
+       r.OrderId AS RefundOrderId, cr.RefundAmountIRR,
+       cr.ReversedCommissionIRR, c.CommissionAmountIRR
+FROM dbo.CommissionReversals AS cr
+JOIN dbo.Commissions AS c ON c.Id = cr.CommissionId
+JOIN dbo.Refunds AS r ON r.Id = cr.RefundId
+WHERE cr.OrderId <> c.OrderId
+   OR cr.OrderId <> r.OrderId
+   OR cr.ReversedCommissionIRR > c.CommissionAmountIRR;
+
+PRINT '23. Refunds with more than one reconciliation audit entry (review repeated manual actions)';
+SELECT a.RefundId, COUNT_BIG(*) AS AuditCount,
+       MIN(a.CreatedAtUtc) AS FirstAuditAtUtc,
+       MAX(a.CreatedAtUtc) AS LastAuditAtUtc
+FROM dbo.RefundReconciliationAudits AS a
+GROUP BY a.RefundId
+HAVING COUNT_BIG(*) > 1;
