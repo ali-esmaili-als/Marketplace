@@ -60,7 +60,7 @@ public sealed class PaymentProviderSettingsServiceTests
         public Task<IReadOnlyList<PaymentProviderSettingDto>> GetAllAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<PaymentProviderSettingDto>>(Array.Empty<PaymentProviderSettingDto>());
 
-        public Task ConfigureAsync(PaymentProviderCode provider, bool isEnabled, bool isVisible, int sortOrder, string configurationJson, CancellationToken ct = default)
+        public Task ConfigureAsync(PaymentProviderCode provider, bool isEnabled, bool isVisible, int sortOrder, string configurationJson, CancellationToken ct = default, long? adminUserId = null)
         {
             ConfigureCalled = true;
             Configuration = configurationJson;
