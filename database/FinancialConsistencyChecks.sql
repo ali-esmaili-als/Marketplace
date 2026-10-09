@@ -31,7 +31,7 @@ WHERE s.Status = 3
         AND bt.AmountIRR = s.AmountIRR
   );
 
-PRINT '3. Failed settlements without a matching failed-settlement ledger entry';
+PRINT '3. Failed settlements without an exact matching failed-settlement ledger entry';
 SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
        s.FailureReason, s.CompletedAtUtc
 FROM dbo.Settlements AS s
@@ -41,7 +41,10 @@ WHERE s.Status = 4
       SELECT 1
       FROM dbo.BalanceTransactions AS bt
       WHERE bt.SettlementId = s.Id
+        AND bt.SellerId = s.SellerId
         AND bt.Type = 14 -- SettlementFailed
+        AND bt.Bucket = 4 -- ReservedForSettlement
+        AND bt.AmountIRR = s.AmountIRR
   );
 
 PRINT '4. Processing/on-hold settlements that already have a final settlement ledger entry';
@@ -167,3 +170,23 @@ SELECT s.Id AS SettlementId, s.SellerId AS SettlementSellerId,
 FROM dbo.Settlements AS s
 JOIN dbo.BalanceTransactions AS bt ON bt.SettlementId = s.Id
 WHERE bt.SellerId <> s.SellerId;
+
+
+PRINT '15. Duplicate original settlement reservation ledger entries';
+SELECT bt.SettlementId, COUNT_BIG(*) AS ReservationLedgerCount,
+       MIN(bt.AmountIRR) AS MinimumAmountIRR, MAX(bt.AmountIRR) AS MaximumAmountIRR
+FROM dbo.BalanceTransactions AS bt
+WHERE bt.SettlementId IS NOT NULL
+  AND bt.Type = 4 -- Settlement
+  AND bt.Bucket = 4 -- ReservedForSettlement
+GROUP BY bt.SettlementId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '16. Terminal settlement status conflicts with the opposite final ledger outcome';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       bt.Id AS LedgerTransactionId, bt.Type AS LedgerType, bt.Bucket,
+       bt.AmountIRR AS LedgerAmountIRR, bt.CreatedAtUtc
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt ON bt.SettlementId = s.Id
+WHERE (s.Status = 3 AND bt.Type = 14) -- Completed but marked failed in ledger
+   OR (s.Status = 4 AND bt.Type = 4 AND bt.Bucket = 1); -- Failed but marked paid in ledger
