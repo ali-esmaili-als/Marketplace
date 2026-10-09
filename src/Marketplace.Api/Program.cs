@@ -224,12 +224,12 @@ app.MapGet("/api/public/stores", async (int? take, Marketplace.Infrastructure.Pe
     return Results.Ok(stores);
 });
 
-app.MapGet("/api/public/stores/{slug}", async (string slug, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+app.MapGet("/api/public/stores/{storeId:long}/{slug}", async (long storeId, string slug, Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var store = await (
         from s in db.Stores.AsNoTracking()
         join seller in db.Sellers.AsNoTracking() on s.SellerId equals seller.Id
-        where s.Slug == slug
+        where s.Id == storeId && s.Slug == slug
               && s.Status == Marketplace.Domain.Sellers.StoreStatus.Active
               && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active
         select new { s.Id, s.Name, s.Slug, s.Description, s.CreatedAtUtc }
