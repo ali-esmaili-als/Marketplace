@@ -655,6 +655,36 @@ app.MapPost("/api/seller/orders/{orderId:long}/delivery/expire",async(System.Sec
 
 app.MapPost("/api/orders/{orderId:long}/complaints",async(System.Security.Claims.ClaimsPrincipal user,long orderId,ComplaintRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{var id=await service.ComplaintAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok(new{id});}).RequirePermission("Order.Create");
 
+app.MapGet("/api/admin/financial-integrity/summary", async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var paymentReview = await db.Payments.AsNoTracking()
+        .CountAsync(x => x.Status == Marketplace.Domain.Payments.PaymentStatus.ReconciliationRequired, ct);
+    var successfulPaymentOrderMismatch = await (
+        from payment in db.Payments.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on payment.OrderId equals order.Id
+        where payment.Status == Marketplace.Domain.Payments.PaymentStatus.Succeeded
+            && (order.Status == Marketplace.Domain.Orders.OrderStatus.PendingPayment
+                || order.Status == Marketplace.Domain.Orders.OrderStatus.Cancelled
+                || order.Status == Marketplace.Domain.Orders.OrderStatus.Refunded)
+        select payment.Id).CountAsync(ct);
+    var refundedPaymentOrderMismatch = await (
+        from payment in db.Payments.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on payment.OrderId equals order.Id
+        where payment.Status == Marketplace.Domain.Payments.PaymentStatus.Refunded
+            && order.Status != Marketplace.Domain.Orders.OrderStatus.Refunded
+        select payment.Id).CountAsync(ct);
+    var processingRefunds = await db.Refunds.AsNoTracking()
+        .CountAsync(x => x.Status == Marketplace.Domain.Refunds.RefundStatus.Processing, ct);
+    var settlementsOnHold = await db.Settlements.AsNoTracking()
+        .CountAsync(x => x.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold, ct);
+    return Results.Ok(new
+    {
+        generatedAtUtc = DateTime.UtcNow, paymentReview, successfulPaymentOrderMismatch,
+        refundedPaymentOrderMismatch, processingRefunds, settlementsOnHold,
+        totalReviewItems = paymentReview + successfulPaymentOrderMismatch + refundedPaymentOrderMismatch + processingRefunds + settlementsOnHold
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/payments/reconciliation",async(Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,CancellationToken ct)=>
     Results.Ok(await db.Payments.AsNoTracking()
         .Where(x=>x.Status==Marketplace.Domain.Payments.PaymentStatus.ReconciliationRequired)
