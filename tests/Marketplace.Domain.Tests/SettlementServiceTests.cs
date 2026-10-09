@@ -125,4 +125,51 @@ public sealed class SettlementServiceTests
             Times.Once);
     }
 
+
+    [Fact]
+    public async Task Reconcile_CompletedTransferWritesAuditWithAdminIdentityAndKeepsLedgerConsistent()
+    {
+        var settlement = Settlement.Create(100, 200, 400_000, 300, "Bank", "IR00300", "Seller");
+        settlement.MarkProcessing();
+        settlement.PutOnHold();
+        var balance = SellerBalance.Create(400, settlement.SellerId);
+        balance.AddAvailable(1_000_000);
+        balance.ReserveForSettlement(settlement.AmountIRR);
+
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementAsync(settlement.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlement);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(settlement.SellerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+        SettlementReconciliationAudit? audit = null;
+        lifecycle.Setup(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()))
+            .Callback<SettlementReconciliationAudit>(value => audit = value);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var ids = new Mock<IIdGenerator>();
+        long nextId = 500;
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() => ++nextId);
+
+        var service = new SettlementService(
+            lifecycle.Object, uow.Object, ids.Object, Mock.Of<ISellerPayoutGateway>(), Mock.Of<ISellerManagementRepository>());
+
+        var result = await service.ReconcileAsync(settlement.Id, 777, true, " BANK-100 ", "  Verified against bank statement  ");
+
+        Assert.Equal("Completed", result.Status);
+        Assert.Equal("BANK-100", settlement.Reference);
+        Assert.Equal(600_000, balance.AvailableIRR);
+        Assert.Equal(0, balance.ReservedForSettlementIRR);
+        Assert.NotNull(audit);
+        Assert.Equal(777, audit!.AdminUserId);
+        Assert.Equal(settlement.Id, audit.SettlementId);
+        Assert.True(audit.TransferCompleted);
+        Assert.Equal("BANK-100", audit.BankReference);
+        Assert.Equal("Verified against bank statement", audit.Note);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
 }
