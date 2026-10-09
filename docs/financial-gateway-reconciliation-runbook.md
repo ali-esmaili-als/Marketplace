@@ -144,3 +144,16 @@ Before a completed order's complaint-window hold is released, the lifecycle oper
 
 If any precondition fails, do not retry by changing status or balance rows directly. Preserve the order, hold, balance, and ledger records; inspect the complaint and hold relationships and use the application workflow after correcting the underlying issue. After a successful release, verify the order is Completed, the hold is Released, the blocked amount decreased exactly once, the available amount increased exactly once, and one matching hold-release ledger entry exists. A repeated close attempt must not create another financial movement.
 
+### Complaint and seller-hold diagnostics (checks 37–44)
+
+- **37 — Complaint party mismatch:** verify the complaint's customer and seller against the immutable order parties. Treat mismatches as an authorization/data-integrity incident; do not resolve or refund through that complaint.
+- **38 — Active complaint outside Delivered state:** inspect the order transition and complaint transaction history. An open or under-review complaint must not coexist with an order already moved out of Delivered by a refund or completion flow.
+- **39 — Customer-won complaint without refund progression:** confirm the resolution transaction requested a refund and that refund processing has not stalled. A completed refund may legitimately leave the complaint at CustomerWon while the order is Refunded.
+- **40 — Seller-won complaint without completed order/released hold:** verify the complaint decision, complaint-window deadline, hold status, and hold-release ledger. Do not release funds manually to make the rows match.
+- **41 — Active hold on a terminal order:** for Refunded, Completed, or Cancelled orders, verify that the hold was consumed or released in the same committed lifecycle operation. Confirm the actual ledger movement before taking corrective action.
+- **42 — Terminal hold/order mismatch:** a released order hold should correspond to a Completed order; a consumed order hold should correspond to a Refunded order. Review refund and complaint chronology before classifying historical records as corruption.
+- **43 — Multiple active complaints:** inspect concurrent requests and transaction isolation. The application should permit only one active complaint per order; do not close or cancel records directly in SQL to suppress the finding.
+- **44 — Missing matching seller hold:** verify payment success finalization, order seller-amount snapshot, and hold creation transaction. Do not create a replacement hold or adjust balance buckets until the original payment/ledger history is established.
+
+These checks are read-only diagnostics. Some results can arise from legacy or in-flight data; rerun after active transactions finish, correlate the provider/order/complaint/hold/ledger history, and use the authorized application workflow for any repair. Never fix a complaint or hold finding by directly editing financial balances or lifecycle statuses in SQL.
+
