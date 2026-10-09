@@ -14,6 +14,8 @@ public interface ICatalogManagementRepository
  Task<bool> AttributeBelongsToStoreAsync(long attributeId,long storeId,CancellationToken ct=default);
  Task<bool> AttributeValueBelongsToStoreAsync(long valueId,long storeId,CancellationToken ct=default);
  Task<InventoryItem?> GetInventoryAsync(long variantId,CancellationToken ct=default);
+ Task<List<InventoryStockMovement>> GetStockMovementsAsync(long variantId,int take,CancellationToken ct=default);
+ void AddStockMovement(InventoryStockMovement movement);
  Task<List<Product>> GetProductsAsync(long storeId,CancellationToken ct=default);
  Task<List<ProductVariant>> GetVariantsAsync(long productId,CancellationToken ct=default);
  Task<List<Warranty>> GetWarrantiesAsync(long storeId,CancellationToken ct=default);
