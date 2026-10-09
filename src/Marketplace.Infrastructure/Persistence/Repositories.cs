@@ -168,6 +168,8 @@ public sealed class LifecycleRepository(MarketplaceDbContext db) : ILifecycleRep
         => db.SellerBankAccounts.SingleOrDefaultAsync(x=>x.Id==bankAccountId&&x.SellerId==sellerId,ct);
     public Task<Settlement?> GetSettlementAsync(long settlementId,CancellationToken ct=default)
         => db.Settlements.SingleOrDefaultAsync(x=>x.Id==settlementId,ct);
+    public Task<Settlement?> GetSettlementByRequestKeyAsync(long sellerId,string requestKey,CancellationToken ct=default)
+        => db.Settlements.SingleOrDefaultAsync(x=>x.SellerId==sellerId && x.RequestKey==requestKey,ct);
     public void AddSettlement(Settlement settlement)=>db.Settlements.Add(settlement);
     public void AddSettlementReconciliationAudit(SettlementReconciliationAudit audit)=>db.SettlementReconciliationAudits.Add(audit);
     public void AddDelivery(Delivery delivery)=>db.Deliveries.Add(delivery);

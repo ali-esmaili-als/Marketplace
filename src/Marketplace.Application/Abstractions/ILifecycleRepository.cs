@@ -24,6 +24,7 @@ public interface ILifecycleRepository
     Task<InventoryItem?> GetInventoryItemAsync(long productVariantId,CancellationToken ct=default);
     Task<SellerBankAccount?> GetSellerBankAccountAsync(long sellerId,long bankAccountId,CancellationToken ct=default);
     Task<Settlement?> GetSettlementAsync(long settlementId,CancellationToken ct=default);
+    Task<Settlement?> GetSettlementByRequestKeyAsync(long sellerId,string requestKey,CancellationToken ct=default);
     void AddSettlement(Settlement settlement);
     void AddSettlementReconciliationAudit(SettlementReconciliationAudit audit);
     void AddDelivery(Delivery delivery);

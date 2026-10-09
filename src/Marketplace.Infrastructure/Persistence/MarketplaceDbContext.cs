@@ -247,6 +247,8 @@ public sealed class MarketplaceDbContext : DbContext
         {
             e.ToTable("Settlements", t => t.HasCheckConstraint("CK_Settlements_Amount", "AmountIRR > 0")); e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasConversion<byte>();
+            e.Property(x => x.RequestKey).HasMaxLength(64);
+            e.HasIndex(x => new { x.SellerId, x.RequestKey }).IsUnique().HasFilter("[RequestKey] IS NOT NULL");
             e.Property(x => x.BankNameSnapshot).HasMaxLength(150).IsRequired();
             e.Property(x => x.IbanSnapshot).HasMaxLength(34).IsRequired();
             e.Property(x => x.AccountHolderNameSnapshot).HasMaxLength(250).IsRequired();

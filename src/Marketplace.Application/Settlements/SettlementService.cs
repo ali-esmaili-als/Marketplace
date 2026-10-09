@@ -21,14 +21,28 @@ public sealed class SettlementService
     }
 
     public async Task<SettlementResult> RequestAsync(long userId,long bankAccountId,long amountIRR,CancellationToken ct=default)
+        => await RequestAsync(userId,bankAccountId,amountIRR,null,ct);
+
+    public async Task<SettlementResult> RequestAsync(long userId,long bankAccountId,long amountIRR,string? requestKey,CancellationToken ct=default)
     {
         var seller = await _sellers.GetSellerByUserIdAsync(userId, ct) ?? throw new DomainException("Seller profile not found.");
         if (seller.Status != SellerStatus.Active) throw new DomainException("Seller is not active.");
+        if (requestKey is not null && (string.IsNullOrWhiteSpace(requestKey) || requestKey.Length > 64)) throw new DomainException("A valid settlement request key is required.");
+        requestKey = string.IsNullOrWhiteSpace(requestKey) ? null : requestKey.Trim();
 
         // Withdrawable balance is shared mutable financial state. Serialize the read/reserve/write
         // sequence so two simultaneous requests cannot reserve the same available funds.
         return await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
+            if (requestKey is not null)
+            {
+                var existing = await _life.GetSettlementByRequestKeyAsync(seller.Id, requestKey, token);
+                if (existing is not null)
+                {
+                    if (existing.AmountIRR != amountIRR || existing.BankAccountId != bankAccountId) throw new DomainException("This idempotency key was already used with different settlement details.");
+                    return new SettlementResult(existing.Id, existing.AmountIRR, existing.Status.ToString(), existing.Reference);
+                }
+            }
             var balance=await _life.GetSellerBalanceAsync(seller.Id,token)??throw new DomainException("Seller balance not found.");
             var account=await _life.GetSellerBankAccountAsync(seller.Id,bankAccountId,token)??throw new DomainException("Bank account not found.");
             if(!account.IsVerified) throw new DomainException("Seller bank account is not verified.");
@@ -36,7 +50,7 @@ public sealed class SettlementService
 
             var reservedBefore=balance.ReservedForSettlementIRR;
             balance.ReserveForSettlement(amountIRR);
-            var settlement=Settlement.Create(await _ids.NextAsync(token),seller.Id,amountIRR,account.Id,account.BankName,account.Iban,account.AccountHolderName);
+            var settlement=Settlement.Create(await _ids.NextAsync(token),seller.Id,amountIRR,account.Id,account.BankName,account.Iban,account.AccountHolderName,requestKey);
             _life.AddSettlement(settlement);
 
             _life.AddBalanceTransaction(BalanceTransaction.Create(

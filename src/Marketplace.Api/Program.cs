@@ -520,7 +520,7 @@ app.MapGet("/api/admin/settlements", async (string? status, int? take, Marketpla
 }).RequirePermission("Admin.Settlement.Process");
 
 app.MapPost("/api/settlements",async(System.Security.Claims.ClaimsPrincipal user,SettlementRequest request,Marketplace.Application.Settlements.SettlementService service,CancellationToken ct)=>{
-    var result=await service.RequestAsync(CurrentUserId(user),request.BankAccountId,request.AmountIRR,ct); return Results.Ok(result);
+    var result=await service.RequestAsync(CurrentUserId(user),request.BankAccountId,request.AmountIRR,request.RequestKey,ct); return Results.Ok(result);
 }).RequirePermission("Seller.Settlement.Request");
 
 app.MapPost("/api/settlements/{settlementId:long}/process", async (
@@ -891,7 +891,7 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
-public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
+public sealed record SettlementRequest(long BankAccountId,long AmountIRR,string? RequestKey);
 public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
