@@ -179,6 +179,17 @@ CREATE TABLE dbo.PaymentProviderSettings(
  UpdatedAtUtc DATETIME2(7) NOT NULL, CONSTRAINT UQ_PaymentProviderSettings_Provider UNIQUE(Provider)
 );
 
+CREATE TABLE dbo.PaymentReconciliationAudits(
+ Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PaymentReconciliationAudits PRIMARY KEY,
+ PaymentId BIGINT NOT NULL, AdminUserId BIGINT NOT NULL, Action NVARCHAR(30) NOT NULL,
+ Note NVARCHAR(2000) NOT NULL, BankReference NVARCHAR(200) NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT FK_PaymentReconciliationAudits_Payments FOREIGN KEY(PaymentId) REFERENCES dbo.Payments(Id),
+ CONSTRAINT CK_PaymentReconciliationAudits_Action CHECK(Action IN (N'RefundCompleted',N'KeepOpen')),
+ CONSTRAINT CK_PaymentReconciliationAudits_Note CHECK(LEN(LTRIM(RTRIM(Note)))>0),
+ CONSTRAINT CK_PaymentReconciliationAudits_BankReference CHECK(Action<>N'RefundCompleted' OR LEN(LTRIM(RTRIM(ISNULL(BankReference,N''))))>0)
+);
+
+
 CREATE TABLE dbo.Deliveries(
  Id BIGINT NOT NULL CONSTRAINT PK_Deliveries PRIMARY KEY, OrderId BIGINT NOT NULL, SellerId BIGINT NOT NULL, Status TINYINT NOT NULL,
  ReadyAtUtc DATETIME2(7) NULL, DeliveredAtUtc DATETIME2(7) NULL, ExpiresAtUtc DATETIME2(7) NOT NULL, ConfirmationReference NVARCHAR(200) NULL,
@@ -297,6 +308,15 @@ CREATE TABLE dbo.Notifications(
  CreatedAtUtc DATETIME2(7) NOT NULL, SentAtUtc DATETIME2(7) NULL, ReadAtUtc DATETIME2(7) NULL
 );
 
+CREATE TABLE dbo.SmsProviderSettings(
+ Id BIGINT NOT NULL CONSTRAINT PK_SmsProviderSettings PRIMARY KEY, Provider NVARCHAR(50) NOT NULL,
+ DisplayName NVARCHAR(150) NOT NULL, IsEnabled BIT NOT NULL CONSTRAINT DF_SmsProviderSettings_IsEnabled DEFAULT(0),
+ IsVisible BIT NOT NULL CONSTRAINT DF_SmsProviderSettings_IsVisible DEFAULT(1),
+ SortOrder INT NOT NULL CONSTRAINT DF_SmsProviderSettings_SortOrder DEFAULT(0), UpdatedAtUtc DATETIME2(7) NOT NULL,
+ CONSTRAINT UQ_SmsProviderSettings_Provider UNIQUE(Provider)
+);
+
+
 -- Foreign keys
 ALTER TABLE dbo.UserRules ADD CONSTRAINT FK_UserRules_Users FOREIGN KEY(UserId) REFERENCES dbo.Users(Id) ON DELETE CASCADE,
                            CONSTRAINT FK_UserRules_Rules FOREIGN KEY(RuleId) REFERENCES dbo.Rules(Id) ON DELETE CASCADE;
@@ -399,6 +419,7 @@ CREATE INDEX IX_Orders_Customer_Created ON dbo.Orders(CustomerId,CreatedAtUtc);
 CREATE INDEX IX_Orders_DestinationCityId ON dbo.Orders(DestinationCityId);
 CREATE INDEX IX_OrderItems_OrderId ON dbo.OrderItems(OrderId);
 CREATE INDEX IX_Payments_Authority ON dbo.Payments(Authority);
+CREATE INDEX IX_PaymentReconciliationAudits_PaymentId_CreatedAtUtc ON dbo.PaymentReconciliationAudits(PaymentId,CreatedAtUtc);
 CREATE INDEX IX_PaymentTransactions_Payment_Status ON dbo.PaymentTransactions(PaymentId,Status);
 CREATE INDEX IX_Deliveries_Status_Expires ON dbo.Deliveries(Status,ExpiresAtUtc);
 CREATE INDEX IX_DeliveryCodes_Expiry ON dbo.DeliveryCodes(ExpiresAtUtc,UsedAtUtc);
@@ -417,6 +438,7 @@ CREATE INDEX IX_CampaignProducts_Product ON dbo.CampaignProducts(ProductId,Produ
 CREATE INDEX IX_Coupons_Store_Active ON dbo.Coupons(StoreId,IsActive);
 CREATE INDEX IX_CouponUsages_Coupon ON dbo.CouponUsages(CouponId);
 CREATE INDEX IX_Notifications_User_Status_Created ON dbo.Notifications(UserId,Status,CreatedAtUtc DESC);
+CREATE INDEX IX_SmsProviderSettings_Enabled_Visible_Sort ON dbo.SmsProviderSettings(IsEnabled,IsVisible,SortOrder);
 
 -- Seed roles, rules and payment providers.
 IF NOT EXISTS(SELECT 1 FROM dbo.Roles WHERE Id=1) INSERT dbo.Roles(Id,Name) VALUES(1,N'Customer');
@@ -429,7 +451,8 @@ MERGE dbo.Rules AS t USING (VALUES
 (2003,N'Seller.Campaign.Manage',N'Manage store campaigns',2),(2004,N'Seller.Coupon.Manage',N'Manage store coupons',2),(2005,N'Seller.Catalog.Manage',N'Manage store catalog',2),
 (3001,N'Admin.PaymentProviders.Read',N'View payment provider settings',3),(3002,N'Admin.PaymentProviders.Configure',N'Configure payment providers',3),
 (3003,N'Admin.Settlement.Process',N'Process seller settlements',3),(3004,N'Admin.Identity.Manage',N'Manage users roles and permissions',3),(3005,N'Admin.Seller.Manage',N'Manage sellers',3),
-(4001,N'Order.Delivery.Confirm',N'Confirm delivery',4),(4002,N'Complaint.Resolve',N'Resolve complaint',4)
+(4001,N'Order.Delivery.Confirm',N'Confirm delivery',4),(4002,N'Complaint.Resolve',N'Resolve complaint',4),
+(3006,N'Admin.SmsProviders.Read',N'View SMS provider settings',3),(3007,N'Admin.SmsProviders.Configure',N'Configure SMS provider settings',3)
 ) AS s(Id,Code,Name,ActionType)
 ON t.Id=s.Id
 WHEN MATCHED THEN UPDATE SET Code=s.Code,Name=s.Name,ActionType=s.ActionType,IsActive=1
@@ -445,6 +468,19 @@ ON t.Provider=s.Provider
 WHEN NOT MATCHED THEN INSERT(Id,Provider,DisplayName,IsEnabled,IsVisible,SortOrder,ConfigurationJson,UpdatedAtUtc)
 VALUES(s.Id,s.Provider,s.DisplayName,CASE WHEN s.Provider=8 THEN 1 ELSE 0 END,CASE WHEN s.Provider=8 THEN 1 ELSE 0 END,s.SortOrder,N'{}',SYSUTCDATETIME());
 
+MERGE dbo.SmsProviderSettings AS t
+USING (VALUES
+(1,N'Test',N'سامانه پیامکی تست',0,1,1),
+(2,N'Kavenegar',N'کاوه نگار',0,1,2),
+(3,N'Melipayamak',N'ملی پیامک',0,1,3),
+(4,N'SmsIr',N'SMS.ir',0,1,4),
+(5,N'HttpApi',N'سرویس پیامکی HTTP API',0,1,5)
+) AS s(Id,Provider,DisplayName,IsEnabled,IsVisible,SortOrder)
+ON t.Provider=s.Provider
+WHEN MATCHED THEN UPDATE SET DisplayName=s.DisplayName,IsVisible=s.IsVisible,SortOrder=s.SortOrder
+WHEN NOT MATCHED THEN INSERT(Id,Provider,DisplayName,IsEnabled,IsVisible,SortOrder,UpdatedAtUtc)
+VALUES(s.Id,s.Provider,s.DisplayName,s.IsEnabled,s.IsVisible,s.SortOrder,SYSUTCDATETIME());
+
 COMMIT;
 
 -- Validation: all expected tables must exist.
@@ -455,5 +491,6 @@ WHERE t.name IN
 'Categories','Products','ProductVariants','ProductAttributes','ProductAttributeValues','ProductAttributeAssignments','VariantAttributeValues',
 'Warranties','ProductWarranties','Carts','CartItems','DeliveryCities','StoreShippingCities','Orders','OrderItems','Payments','PaymentTransactions',
 'PaymentProviderSettings','Deliveries','DeliveryCodes','Refunds','Complaints','InventoryItems','InventoryReservations','SellerBalances','SellerBalanceHolds',
-'Settlements','BalanceTransactions','Commissions','CommissionReversals','Campaigns','CampaignProducts','Coupons','CouponProducts','CouponCategories','CouponUsages','Notifications')
+'Settlements','BalanceTransactions','Commissions','CommissionReversals','Campaigns','CampaignProducts','Coupons','CouponProducts','CouponCategories','CouponUsages','Notifications',
+'SmsProviderSettings','PaymentReconciliationAudits')
 ORDER BY t.name;
