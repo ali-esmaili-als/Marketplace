@@ -33,7 +33,7 @@ public sealed class SettlementConcurrencyIntegrationTests
             await using var reader = await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
             Assert.Equal(1L, reader.GetInt64(0));
-            Assert.Equal(400_000L, reader.GetInt64(1));
+            Assert.Equal(1_000_000L, reader.GetInt64(1));
             Assert.Equal(600_000L, reader.GetInt64(2));
             Assert.Equal(1L, reader.GetInt64(3));
         }
@@ -65,7 +65,7 @@ public sealed class SettlementConcurrencyIntegrationTests
             await using var reader = await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
             Assert.Equal(1L, reader.GetInt64(0));
-            Assert.Equal(300_000L, reader.GetInt64(1));
+            Assert.Equal(1_000_000L, reader.GetInt64(1));
             Assert.Equal(700_000L, reader.GetInt64(2));
         }
         finally { await DropAsync(db, master); }
