@@ -132,6 +132,54 @@ public sealed class OrderLifecycleTests
     }
 
     [Fact]
+    public void DeliveredOrder_WithInsufficientPendingFundsDoesNotMutateOrder()
+    {
+        var order = Order.Create(141, 142, 143, 144, 1_000_000, 1_000_000);
+        var payment = Payment.Create(145, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("DELIVERY-TEST");
+        var balance = SellerBalance.Create(146, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        lifecycle.OnPaymentSucceeded(order, payment, balance, 147);
+        order.MarkReady();
+        var deliveredAt = DateTime.UtcNow;
+        var delivery = DeliveryEntity.Create(148, order.Id, order.SellerId, deliveredAt.AddDays(1));
+        delivery.MarkReady();
+        delivery.ConfirmDelivered("DELIVERY-141", deliveredAt);
+        balance.RemovePending(order.SellerAmountIRR);
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnDelivered(order, delivery, balance, deliveredAt, deliveredAt.AddDays(2)));
+
+        Assert.Equal(OrderStatus.ReadyForDelivery, order.Status);
+        Assert.Equal(0, balance.PendingIRR);
+        Assert.Equal(0, balance.BlockedIRR);
+    }
+
+    [Fact]
+    public void DeliveryExpiry_WithInsufficientPendingFundsDoesNotChangeOrderStatus()
+    {
+        var order = Order.Create(151, 152, 153, 154, 1_000_000, 1_000_000);
+        var payment = Payment.Create(155, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("EXPIRY-TEST");
+        var balance = SellerBalance.Create(156, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        lifecycle.OnPaymentSucceeded(order, payment, balance, 157);
+        order.MarkReady();
+        var expiresAt = DateTime.UtcNow.AddMinutes(10);
+        order.SetDeliveryExpiry(expiresAt);
+        var delivery = DeliveryEntity.Create(158, order.Id, order.SellerId, expiresAt);
+        delivery.MarkReady();
+        delivery.Expire(expiresAt.AddSeconds(1));
+        balance.RemovePending(order.SellerAmountIRR);
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnDeliveryExpired(order, delivery, balance, expiresAt.AddSeconds(1)));
+
+        Assert.Equal(OrderStatus.ReadyForDelivery, order.Status);
+        Assert.Equal(0, balance.PendingIRR);
+    }
+
+    [Fact]
     public void SellerWonComplaint_ReleasesSellerHold()
     {
         var order=Order.Create(1,10,20,30,1_000_000,1_000_000);
