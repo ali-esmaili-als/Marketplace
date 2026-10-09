@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder=WebApplication.CreateBuilder(args);
 
@@ -19,6 +20,40 @@ var jwtAudience=builder.Configuration["Authentication:Jwt:Audience"] ?? "Marketp
 builder.Services.AddMarketplaceApplication();
 builder.Services.AddMarketplaceInfrastructure(builder.Configuration);
 builder.Services.AddMemoryCache();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("otp-request", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+    options.AddPolicy("otp-verify", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 8,
+                Window = TimeSpan.FromMinutes(5),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+    options.AddPolicy("login", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(5),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<Marketplace.Api.Auth.OtpAuthService>();
 builder.Services.AddScoped<Marketplace.Application.Abstractions.ISmsProviderSettings, Marketplace.Infrastructure.Notifications.SmsProviderSettingsRepository>();
@@ -76,6 +111,7 @@ long CurrentUserId(System.Security.Claims.ClaimsPrincipal user)
     => long.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : throw new UnauthorizedAccessException();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapGet("/api/notifications",async(System.Security.Claims.ClaimsPrincipal user,int? take,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>Results.Ok(await service.GetAsync(CurrentUserId(user),take??50,ct))).RequireAuthorization();
 app.MapPost("/api/notifications/{notificationId:long}/read",async(System.Security.Claims.ClaimsPrincipal user,long notificationId,Marketplace.Application.Notifications.NotificationService service,CancellationToken ct)=>{await service.MarkReadAsync(CurrentUserId(user),notificationId,ct);return Results.NoContent();}).RequireAuthorization();
@@ -94,10 +130,10 @@ app.MapGet("/api/auth/options", async (Marketplace.Api.Auth.OtpAuthService otp, 
 });
 
 app.MapPost("/api/auth/otp/request", async (OtpRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
-    Results.Ok(await otp.RequestAsync(request.Mobile, ct)));
+    Results.Ok(await otp.RequestAsync(request.Mobile, ct))).RequireRateLimiting("otp-request");
 
 app.MapPost("/api/auth/otp/verify", async (OtpVerifyRequest request, Marketplace.Api.Auth.OtpAuthService otp, CancellationToken ct) =>
-    Results.Ok(await otp.VerifyAsync(request.Mobile, request.Otp, ct)));
+    Results.Ok(await otp.VerifyAsync(request.Mobile, request.Otp, ct))).RequireRateLimiting("otp-verify");
 
 app.MapGet("/api/auth/me", async (System.Security.Claims.ClaimsPrincipal user, Marketplace.Application.Abstractions.IIdentityRepository identity, Marketplace.Application.Abstractions.ITokenService tokens, CancellationToken ct) =>
 {
@@ -151,7 +187,7 @@ app.MapPost("/api/auth/login",async(LoginRequest request,Marketplace.Application
 {
     var result=await service.LoginAsync(request.Mobile,request.Password,ct);
     return Results.Ok(result);
-});
+}).RequireRateLimiting("login");
 
 app.MapGet("/api/payment-providers", async (Marketplace.Application.Abstractions.IPaymentGatewayFactory gateways, CancellationToken ct) =>
     Results.Ok(await gateways.GetAvailableAsync(ct)))
