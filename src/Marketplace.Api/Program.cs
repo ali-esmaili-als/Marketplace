@@ -708,7 +708,78 @@ app.MapPost("/api/complaints/{complaintId:long}/resolve",async(long complaintId,
     await service.ResolveComplaintAsync(complaintId,request.CustomerWon,request.Note,ct);return Results.Ok();
 }).RequirePermission("Complaint.Resolve");
 
-app.MapPost("/api/orders/{orderId:long}/refund",async(System.Security.Claims.ClaimsPrincipal user,long orderId,RefundRequest request,Marketplace.Application.Orders.OrderActorService service,CancellationToken ct)=>{await service.RefundAsync(CurrentUserId(user),orderId,request.Reason,ct);return Results.Ok();}).RequirePermission("Order.Create");
+app.MapPost("/api/orders/{orderId:long}/refund", async (
+    System.Security.Claims.ClaimsPrincipal user,
+    long orderId,
+    RefundRequest request,
+    Marketplace.Application.Orders.OrderActorService service,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    ILogger<Program> logger,
+    CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    // Verify ownership before the recovery lookup so an exception cannot reveal another
+    // customer's refund state.
+    var ownsOrder = await db.Orders.AsNoTracking()
+        .AnyAsync(x => x.Id == orderId && x.CustomerId == customerId, ct);
+    if (!ownsOrder) return Results.NotFound();
+
+    try
+    {
+        await service.RefundAsync(customerId, orderId, request.Reason, ct);
+        var completed = await db.Refunds.AsNoTracking()
+            .Where(x => x.OrderId == orderId)
+            .OrderByDescending(x => x.RequestedAtUtc)
+            .Select(x => new { refundId = x.Id, status = x.Status.ToString(), x.ProviderReference })
+            .FirstOrDefaultAsync(ct);
+
+        return Results.Ok(completed is null
+            ? new { refundId = (long?)null, status = "Unknown", providerReference = (string?)null, outcomeRequiresReconciliation = false, message = (string?)null }
+            : new { refundId = (long?)completed.refundId, status = completed.status, providerReference = completed.ProviderReference, outcomeRequiresReconciliation = false, message = (string?)null });
+    }
+    catch (Exception exception)
+    {
+        try
+        {
+            var persisted = await db.Refunds.AsNoTracking()
+                .Where(x => x.OrderId == orderId)
+                .OrderByDescending(x => x.RequestedAtUtc)
+                .Select(x => new { refundId = x.Id, status = x.Status, x.ProviderReference, x.FailureReason })
+                .FirstOrDefaultAsync(CancellationToken.None);
+
+            if (persisted?.Status is Marketplace.Domain.Refunds.RefundStatus.Processing
+                or Marketplace.Domain.Refunds.RefundStatus.Completed)
+            {
+                var uncertain = persisted.Status == Marketplace.Domain.Refunds.RefundStatus.Processing;
+                logger.LogWarning(exception,
+                    "Refund {RefundId} for order {OrderId} ended with {RefundStatus}; reconciliationRequired={ReconciliationRequired}.",
+                    persisted.refundId, orderId, persisted.Status, uncertain);
+
+                var response = new
+                {
+                    refundId = (long?)persisted.refundId,
+                    status = persisted.Status.ToString(),
+                    providerReference = persisted.ProviderReference,
+                    outcomeRequiresReconciliation = uncertain,
+                    message = uncertain
+                        ? "Refund outcome is not confirmed. Do not submit another refund; an administrator must reconcile the bank result."
+                        : "Refund is already completed."
+                };
+                if (uncertain)
+                    return Results.Json(response, statusCode: StatusCodes.Status202Accepted);
+
+                return Results.Ok(response);
+            }
+        }
+        catch (Exception lookupException)
+        {
+            logger.LogError(lookupException, "Could not read refund state for order {OrderId} after processing failed.", orderId);
+        }
+
+        logger.LogError(exception, "Refund processing failed for order {OrderId} without a persisted uncertain or completed result.", orderId);
+        throw;
+    }
+}).RequirePermission("Order.Create");
 
 
 app.MapGet("/api/sellers/me/campaigns",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{
