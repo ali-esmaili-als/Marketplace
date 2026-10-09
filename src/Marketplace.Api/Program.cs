@@ -1724,3 +1724,5 @@ public sealed class MarketplaceMaintenanceHostedService(IServiceScopeFactory sco
   catch(Exception ex){logger.LogError(ex,"Marketplace maintenance cycle failed.");}
  }
 }
+
+public partial class Program { }
