@@ -549,7 +549,7 @@ app.MapPost("/api/settlements/{settlementId:long}/process", async (
                 .Select(x => new { x.Id, x.AmountIRR, x.Status, x.Reference })
                 .SingleOrDefaultAsync(CancellationToken.None);
 
-            if (persisted?.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
+            if (persisted?.status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
             {
                 logger.LogWarning(exception,
                     "Settlement {SettlementId} is on hold after an ambiguous payout outcome and requires bank reconciliation.",
@@ -559,7 +559,7 @@ app.MapPost("/api/settlements/{settlementId:long}/process", async (
                 {
                     settlementId = persisted.Id,
                     amountIRR = persisted.AmountIRR,
-                    status = persisted.Status.ToString(),
+                    status = persisted.status.ToString(),
                     reference = persisted.Reference,
                     outcomeRequiresReconciliation = true,
                     message = "Payout outcome is ambiguous. Reconcile against the bank's final status before retrying."
@@ -747,18 +747,18 @@ app.MapPost("/api/orders/{orderId:long}/refund", async (
                 .Select(x => new { refundId = x.Id, status = x.Status, x.ProviderReference, x.FailureReason })
                 .FirstOrDefaultAsync(CancellationToken.None);
 
-            if (persisted?.Status is Marketplace.Domain.Refunds.RefundStatus.Processing
+            if (persisted?.status is Marketplace.Domain.Refunds.RefundStatus.Processing
                 or Marketplace.Domain.Refunds.RefundStatus.Completed)
             {
-                var uncertain = persisted.Status == Marketplace.Domain.Refunds.RefundStatus.Processing;
+                var uncertain = persisted.status == Marketplace.Domain.Refunds.RefundStatus.Processing;
                 logger.LogWarning(exception,
                     "Refund {RefundId} for order {OrderId} ended with {RefundStatus}; reconciliationRequired={ReconciliationRequired}.",
-                    persisted.refundId, orderId, persisted.Status, uncertain);
+                    persisted.refundId, orderId, persisted.status, uncertain);
 
                 var response = new
                 {
                     refundId = (long?)persisted.refundId,
-                    status = persisted.Status.ToString(),
+                    status = persisted.status.ToString(),
                     providerReference = persisted.ProviderReference,
                     outcomeRequiresReconciliation = uncertain,
                     message = uncertain
