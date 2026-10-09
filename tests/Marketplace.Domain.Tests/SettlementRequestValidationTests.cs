@@ -23,7 +23,7 @@ public sealed class SettlementRequestValidationTests
 
         var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
         var service = new SettlementService(
-            Mock.Of<ILifecycleRepository>(), uow.Object, Mock.Of<IIdGenerator>(),
+            Mock.Of<ILifecycleRepository>(), uow.Object, CreateIdGenerator(),
             Mock.Of<ISellerPayoutGateway>(), sellers.Object);
 
         await Assert.ThrowsAsync<DomainException>(() => service.RequestAsync(20, 30, 100_000));
@@ -56,7 +56,7 @@ public sealed class SettlementRequestValidationTests
             .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
 
         var service = new SettlementService(
-            lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(),
+            lifecycle.Object, uow.Object, CreateIdGenerator(),
             Mock.Of<ISellerPayoutGateway>(), sellers.Object);
 
         await Assert.ThrowsAsync<DomainException>(() => service.RequestAsync(20, account.Id, 100_000));
@@ -96,7 +96,7 @@ public sealed class SettlementRequestValidationTests
             .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
 
         var service = new SettlementService(
-            lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(),
+            lifecycle.Object, uow.Object, CreateIdGenerator(),
             Mock.Of<ISellerPayoutGateway>(), sellers.Object);
 
         await Assert.ThrowsAsync<DomainException>(() => service.RequestAsync(20, account.Id, amount));
@@ -182,7 +182,7 @@ public sealed class SettlementRequestValidationTests
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(x => x.ExecuteInSerializableTransactionAsync(It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
-        var service = new SettlementService(lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
+        var service = new SettlementService(lifecycle.Object, uow.Object, CreateIdGenerator(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
         var result = await service.RequestAsync(20, 30, 200_000, "retry-key");
         Assert.Equal(90, result.SettlementId); Assert.Equal("Requested", result.Status);
         lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -203,9 +203,18 @@ public sealed class SettlementRequestValidationTests
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(x => x.ExecuteInSerializableTransactionAsync(It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
-        var service = new SettlementService(lifecycle.Object, uow.Object, Mock.Of<IIdGenerator>(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
+        var service = new SettlementService(lifecycle.Object, uow.Object, CreateIdGenerator(), Mock.Of<ISellerPayoutGateway>(), sellers.Object);
         await Assert.ThrowsAsync<DomainException>(() => service.RequestAsync(20, 30, 250_000, "retry-key"));
         lifecycle.Verify(x => x.GetSellerBalanceAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static IIdGenerator CreateIdGenerator()
+    {
+        long next = 9000;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Interlocked.Increment(ref next));
+        return ids.Object;
     }
 
 }
