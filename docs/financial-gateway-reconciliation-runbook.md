@@ -176,3 +176,12 @@ For existing installations, apply `database/011_ActiveComplaintUniqueness.sql` a
 - **52 — More than one Sale ledger entry exists for an order:** verify payment capture and the order's sale posting history. The unique index protects supported writes where installed; the diagnostic remains useful for older databases or manually imported rows.
 
 These are read-only checks. Run them after in-flight financial transactions have settled, preserve the returned transaction IDs and timestamps, and use the authorized reconciliation workflow. A discrepancy is evidence to investigate, not permission to repair balances with ad-hoc SQL.
+
+
+## Core payment lifecycle status constraints (patch 014)
+
+The fresh bootstrap schema constrains persisted status values for `Orders`, `Payments`, `PaymentTransactions`, `Refunds`, and `Settlements` to the ranges used by the domain enums. Existing databases must apply `database/014_PaymentRefundSettlementStatusConstraints.sql` after backing up and reviewing existing data.
+
+The patch validates all five tables before adding trusted SQL Server check constraints. If it stops because invalid status values exist, identify and investigate those rows first; do not bulk-map unknown statuses to a valid value, because that can misrepresent financial history. The patch is safe to re-run after a successful application.
+
+The SQL Server integration suite simulates an older schema by dropping the five constraints, applies the patch, verifies that all constraints are enabled and trusted, re-applies it, and attempts an invalid status write for each protected table. All five writes must be rejected by SQL Server.
