@@ -55,10 +55,6 @@ public sealed class LowStockSmsService(
         try
         {
             await provider.SendMessageAsync(details.Mobile, message, ct);
-            notification.MarkSent();
-            details.Inventory.MarkLowStockAlertSent();
-            db.Notifications.Add(notification);
-            await db.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -66,6 +62,12 @@ public sealed class LowStockSmsService(
             db.Notifications.Add(notification);
             await db.SaveChangesAsync(ct);
             logger.LogError(ex, "Low-stock SMS failed for variant {VariantId}.", variantId);
+            return;
         }
+
+        notification.MarkSent();
+        details.Inventory.MarkLowStockAlertSent();
+        db.Notifications.Add(notification);
+        await db.SaveChangesAsync(ct);
     }
 }
