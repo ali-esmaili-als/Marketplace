@@ -148,6 +148,70 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
     }
 
     [Fact]
+    public async Task Outbox_archive_moves_only_old_processed_rows_and_leaves_financial_state_unchanged()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-90);
+        await using (var connection = new SqlConnection(_targetConnectionString))
+        {
+            await connection.OpenAsync();
+            await ExecuteAsync(connection, """
+                INSERT dbo.OutboxMessages
+                    (Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc, LockedUntilUtc, LockToken,
+                     NextAttemptAtUtc, Attempts, Status, LastError)
+                VALUES
+                    (91004, '91004000-0000-0000-0000-000000000004', N'Settlement.Completed', N'{"settlementId":4}',
+                     DATEADD(DAY,-120,SYSUTCDATETIME()), DATEADD(DAY,-120,SYSUTCDATETIME()), NULL, NULL,
+                     DATEADD(DAY,-120,SYSUTCDATETIME()), 1, N'Processed', NULL),
+                    (91005, '91005000-0000-0000-0000-000000000005', N'Settlement.Requested', N'{"settlementId":5}',
+                     DATEADD(DAY,-120,SYSUTCDATETIME()), NULL, NULL, NULL,
+                     DATEADD(DAY,-120,SYSUTCDATETIME()), 0, N'Pending', NULL);
+                """);
+
+            await using var archive = new SqlCommand("""
+                ;WITH candidates AS
+                (
+                    SELECT TOP (@BatchSize) *
+                    FROM dbo.OutboxMessages WITH (UPDLOCK, READPAST, ROWLOCK)
+                    WHERE Status = N'Processed'
+                      AND ProcessedAtUtc IS NOT NULL
+                      AND ProcessedAtUtc < @CutoffUtc
+                    ORDER BY ProcessedAtUtc, Id
+                )
+                DELETE FROM candidates
+                OUTPUT
+                    deleted.Id, deleted.MessageId, deleted.EventType, deleted.PayloadJson,
+                    deleted.OccurredAtUtc, deleted.ProcessedAtUtc, deleted.LockedUntilUtc,
+                    deleted.LockToken, deleted.NextAttemptAtUtc, deleted.Attempts,
+                    deleted.Status, deleted.LastError
+                INTO dbo.OutboxMessageArchive
+                    (Id, MessageId, EventType, PayloadJson, OccurredAtUtc, ProcessedAtUtc,
+                     LockedUntilUtc, LockToken, NextAttemptAtUtc, Attempts, Status, LastError);
+                """, connection);
+            archive.Parameters.AddWithValue("@BatchSize", 100);
+            archive.Parameters.AddWithValue("@CutoffUtc", cutoff);
+            Assert.Equal(1, await archive.ExecuteNonQueryAsync());
+
+            await using var verify = new SqlCommand("""
+                SELECT
+                    (SELECT COUNT_BIG(*) FROM dbo.OutboxMessageArchive WHERE Id=91004 AND Status=N'Processed'),
+                    (SELECT COUNT_BIG(*) FROM dbo.OutboxMessages WHERE Id=91004),
+                    (SELECT COUNT_BIG(*) FROM dbo.OutboxMessages WHERE Id=91005 AND Status=N'Pending'),
+                    (SELECT COUNT_BIG(*) FROM dbo.OutboxMessages WHERE Id=91002 AND Status=N'DeadLetter'),
+                    (SELECT AvailableIRR FROM dbo.SellerBalances WHERE SellerId=72001),
+                    (SELECT COUNT_BIG(*) FROM dbo.BalanceTransactions WHERE SellerId=72001);
+                """, connection);
+            await using var reader = await verify.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(1L, reader.GetInt64(0));
+            Assert.Equal(0L, reader.GetInt64(1));
+            Assert.Equal(1L, reader.GetInt64(2));
+            Assert.Equal(1L, reader.GetInt64(3));
+            Assert.Equal(900000L, reader.GetInt64(4));
+            Assert.Equal(1L, reader.GetInt64(5));
+        }
+    }
+
+    [Fact]
     public async Task Permission_is_resolved_from_database_user_rule_mapping()
     {
         SetBearerToken(CustomerUserId);
