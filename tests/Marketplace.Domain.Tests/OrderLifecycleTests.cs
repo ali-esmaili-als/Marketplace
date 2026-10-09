@@ -112,6 +112,94 @@ public sealed class OrderLifecycleTests
     }
 
     [Fact]
+    public void CompletedRefundAfterDeliveryExpiry_RemovesPendingFundsAndConsumesHold()
+    {
+        var order = Order.Create(51, 52, 53, 54, 1_200_000, 1_200_000);
+        var payment = Payment.Create(55, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("REF-51");
+        var balance = SellerBalance.Create(56, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        var hold = lifecycle.OnPaymentSucceeded(order, payment, balance, 57);
+
+        order.MarkReady();
+        var expires = DateTime.UtcNow.AddMinutes(10);
+        order.SetDeliveryExpiry(expires);
+        var delivery = DeliveryEntity.Create(58, order.Id, order.SellerId, expires);
+        delivery.MarkReady();
+        delivery.Expire(expires.AddSeconds(1));
+        lifecycle.OnDeliveryExpired(order, delivery, balance, expires.AddSeconds(1));
+
+        var refund = Refund.Create(59, order.Id, payment.Id, order.CustomerId, order.TotalAmountIRR, RefundReason.DeliveryExpired);
+        refund.StartProcessing();
+        refund.Complete("REFUND-51");
+        lifecycle.CompleteRefund(order, payment, refund, balance, hold);
+
+        Assert.Equal(OrderStatus.Refunded, order.Status);
+        Assert.Equal(PaymentStatus.Refunded, payment.Status);
+        Assert.Equal(0, balance.PendingIRR);
+        Assert.Equal(0, balance.BlockedIRR);
+        Assert.Equal(BalanceHoldStatus.Consumed, hold.Status);
+    }
+
+    [Fact]
+    public void CompletedRefundAfterDelivery_ConsumesBlockedFundsWithoutMakingThemWithdrawable()
+    {
+        var order = Order.Create(61, 62, 63, 64, 2_400_000, 2_400_000);
+        var payment = Payment.Create(65, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("REF-61");
+        var balance = SellerBalance.Create(66, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        var hold = lifecycle.OnPaymentSucceeded(order, payment, balance, 67);
+
+        order.MarkReady();
+        var deliveredAt = DateTime.UtcNow;
+        var delivery = DeliveryEntity.Create(68, order.Id, order.SellerId, deliveredAt.AddDays(1));
+        delivery.MarkReady();
+        delivery.ConfirmDelivered("DEL-61", deliveredAt);
+        lifecycle.OnDelivered(order, delivery, balance, deliveredAt, deliveredAt.AddDays(3));
+        order.RequestRefund();
+
+        var refund = Refund.Create(69, order.Id, payment.Id, order.CustomerId, order.TotalAmountIRR, RefundReason.ComplaintCustomerWon);
+        refund.StartProcessing();
+        refund.Complete("REFUND-61");
+        lifecycle.CompleteRefund(order, payment, refund, balance, hold);
+
+        Assert.Equal(OrderStatus.Refunded, order.Status);
+        Assert.Equal(PaymentStatus.Refunded, payment.Status);
+        Assert.Equal(0, balance.BlockedIRR);
+        Assert.Equal(0, balance.AvailableIRR);
+        Assert.Equal(BalanceHoldStatus.Consumed, hold.Status);
+    }
+
+    [Fact]
+    public void CompleteRefund_RejectsIncompleteRefundWithoutChangingFinancialBuckets()
+    {
+        var order = Order.Create(71, 72, 73, 74, 800_000, 800_000);
+        var payment = Payment.Create(75, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("REF-71");
+        var balance = SellerBalance.Create(76, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        var hold = lifecycle.OnPaymentSucceeded(order, payment, balance, 77);
+        order.MarkReady();
+        var expires = DateTime.UtcNow.AddMinutes(15);
+        order.SetDeliveryExpiry(expires);
+        var delivery = DeliveryEntity.Create(78, order.Id, order.SellerId, expires);
+        delivery.MarkReady();
+        delivery.Expire(expires.AddSeconds(1));
+        lifecycle.OnDeliveryExpired(order, delivery, balance, expires.AddSeconds(1));
+        var refund = Refund.Create(79, order.Id, payment.Id, order.CustomerId, order.TotalAmountIRR, RefundReason.DeliveryExpired);
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.CompleteRefund(order, payment, refund, balance, hold));
+
+        Assert.Equal(OrderStatus.RefundRequested, order.Status);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        Assert.Equal(800_000, hold.AmountIRR);
+        Assert.Equal(BalanceHoldStatus.Active, hold.Status);
+        Assert.Equal(0, balance.PendingIRR);
+    }
+
+    [Fact]
     public void LateSuccessfulGatewayPayment_CanBeMarkedForManualReconciliation()
     {
         var payment = Payment.Create(31, 32, 33, 500_000);
