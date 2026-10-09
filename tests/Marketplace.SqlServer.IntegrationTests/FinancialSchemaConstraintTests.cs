@@ -168,6 +168,69 @@ public sealed class FinancialSchemaConstraintTests
                 await reapplyComplaintStatusPatch.ExecuteNonQueryAsync();
             }
 
+            // Simulate an existing database that has not received patch 013.
+            await using (var dropLifecycleChecks = new SqlCommand("""
+                ALTER TABLE dbo.SellerBalanceHolds DROP CONSTRAINT CK_SellerBalanceHolds_Status;
+                ALTER TABLE dbo.InventoryReservations DROP CONSTRAINT CK_InventoryReservations_Status;
+                ALTER TABLE dbo.Deliveries DROP CONSTRAINT CK_Deliveries_Status;
+                ALTER TABLE dbo.BalanceTransactions DROP CONSTRAINT CK_BalanceTransactions_Type;
+                ALTER TABLE dbo.BalanceTransactions DROP CONSTRAINT CK_BalanceTransactions_Bucket;
+                """, connection))
+            {
+                await dropLifecycleChecks.ExecuteNonQueryAsync();
+            }
+
+            var lifecyclePatchPath = Path.Combine(AppContext.BaseDirectory, "database", "013_FinancialLifecycleStatusConstraints.sql");
+            Assert.True(File.Exists(lifecyclePatchPath), $"Lifecycle status patch was not copied to test output: {lifecyclePatchPath}");
+            var lifecyclePatch = await File.ReadAllTextAsync(lifecyclePatchPath);
+            await using (var applyLifecyclePatch = new SqlCommand(lifecyclePatch, connection) { CommandTimeout = 120 })
+            {
+                await applyLifecyclePatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var verifyLifecycleChecks = new SqlCommand("""
+                SELECT COUNT(*)
+                FROM sys.check_constraints
+                WHERE name IN
+                (
+                    N'CK_SellerBalanceHolds_Status',
+                    N'CK_InventoryReservations_Status',
+                    N'CK_Deliveries_Status',
+                    N'CK_BalanceTransactions_Type',
+                    N'CK_BalanceTransactions_Bucket'
+                )
+                AND is_disabled = 0 AND is_not_trusted = 0;
+                """, connection))
+            {
+                Assert.Equal(5, Convert.ToInt32(await verifyLifecycleChecks.ExecuteScalarAsync()));
+            }
+
+            // A rerun must not fail or create duplicate constraints.
+            await using (var reapplyLifecyclePatch = new SqlCommand(lifecyclePatch, connection) { CommandTimeout = 120 })
+            {
+                await reapplyLifecyclePatch.ExecuteNonQueryAsync();
+            }
+
+            await using (var invalidBalanceTransactionType = new SqlCommand("""
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
+                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES (949999, 910001, NULL, NULL, 99, 1, 0, 0, 0, N'INVALID-TYPE', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidBalanceTransactionType.ExecuteNonQueryAsync());
+            }
+
+            await using (var invalidBalanceBucket = new SqlCommand("""
+                INSERT INTO dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, SettlementId, Type, Bucket, AmountIRR,
+                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES (949998, 910001, NULL, NULL, 5, 99, 0, 0, 0, N'INVALID-BUCKET', SYSUTCDATETIME());
+                """, connection))
+            {
+                await Assert.ThrowsAsync<SqlException>(() => invalidBalanceBucket.ExecuteNonQueryAsync());
+            }
+
             await using var invalidInsert = new SqlCommand("""
                 INSERT INTO dbo.InventoryItems (Id, ProductVariantId, StockQuantity, ReservedQuantity, IsActive)
                 VALUES (940001, 940001, 5, 6, 1);
