@@ -1716,6 +1716,67 @@ app.MapGet("/api/admin/outbox/summary", async (
     });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/outbox/health", async (
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    Microsoft.Extensions.Configuration.IConfiguration configuration,
+    CancellationToken ct) =>
+{
+    static int ReadThreshold(Microsoft.Extensions.Configuration.IConfiguration config, string key, int fallback, int min, int max)
+        => int.TryParse(config[key], out var value) ? Math.Clamp(value, min, max) : fallback;
+
+    var now = DateTime.UtcNow;
+    var pendingAgeMinutes = ReadThreshold(configuration, "Outbox:Health:PendingAgeMinutes", 15, 1, 1440);
+    var leaseGraceMinutes = ReadThreshold(configuration, "Outbox:Health:LeaseGraceMinutes", 2, 0, 120);
+    var deadLetterWarningCount = ReadThreshold(configuration, "Outbox:Health:DeadLetterWarningCount", 1, 1, 100000);
+    var pendingCutoff = now.AddMinutes(-pendingAgeMinutes);
+    var staleLeaseCutoff = now.AddMinutes(-leaseGraceMinutes);
+
+    var pendingCount = await db.OutboxMessages.AsNoTracking()
+        .CountAsync(x => x.Status == "Pending" && x.OccurredAtUtc <= pendingCutoff && x.NextAttemptAtUtc <= now, ct);
+    var staleProcessingCount = await db.OutboxMessages.AsNoTracking()
+        .CountAsync(x => x.Status == "Processing" && x.LockedUntilUtc != null && x.LockedUntilUtc <= staleLeaseCutoff, ct);
+    var deadLetterCount = await db.OutboxMessages.AsNoTracking()
+        .CountAsync(x => x.Status == "DeadLetter", ct);
+    var duePendingCount = await db.OutboxMessages.AsNoTracking()
+        .CountAsync(x => x.Status == "Pending" && x.NextAttemptAtUtc <= now, ct);
+
+    var oldestPending = await db.OutboxMessages.AsNoTracking()
+        .Where(x => x.Status == "Pending" && x.NextAttemptAtUtc <= now)
+        .OrderBy(x => x.OccurredAtUtc)
+        .Select(x => new { x.Id, x.EventType, x.OccurredAtUtc })
+        .FirstOrDefaultAsync(ct);
+
+    var staleExamples = await db.OutboxMessages.AsNoTracking()
+        .Where(x => x.Status == "Processing" && x.LockedUntilUtc != null && x.LockedUntilUtc <= staleLeaseCutoff)
+        .OrderBy(x => x.LockedUntilUtc)
+        .Take(10)
+        .Select(x => new { x.Id, x.EventType, x.Attempts, x.LockedUntilUtc, x.LastError })
+        .ToListAsync(ct);
+
+    var alerts = new List<object>();
+    if (deadLetterCount >= deadLetterWarningCount)
+        alerts.Add(new { code = "Outbox.DeadLetter", severity = "Critical", count = deadLetterCount, message = "One or more messages require manual investigation." });
+    if (staleProcessingCount > 0)
+        alerts.Add(new { code = "Outbox.StaleProcessing", severity = "Critical", count = staleProcessingCount, message = "Processing leases have expired beyond the configured grace period." });
+    if (pendingCount > 0)
+        alerts.Add(new { code = "Outbox.PendingBacklog", severity = "Warning", count = pendingCount, message = "Due pending messages have exceeded the configured age threshold." });
+
+    var severity = alerts.Any(x => x.GetType().GetProperty("severity")?.GetValue(x)?.ToString() == "Critical")
+        ? "Critical"
+        : alerts.Count > 0 ? "Warning" : "Healthy";
+
+    return Results.Ok(new
+    {
+        generatedAtUtc = now,
+        status = severity,
+        thresholds = new { pendingAgeMinutes, leaseGraceMinutes, deadLetterWarningCount },
+        metrics = new { duePendingCount, overduePendingCount = pendingCount, staleProcessingCount, deadLetterCount },
+        oldestDuePending = oldestPending,
+        staleProcessingExamples = staleExamples,
+        alerts
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/outbox/messages", async (
     Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
     string? status,
