@@ -552,7 +552,8 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CheckoutRequest(long CustomerId,Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record SettlementRequest(long BankAccountId,long AmountIRR);
-public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);\npublic sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
+public sealed record SettlementReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
+public sealed record RefundReconciliationRequest(bool TransferCompleted,string? BankReference,string Note);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
 public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder);
 public sealed record OtpRequest(string Mobile);
