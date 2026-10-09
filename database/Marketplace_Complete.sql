@@ -193,7 +193,7 @@ CREATE TABLE dbo.PaymentReconciliationAudits(
 CREATE TABLE dbo.Deliveries(
  Id BIGINT NOT NULL CONSTRAINT PK_Deliveries PRIMARY KEY, OrderId BIGINT NOT NULL, SellerId BIGINT NOT NULL, Status TINYINT NOT NULL,
  ReadyAtUtc DATETIME2(7) NULL, DeliveredAtUtc DATETIME2(7) NULL, ExpiresAtUtc DATETIME2(7) NOT NULL, ConfirmationReference NVARCHAR(200) NULL,
- CONSTRAINT UQ_Deliveries_Order UNIQUE(OrderId)
+ CONSTRAINT UQ_Deliveries_Order UNIQUE(OrderId), CONSTRAINT CK_Deliveries_Status CHECK(Status BETWEEN 1 AND 5)
 );
 CREATE TABLE dbo.DeliveryCodes(
  Id BIGINT NOT NULL CONSTRAINT PK_DeliveryCodes PRIMARY KEY, OrderId BIGINT NOT NULL, CodeHash BINARY(32) NOT NULL,
@@ -231,7 +231,7 @@ CREATE TABLE dbo.InventoryItems(
 CREATE TABLE dbo.InventoryReservations(
  Id BIGINT NOT NULL CONSTRAINT PK_InventoryReservations PRIMARY KEY, ProductVariantId BIGINT NOT NULL, OrderId BIGINT NOT NULL,
  Quantity BIGINT NOT NULL, Status TINYINT NOT NULL, ExpiresAtUtc DATETIME2(7) NOT NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
- CONSTRAINT CK_InventoryReservations_Quantity CHECK(Quantity>0)
+ CONSTRAINT CK_InventoryReservations_Quantity CHECK(Quantity>0), CONSTRAINT CK_InventoryReservations_Status CHECK(Status BETWEEN 1 AND 4)
 );
 
 CREATE TABLE dbo.SellerBalances(
@@ -247,7 +247,7 @@ CREATE TABLE dbo.SellerBalances(
 CREATE TABLE dbo.SellerBalanceHolds(
  Id BIGINT NOT NULL CONSTRAINT PK_SellerBalanceHolds PRIMARY KEY, SellerId BIGINT NOT NULL, OrderId BIGINT NULL,
  AmountIRR BIGINT NOT NULL, Reason NVARCHAR(500) NOT NULL, Status TINYINT NOT NULL,
- CreatedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL, CONSTRAINT CK_SellerBalanceHolds_Amount CHECK(AmountIRR>0)
+ CreatedAtUtc DATETIME2(7) NOT NULL, CompletedAtUtc DATETIME2(7) NULL, CONSTRAINT CK_SellerBalanceHolds_Amount CHECK(AmountIRR>0), CONSTRAINT CK_SellerBalanceHolds_Status CHECK(Status BETWEEN 1 AND 3)
 );
 CREATE TABLE dbo.Settlements(
  Id BIGINT NOT NULL CONSTRAINT PK_Settlements PRIMARY KEY, SellerId BIGINT NOT NULL, AmountIRR BIGINT NOT NULL, Status TINYINT NOT NULL,
@@ -267,7 +267,7 @@ CREATE TABLE dbo.BalanceTransactions(
  Id BIGINT NOT NULL CONSTRAINT PK_BalanceTransactions PRIMARY KEY, SellerId BIGINT NOT NULL, OrderId BIGINT NULL,
  SettlementId BIGINT NULL, Type TINYINT NOT NULL, Bucket TINYINT NOT NULL CONSTRAINT DF_BalanceTransactions_Bucket DEFAULT(1),
  AmountIRR BIGINT NOT NULL, BalanceBeforeIRR BIGINT NOT NULL, BalanceAfterIRR BIGINT NOT NULL, Reference NVARCHAR(200) NULL, CreatedAtUtc DATETIME2(7) NOT NULL,
- CONSTRAINT CK_BalanceTransactions_Amounts CHECK(AmountIRR>=0 AND BalanceBeforeIRR>=0 AND BalanceAfterIRR>=0)
+ CONSTRAINT CK_BalanceTransactions_Amounts CHECK(AmountIRR>=0 AND BalanceBeforeIRR>=0 AND BalanceAfterIRR>=0), CONSTRAINT CK_BalanceTransactions_Type CHECK(Type BETWEEN 1 AND 14), CONSTRAINT CK_BalanceTransactions_Bucket CHECK(Bucket BETWEEN 1 AND 5)
 );
 CREATE TABLE dbo.Commissions(
  Id BIGINT NOT NULL CONSTRAINT PK_Commissions PRIMARY KEY, OrderId BIGINT NOT NULL, StoreId BIGINT NOT NULL, SellerId BIGINT NOT NULL,
