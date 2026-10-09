@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Marketplace.Application.Abstractions;
 using Marketplace.Application.Orders;
 using Marketplace.Domain.Common;
-using Marketplace.Domain.Delivery;
+using DeliveryEntity = Marketplace.Domain.Delivery.Delivery;
 using Marketplace.Domain.Finance;
 using Marketplace.Domain.Inventory;
 using Marketplace.Domain.Orders;
@@ -40,7 +40,7 @@ public sealed class OrderLifecycleServiceTests
         payments.Setup(x => x.GetLatestTransactionAsync(payment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(transaction);
         var lifecycle = new Mock<ILifecycleRepository>();
         lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
-        lifecycle.Setup(x => x.GetDeliveryByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync((Delivery?)null);
+        lifecycle.Setup(x => x.GetDeliveryByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync((DeliveryEntity?)null);
         lifecycle.Setup(x => x.GetReservationsByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<InventoryReservation> { reservation });
         var unitOfWork = new Mock<IUnitOfWork>();
@@ -64,7 +64,7 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(2_000_000, balance.PendingIRR);
         Assert.True(reservation.ExpiresAtUtc > DateTime.UtcNow.AddDays(2));
         lifecycle.Verify(x => x.AddBalanceHold(It.IsAny<SellerBalanceHold>()), Times.Once);
-        lifecycle.Verify(x => x.AddDelivery(It.IsAny<Delivery>()), Times.Once);
+        lifecycle.Verify(x => x.AddDelivery(It.IsAny<DeliveryEntity>()), Times.Once);
         lifecycle.Verify(x => x.AddBalanceTransaction(
             It.Is<BalanceTransaction>(t => t.Bucket == BalanceBucket.Pending && t.AmountIRR == 2_000_000)), Times.Once);
         unitOfWork.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
