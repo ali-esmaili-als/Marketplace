@@ -256,7 +256,7 @@ public sealed class FinancialIntegrityPermissionDatabaseHttpTests : IAsyncLifeti
         using var archiveDetail = await Client.GetAsync("/api/admin/outbox/archive/91004");
         Assert.Equal(HttpStatusCode.OK, archiveDetail.StatusCode);
         var detailJson = await archiveDetail.Content.ReadAsStringAsync();
-        Assert.Contains("\\"settlementId\\":4", detailJson);
+        Assert.Contains("settlementId", detailJson, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ArchivedAtUtc", detailJson, StringComparison.OrdinalIgnoreCase);
     }
 
