@@ -544,7 +544,7 @@ MERGE dbo.Rules AS t USING (VALUES
 (3001,N'Admin.PaymentProviders.Read',N'View payment provider settings',3),(3002,N'Admin.PaymentProviders.Configure',N'Configure payment providers',3),
 (3003,N'Admin.Settlement.Process',N'Process seller settlements',3),(3004,N'Admin.Identity.Manage',N'Manage users roles and permissions',3),(3005,N'Admin.Seller.Manage',N'Manage sellers',3),
 (4001,N'Order.Delivery.Confirm',N'Confirm delivery',4),(4002,N'Complaint.Resolve',N'Resolve complaint',4),
-(3006,N'Admin.SmsProviders.Read',N'View SMS provider settings',3),(3007,N'Admin.SmsProviders.Configure',N'Configure SMS provider settings',3)
+(3006,N'Admin.SmsProviders.Read',N'View SMS provider settings',3),(3007,N'Admin.SmsProviders.Configure',N'Configure SMS provider settings',3),(3008,N'Admin.Order.Read',N'Read and investigate marketplace orders',3)
 ) AS s(Id,Code,Name,ActionType)
 ON t.Id=s.Id
 WHEN MATCHED THEN UPDATE SET Code=s.Code,Name=s.Name,ActionType=s.ActionType,IsActive=1
