@@ -129,4 +129,64 @@ public sealed class RefundService
             return 0;
         },ct);
     }
+    public Task ReconcileAsync(long refundId,bool transferCompleted,string? bankReference,string note,CancellationToken ct=default)
+        =>_uow.ExecuteInTransactionAsync(async token =>
+        {
+            if(string.IsNullOrWhiteSpace(note))
+                throw new DomainException("A reconciliation note is required.");
+
+            var refund=await _life.GetRefundAsync(refundId,token)??throw new DomainException("Refund not found.");
+            if(refund.Status!=RefundStatus.Processing)
+                throw new DomainException("Only refunds with an uncertain processing result can be reconciled.");
+
+            if(!transferCompleted)
+            {
+                refund.Fail(note);
+                await _uow.SaveChangesAsync(token);
+                return 0;
+            }
+
+            if(string.IsNullOrWhiteSpace(bankReference))
+                throw new DomainException("Bank reference is required when the refund transfer completed.");
+
+            var order=await _orders.GetAsync(refund.OrderId,token)??throw new DomainException("Order not found.");
+            var payment=await _payments.GetAsync(refund.PaymentId,token)??throw new DomainException("Payment not found.");
+            if(order.Status!=OrderStatus.RefundRequested || payment.Status!=Marketplace.Domain.Payments.PaymentStatus.Succeeded)
+                throw new DomainException("Order or payment is not in a refundable state.");
+
+            refund.Complete(bankReference);
+            var balance=await _life.GetSellerBalanceAsync(order.SellerId,token)??throw new DomainException("Seller balance not found.");
+            var hold=await _life.GetActiveHoldByOrderAsync(order.Id,token)??throw new DomainException("Seller hold not found.");
+            var bucket=BalanceBucket.Blocked;
+            var bucketBefore=balance.BlockedIRR;
+            if(balance.BlockedIRR>=order.SellerAmountIRR)
+                balance.ConsumeBlock(order.SellerAmountIRR);
+            else if(balance.PendingIRR>=order.SellerAmountIRR)
+            {
+                bucket=BalanceBucket.Pending;
+                bucketBefore=balance.PendingIRR;
+                balance.RemovePending(order.SellerAmountIRR);
+            }
+            else throw new DomainException("Seller balance does not contain the refundable seller amount.");
+
+            hold.Consume();
+            payment.MarkRefunded();
+            order.MarkRefunded();
+            _life.AddBalanceTransaction(BalanceTransaction.Create(
+                await _ids.NextAsync(token),order.SellerId,order.Id,null,
+                BalanceTransactionType.Refund,order.SellerAmountIRR,bucketBefore,
+                bucket==BalanceBucket.Blocked?balance.BlockedIRR:balance.PendingIRR,
+                "REFUND_RECONCILED",bucket));
+
+            var commission=await _life.GetCommissionByOrderAsync(order.Id,token);
+            if(commission is not null)
+            {
+                var reversed=Math.Min(commission.CommissionAmountIRR,refund.AmountIRR);
+                _life.AddCommissionReversal(CommissionReversal.Create(
+                    await _ids.NextAsync(token),commission.Id,order.Id,refund.Id,refund.AmountIRR,reversed));
+            }
+            await _uow.SaveChangesAsync(token);
+            return 0;
+        },ct);
+
 }
