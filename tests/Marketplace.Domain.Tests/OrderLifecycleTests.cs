@@ -199,6 +199,34 @@ public sealed class OrderLifecycleTests
         Assert.Equal(BalanceHoldStatus.Released,hold.Status);
     }
     [Fact]
+    public void SellerWonComplaintBeforeWindowExpires_DoesNotReleaseFunds()
+    {
+        var order = Order.Create(161, 162, 163, 164, 1_000_000, 1_000_000);
+        var payment = Payment.Create(165, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("COMPLAINT-WINDOW");
+        var balance = SellerBalance.Create(166, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        var hold = lifecycle.OnPaymentSucceeded(order, payment, balance, 167);
+        order.MarkReady();
+        var deliveredAt = DateTime.UtcNow;
+        var delivery = DeliveryEntity.Create(168, order.Id, order.SellerId, deliveredAt.AddDays(1));
+        delivery.MarkReady();
+        delivery.ConfirmDelivered("DEL-161", deliveredAt);
+        lifecycle.OnDelivered(order, delivery, balance, deliveredAt, deliveredAt.AddDays(2));
+        var complaint = Complaint.Create(169, order.Id, order.CustomerId, order.SellerId, "Review");
+        complaint.StartReview();
+        complaint.ResolveForSeller("Evidence accepted");
+
+        Assert.Throws<Marketplace.Domain.Common.DomainException>(() =>
+            lifecycle.OnSellerWon(complaint, order, balance, hold));
+
+        Assert.Equal(OrderStatus.Delivered, order.Status);
+        Assert.Equal(1_000_000, balance.BlockedIRR);
+        Assert.Equal(0, balance.AvailableIRR);
+        Assert.Equal(BalanceHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
     public void DeliveryExpired_RequestsRefundAndRemovesPendingSellerFundsExactlyOnce()
     {
         var order = Order.Create(21, 22, 23, 24, 3_000_000, 3_000_000);
