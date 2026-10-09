@@ -470,6 +470,64 @@ public sealed class FinancialSchemaConstraintTests
             var idempotencyPatchPath = Path.Combine(AppContext.BaseDirectory, "database", "015_FinancialIdempotencyIndexes.sql");
             Assert.True(File.Exists(idempotencyPatchPath), $"Financial idempotency patch was not copied to test output: {idempotencyPatchPath}");
             var idempotencyPatch = await File.ReadAllTextAsync(idempotencyPatchPath);
+
+            // A legacy migration must stop on duplicate financial history and preserve
+            // every row for investigation; it must not silently discard or rewrite records.
+            await using (var seedLegacyDuplicateAuthorities = new SqlCommand("""
+                INSERT INTO dbo.PaymentTransactions
+                    (Id, PaymentId, AmountIRR, Status, Provider, Authority, CreatedAtUtc)
+                VALUES
+                    (949970, 950007, 1000, 1, N'LegacyGateway', N'LEGACY-DUPLICATE-AUTH', SYSUTCDATETIME()),
+                    (949971, 950007, 1000, 1, N'LegacyGateway', N'LEGACY-DUPLICATE-AUTH', SYSUTCDATETIME());
+                INSERT INTO dbo.Refunds
+                    (Id, OrderId, PaymentId, CustomerId, AmountIRR, Reason, Status, RequestedAtUtc)
+                VALUES
+                    (949972, 950005, 950007, 950001, 1000, 1, 1, SYSUTCDATETIME()),
+                    (949973, 950005, 950007, 950001, 1000, 1, 3, SYSUTCDATETIME());
+                """, connection))
+            {
+                await seedLegacyDuplicateAuthorities.ExecuteNonQueryAsync();
+            }
+
+            await using (var rejectDuplicateAuthorityMigration = new SqlCommand(idempotencyPatch, connection) { CommandTimeout = 120 })
+            {
+                var ex = await Assert.ThrowsAsync<SqlException>(() => rejectDuplicateAuthorityMigration.ExecuteNonQueryAsync());
+                Assert.Contains("duplicate provider/authority pairs", ex.Message, StringComparison.OrdinalIgnoreCase);
+            }
+
+            await using (var verifyLegacyAuthorityRowsPreserved = new SqlCommand("""
+                SELECT COUNT_BIG(*) FROM dbo.PaymentTransactions
+                WHERE Provider = N'LegacyGateway' AND Authority = N'LEGACY-DUPLICATE-AUTH';
+                """, connection))
+            {
+                Assert.Equal(2L, Convert.ToInt64(await verifyLegacyAuthorityRowsPreserved.ExecuteScalarAsync()));
+            }
+
+            await using (var resolveLegacyAuthorityDuplicate = new SqlCommand(
+                "DELETE FROM dbo.PaymentTransactions WHERE Id = 949971;", connection))
+            {
+                await resolveLegacyAuthorityDuplicate.ExecuteNonQueryAsync();
+            }
+
+            await using (var rejectDuplicateRefundMigration = new SqlCommand(idempotencyPatch, connection) { CommandTimeout = 120 })
+            {
+                var ex = await Assert.ThrowsAsync<SqlException>(() => rejectDuplicateRefundMigration.ExecuteNonQueryAsync());
+                Assert.Contains("multiple active refunds", ex.Message, StringComparison.OrdinalIgnoreCase);
+            }
+
+            await using (var verifyLegacyRefundRowsPreserved = new SqlCommand("""
+                SELECT COUNT_BIG(*) FROM dbo.Refunds WHERE OrderId = 950005 AND Id IN (949972, 949973);
+                """, connection))
+            {
+                Assert.Equal(2L, Convert.ToInt64(await verifyLegacyRefundRowsPreserved.ExecuteScalarAsync()));
+            }
+
+            await using (var resolveLegacyRefundDuplicate = new SqlCommand(
+                "UPDATE dbo.Refunds SET Status = 5 WHERE Id = 949973;", connection))
+            {
+                await resolveLegacyRefundDuplicate.ExecuteNonQueryAsync();
+            }
+
             await using (var applyIdempotencyPatch = new SqlCommand(idempotencyPatch, connection) { CommandTimeout = 120 })
             {
                 await applyIdempotencyPatch.ExecuteNonQueryAsync();
