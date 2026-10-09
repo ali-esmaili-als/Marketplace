@@ -13,6 +13,29 @@ namespace Marketplace.Domain.Tests;
 
 public sealed class PaymentAndDeliveryRegressionTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Payment_CannotSucceedWithoutBankReference(string reference)
+    {
+        var payment = Payment.Create(101, 102, 103, 100_000);
+        payment.Redirect("TestBank", "AUTH-101");
+
+        Assert.Throws<DomainException>(() => payment.Succeed(reference));
+        Assert.Equal(PaymentStatus.Redirected, payment.Status);
+        Assert.Null(payment.ReferenceNumber);
+        Assert.Null(payment.PaidAtUtc);
+    }
+
+    [Fact]
+    public void PaymentTransaction_CannotSucceedWithoutBankReference()
+    {
+        var transaction = PaymentTransaction.Create(201, 202, 100_000, "TestBank", "AUTH-201");
+
+        Assert.Throws<DomainException>(() => transaction.Succeed("   "));
+        Assert.Equal(PaymentTransactionStatus.Initiated, transaction.Status);
+    }
+
     [Fact]
     public void Payment_CannotSucceedTwice()
     {
