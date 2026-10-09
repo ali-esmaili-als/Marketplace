@@ -64,8 +64,9 @@ WHERE r.Status = 4
   (
       SELECT 1
       FROM dbo.BalanceTransactions AS bt
-      WHERE bt.OrderId = r.OrderId
-        AND bt.Type = 3 -- Refund
+      WHERE bt.Type = 3 -- Refund
+        AND (bt.RefundId = r.Id
+             OR (bt.RefundId IS NULL AND bt.OrderId = r.OrderId))
   );
 
 PRINT '6. Duplicate sale ledger entries per order (should return no rows)';
@@ -201,9 +202,9 @@ WHERE r.Status = 4
   (
       SELECT 1
       FROM dbo.BalanceTransactions AS bt
-      WHERE bt.OrderId = r.OrderId
-        AND bt.SellerId = o.SellerId
-        AND bt.Type = 3 -- Refund
+      WHERE bt.Type = 3 -- Refund
+        AND (bt.RefundId = r.Id
+             OR (bt.RefundId IS NULL AND bt.OrderId = r.OrderId AND bt.SellerId = o.SellerId))
   );
 
 PRINT '18. Orders with multiple refund ledger entries (manual review required)';
@@ -745,3 +746,14 @@ WHERE cr.OrderId <> r.OrderId
    OR cr.OrderId <> c.OrderId
    OR cr.RefundAmountIRR <> r.AmountIRR
    OR cr.ReversedCommissionIRR > c.CommissionAmountIRR;
+
+
+PRINT '64. Refund ledger identity points to a different order or seller';
+SELECT bt.Id AS BalanceTransactionId, bt.RefundId, r.OrderId AS RefundOrderId,
+       bt.OrderId AS LedgerOrderId, bt.SellerId AS LedgerSellerId,
+       o.SellerId AS OrderSellerId, bt.AmountIRR, bt.Bucket, bt.CreatedAtUtc
+FROM dbo.BalanceTransactions AS bt
+JOIN dbo.Refunds AS r ON r.Id = bt.RefundId
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE bt.Type = 3
+  AND (bt.OrderId <> r.OrderId OR bt.SellerId <> o.SellerId);
