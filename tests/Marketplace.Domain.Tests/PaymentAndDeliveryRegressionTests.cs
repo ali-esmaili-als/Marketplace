@@ -6,6 +6,7 @@ using Marketplace.Domain.Finance;
 using Marketplace.Domain.Lifecycle;
 using Marketplace.Domain.Orders;
 using Marketplace.Domain.Payments;
+using Marketplace.Domain.Refunds;
 using Xunit;
 
 namespace Marketplace.Domain.Tests;
@@ -127,6 +128,37 @@ public sealed class PaymentAndDeliveryRegressionTests
         Assert.Equal(OrderStatus.RefundRequested, order.Status);
         Assert.Equal(0, balance.PendingIRR);
         Assert.Equal(0, balance.AvailableIRR);
+    }
+
+    [Fact]
+    public void CompletedDeliveryExpiryRefund_RemovesPendingFundsExactlyOnce()
+    {
+        var order = Order.Create(1, 2, 3, 4, 500_000, 500_000);
+        var payment = Payment.Create(5, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Succeed("PAYMENT-REF");
+        var balance = SellerBalance.Create(6, order.SellerId);
+        var lifecycle = new OrderFinancialLifecycle();
+        var hold = lifecycle.OnPaymentSucceeded(order, payment, balance, 7);
+
+        var expiresAt = DateTime.UtcNow.AddHours(1);
+        order.SetDeliveryExpiry(expiresAt);
+        order.MarkReady();
+        order.MarkDeliveryExpired(expiresAt.AddSeconds(1));
+        order.RequestRefund();
+
+        var refund = Refund.Create(8, order.Id, payment.Id, order.CustomerId, order.TotalAmountIRR, RefundReason.DeliveryExpired);
+        refund.StartProcessing();
+        refund.Complete("REFUND-REF");
+
+        lifecycle.CompleteRefund(order, payment, refund, balance, hold);
+
+        Assert.Equal(OrderStatus.Refunded, order.Status);
+        Assert.Equal(PaymentStatus.Refunded, payment.Status);
+        Assert.Equal(RefundStatus.Completed, refund.Status);
+        Assert.Equal(BalanceHoldStatus.Consumed, hold.Status);
+        Assert.Equal(0, balance.PendingIRR);
+        Assert.Equal(0, balance.AvailableIRR);
+        Assert.Equal(0, balance.BlockedIRR);
     }
 
     [Fact]
