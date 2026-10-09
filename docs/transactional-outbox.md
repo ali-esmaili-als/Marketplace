@@ -21,6 +21,16 @@ The table and domain lifecycle support a durable queue with attempts, retry time
 
 A lease-based hosted dispatcher is now implemented with atomic SQL claiming, per-claim lease tokens, retry backoff and dead-letter handling. It remains disabled by default. A real transport-specific `IOutboxPublisher` must be registered before enabling `Outbox:Enabled`; with no publisher registered, the worker does not claim rows. Do not treat rows as delivered to an external broker or notification provider until that integration is configured and verified. Configure and test that integration before relying on downstream delivery. Set `Outbox:Enabled=true` only after registering the publisher and validating its deduplication behavior.
 
+## HTTP webhook transport
+
+The generic webhook publisher is registered only when both settings are present:
+
+- `Outbox__Webhook__Url`: absolute HTTPS URL (plain HTTP is allowed only for loopback development).
+- `Outbox__Webhook__Secret`: at least 32 UTF-8 bytes; supply through a secret manager/environment variable, not source control.
+- `Outbox__Enabled=true`: turns on dispatch. Keep it false until the receiving endpoint is deployed and verified.
+
+Each POST contains `messageId`, `eventType`, `occurredAtUtc`, and the event payload. The receiver gets `Idempotency-Key: <messageId>` and `X-Marketplace-Signature: sha256=<lowercase hex HMAC-SHA256>`, calculated over the exact UTF-8 request body. The receiver must verify the signature using a constant-time comparison and durably deduplicate `messageId` before applying side effects. A 2xx response means the receiver has durably accepted the event; non-2xx and network failures are retried.
+
 ## Database deployment
 
 - New empty database: run `database/Marketplace_Complete.sql`.
