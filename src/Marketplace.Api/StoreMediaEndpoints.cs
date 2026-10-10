@@ -64,6 +64,9 @@ public static class StoreMediaEndpoints
                 if (media is null) return Results.NotFound();
                 media.Deactivate();
                 deletedUrl = media.Url;
+                // Persist deactivation before querying the remaining active group; SQL filters
+                // see database state, not unsaved tracked property values.
+                await db.SaveChangesAsync(ct);
                 await NormalizeActiveGroupAsync(db, media, ct);
                 await db.SaveChangesAsync(ct);
                 return Results.NoContent();
