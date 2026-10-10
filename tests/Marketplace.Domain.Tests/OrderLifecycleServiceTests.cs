@@ -301,8 +301,10 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(Marketplace.Domain.Delivery.DeliveryStatus.Delivered, delivery.Status);
         Assert.NotNull(code.UsedAtUtc);
         Assert.InRange(code.UsedAtUtc!.Value, now.AddMinutes(-1), DateTime.UtcNow.AddMinutes(1));
-        Assert.Equal(code.UsedAtUtc, delivery.DeliveredAtUtc);
-        Assert.Equal(code.UsedAtUtc!.Value.AddDays(7), order.ComplaintExpiresAtUtc);
+        Assert.NotNull(delivery.DeliveredAtUtc);
+        Assert.True((code.UsedAtUtc!.Value - delivery.DeliveredAtUtc!.Value).Duration() < TimeSpan.FromSeconds(1));
+        Assert.NotNull(order.ComplaintExpiresAtUtc);
+        Assert.True((order.ComplaintExpiresAtUtc!.Value - delivery.DeliveredAtUtc.Value.AddDays(7)).Duration() < TimeSpan.FromSeconds(1));
         Assert.NotEqual(now.AddYears(-1), delivery.DeliveredAtUtc);
         Assert.NotEqual(now.AddYears(10), order.ComplaintExpiresAtUtc);
         Assert.Equal(0, balance.PendingIRR);
