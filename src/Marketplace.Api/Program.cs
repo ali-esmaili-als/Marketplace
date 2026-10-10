@@ -1185,6 +1185,64 @@ app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/recheck", a
     });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/assignment", async (
+    string kind,
+    string entityKey,
+    FinancialIntegrityCaseAssignmentRequest request,
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    var allowedKinds = new[] { "PaymentOrderMismatch", "PaymentReview", "RefundProcessing", "SettlementOnHold" };
+    if (!allowedKinds.Contains(kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial case type.");
+    if (!long.TryParse(entityKey, out var entityId) || entityId <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
+    if (request.AssigneeUserId is <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Assignee user ID must be positive or null to unassign.");
+    if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length > 800)
+        throw new Marketplace.Domain.Common.DomainException("An assignment note of at most 800 characters is required.");
+
+    var exists = kind switch
+    {
+        "PaymentOrderMismatch" or "PaymentReview" => await db.Payments.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "RefundProcessing" => await db.Refunds.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "SettlementOnHold" => await db.Settlements.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        _ => false
+    };
+    if (!exists) return Results.NotFound(new { detail = "Financial record not found." });
+    if (request.AssigneeUserId.HasValue
+        && !await db.Users.AsNoTracking().AnyAsync(x => x.Id == request.AssigneeUserId.Value, ct))
+        return Results.NotFound(new { detail = "Assignee user not found." });
+
+    var detailsJson = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        kind,
+        entityId,
+        assigneeUserId = request.AssigneeUserId,
+        note = request.Note.Trim(),
+        workflowOnly = true
+    }, new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+    var correlationId = http.TraceIdentifier;
+    var audit = Marketplace.Domain.Auditing.AdminAuditEvent.Create(
+        CurrentUserId(user), "FinancialIntegrity.CaseAssigned", kind,
+        entityId.ToString(System.Globalization.CultureInfo.InvariantCulture), detailsJson,
+        correlationId.Length <= 100 ? correlationId : correlationId[..100]);
+    db.AdminAuditEvents.Add(audit);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new
+    {
+        auditId = audit.Id,
+        kind,
+        entityKey = entityId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        assigneeUserId = request.AssigneeUserId,
+        note = request.Note.Trim(),
+        updatedAtUtc = audit.CreatedAtUtc,
+        workflowOnly = true
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", async (
     string kind,
     string entityKey,
@@ -1760,38 +1818,50 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
     // Join the operational workflow's latest status to the diagnostic finding without
     // changing either the underlying financial record or the append-only audit history.
     var workflowEvents = await db.AdminAuditEvents.AsNoTracking()
-        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged")
+        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseAssigned")
         .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
         .Take(2000)
-        .Select(x => new { x.EntityType, x.EntityKey, x.DetailsJson, x.ActorUserId, x.CreatedAtUtc, x.Id })
+        .Select(x => new { x.EntityType, x.EntityKey, x.Action, x.DetailsJson, x.ActorUserId, x.CreatedAtUtc, x.Id })
         .ToListAsync(ct);
     var workflowByCase = new Dictionary<(string Kind, string EntityKey), (string Status, string Note, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
+    var assignmentByCase = new Dictionary<(string Kind, string EntityKey), (long? AssigneeUserId, string Note, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
     foreach (var activity in workflowEvents)
     {
         var key = (activity.EntityType, activity.EntityKey);
-        if (workflowByCase.ContainsKey(key)) continue;
-        var status = "Open";
-        var note = "";
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(activity.DetailsJson);
-            if (document.RootElement.TryGetProperty("status", out var statusElement))
-                status = statusElement.GetString() ?? "Open";
-            if (document.RootElement.TryGetProperty("note", out var noteElement))
-                note = noteElement.GetString() ?? "";
+            if (activity.Action == "FinancialIntegrity.CaseAssigned")
+            {
+                if (!assignmentByCase.ContainsKey(key))
+                {
+                    long? assigneeId = null;
+                    if (document.RootElement.TryGetProperty("assigneeUserId", out var assigneeElement)
+                        && assigneeElement.ValueKind == System.Text.Json.JsonValueKind.Number
+                        && assigneeElement.TryGetInt64(out var parsedAssignee)) assigneeId = parsedAssignee;
+                    var note = document.RootElement.TryGetProperty("note", out var assignmentNote) ? assignmentNote.GetString() ?? "" : "";
+                    assignmentByCase[key] = (assigneeId, note, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
+                }
+                continue;
+            }
+            if (!workflowByCase.ContainsKey(key))
+            {
+                var status = document.RootElement.TryGetProperty("status", out var statusElement) ? statusElement.GetString() ?? "Open" : "Open";
+                var note = document.RootElement.TryGetProperty("note", out var noteElement) ? noteElement.GetString() ?? "" : "";
+                workflowByCase[key] = (status, note, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
+            }
         }
         catch
         {
-            status = "Open";
-            note = "جزئیات وضعیت رسیدگی قابل خواندن نیست";
+            // Ignore malformed legacy audit JSON; one event must not break the read-only queue.
         }
-        workflowByCase[key] = (status, note, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
     }
 
     var items = filtered.Take(limit).Select(item =>
     {
         var key = (item.Kind, item.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         var hasWorkflow = workflowByCase.TryGetValue(key, out var workflow);
+        var hasAssignment = assignmentByCase.TryGetValue(key, out var assignment);
         return new
         {
             item.Kind,
@@ -1808,7 +1878,12 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
             workflowNote = hasWorkflow ? workflow.Note : "",
             workflowUpdatedAtUtc = hasWorkflow ? (DateTime?)workflow.UpdatedAtUtc : null,
             workflowActorUserId = hasWorkflow ? (long?)workflow.ActorUserId : null,
-            workflowAuditId = hasWorkflow ? (long?)workflow.AuditId : null
+            workflowAuditId = hasWorkflow ? (long?)workflow.AuditId : null,
+            assignedUserId = hasAssignment ? assignment.AssigneeUserId : null,
+            assignmentNote = hasAssignment ? assignment.Note : "",
+            assignmentUpdatedAtUtc = hasAssignment ? (DateTime?)assignment.UpdatedAtUtc : null,
+            assignmentActorUserId = hasAssignment ? (long?)assignment.ActorUserId : null,
+            assignmentAuditId = hasAssignment ? (long?)assignment.AuditId : null
         };
     }).ToList();
 
@@ -2909,6 +2984,7 @@ public sealed record RefundReconciliationRequest(bool TransferCompleted,string? 
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
 public sealed record FinancialIntegrityCaseStatusRequest(string Kind,string EntityKey,string Status,string Note);
+public sealed record FinancialIntegrityCaseAssignmentRequest(long? AssigneeUserId, string Note);
 public sealed record FinancialWorkQueueItem(
     string Kind, long EntityId, long? OrderId, long? SellerId, long? AmountIRR,
     string Status, DateTime CreatedAtUtc, double AgeHours, string Priority, string Summary);
