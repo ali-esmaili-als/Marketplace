@@ -260,3 +260,11 @@ The payment verification path must not turn a cancelled order back into a payabl
 5. Record the provider reference and the operator's evidence in the reconciliation audit. Confirm inventory availability and customer communication separately from financial settlement.
 
 A successful gateway response and a successful order finalization are separate facts. The first must never be treated as proof that inventory, seller funds, and order state were all committed.
+
+### Inventory reservation consistency checks (69–71)
+
+- **Check 69 — active reservation on a delivered or terminal order:** treat as a stock-accounting exception. Verify the order transition and reservation/stock movement history before correcting either record.
+- **Check 70 — inventory reserved quantity differs from active reservation rows:** compare the inventory item and all reservation rows for the variant. This can indicate a partial write, legacy data, or a double release/consume. Do not update ReservedQuantity by guesswork; reconcile quantities against the order and stock movement evidence.
+- **Check 71 — expired reservation on a pending-payment order:** this is a cleanup backlog candidate, not proof that the order should be cancelled immediately. Check payment status and provider outcome first. If a payment was captured or its outcome is ambiguous, use the payment reconciliation process before releasing stock.
+
+These checks are read-only. Run them before and after an authorized recovery and retain the result with the case audit. Never release a reservation while a payment could still have been captured without first establishing the provider's final outcome.
