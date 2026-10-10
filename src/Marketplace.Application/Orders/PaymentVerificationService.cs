@@ -58,7 +58,34 @@ public sealed class PaymentVerificationService
             return new PaymentVerificationResult(false, verification.Reference,
                 verification.Error ?? "Payment outcome is unknown. Refresh status; do not start another payment.", true);
         if (!verification.IsSuccessful)
-            return new PaymentVerificationResult(false, null, verification.Error);
+        {
+            await _uow.ExecuteInSerializableTransactionAsync(async token =>
+            {
+                var current = await _payments.GetAsync(paymentId, token)
+                    ?? throw new DomainException("Payment not found.");
+                if (current.Status is PaymentStatus.Pending or PaymentStatus.Redirected)
+                {
+                    current.Fail();
+                    var transaction = await _payments.GetLatestTransactionAsync(paymentId, token);
+                    transaction?.Fail();
+                    await _uow.SaveChangesAsync(token);
+                }
+                return 0;
+            }, ct);
+
+            // A concurrent callback may have succeeded while verification was in flight.
+            // Read persisted state before returning a definitive failure to the customer.
+            var afterRejection = await _payments.GetAsync(paymentId, ct)
+                ?? throw new DomainException("Payment not found.");
+            if (afterRejection.Status == PaymentStatus.Succeeded)
+                return new PaymentVerificationResult(true, afterRejection.ReferenceNumber, null);
+            if (afterRejection.Status is PaymentStatus.ReconciliationRequired
+                or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+                return new PaymentVerificationResult(false, afterRejection.ReferenceNumber,
+                    "Payment outcome requires financial reconciliation.");
+
+            return new PaymentVerificationResult(false, verification.Reference, verification.Error);
+        }
 
         var reference = verification.Reference ?? authority;
         await FinalizeVerifiedPaymentAsync(payment.Id, payment.OrderId, reference, ct);
