@@ -356,3 +356,11 @@ Checks 86–88 are read-only. They complement check 74's coarse transaction-coun
 - **Check 91 — failed/rejected refund but order/payment is marked refunded:** inspect audit history, provider result, and refund-linked postings. A failed or rejected refund must not finalize the order/payment. Do not revert the terminal status or delete financial records without tracing the original operation.
 
 Checks 89–91 are read-only and assume the current full-refund contract. If partial refunds are introduced, revise the expected payment state and amount invariants together with the domain lifecycle and ledger posting rules.
+
+
+### Payment/order state diagnostics (92–93)
+
+- **Check 92 — Pending/Redirected payment attached to an order that has left PendingPayment:** inspect the complete order trace and all provider attempts. A payment still awaiting a definitive outcome must not be assumed captured or failed merely because the order has advanced. Confirm the provider's authoritative status before changing payment, order, inventory, or seller-balance state.
+- **Check 93 — Failed/Cancelled payment attached to an order that progressed beyond PendingPayment/Cancelled:** compare the order transition history with the payment transaction and bank evidence. This can indicate a stale payment status, an incorrectly advanced order, or an incomplete finalization. Do not reverse an order or post/reverse seller funds based on this diagnostic alone.
+
+Checks 92–93 are read-only state-pair diagnostics and deliberately do not infer the bank outcome from the local status. Review them alongside checks 53–59 and the order trace; the correct recovery depends on the authoritative provider result and the ledger/inventory evidence. These checks must never trigger automatic retries, reservation release, balance changes, or ledger repair.
