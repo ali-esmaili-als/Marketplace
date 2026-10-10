@@ -55,6 +55,54 @@ public sealed class SettlementFinalizationFailureTests
         uow.Verify(x => x.ExecuteInSerializableTransactionAsync(
             It.IsAny<Func<CancellationToken, Task<int>>>(), CancellationToken.None), Times.Exactly(2));
     }
+    [Fact]
+    public async Task PayoutExceptionIsPreservedWhenOnHoldRecoveryPersistenceAlsoFails()
+    {
+        var settlement = Settlement.Create(601, 602, 300_000, 603, "Bank", "IR00603", "Seller");
+        var balance = SellerBalance.Create(604, settlement.SellerId);
+        balance.AddAvailable(800_000);
+        balance.ReserveForSettlement(settlement.AmountIRR);
+
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementAsync(settlement.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlement);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(settlement.SellerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+
+        var transactionCalls = 0;
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) =>
+            {
+                transactionCalls++;
+                if (transactionCalls == 1) return action(token);
+                return Task.FromException<int>(new InvalidOperationException("Recovery database unavailable."));
+            });
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var payout = new Mock<ISellerPayoutGateway>();
+        payout.Setup(x => x.TransferAsync(
+                settlement.BankNameSnapshot, settlement.IbanSnapshot, settlement.AccountHolderNameSnapshot,
+                settlement.AmountIRR, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("Original bank timeout."));
+
+        var service = new SettlementService(
+            lifecycle.Object, uow.Object, CreateIdGenerator(), payout.Object, Mock.Of<ISellerManagementRepository>());
+
+        var error = await Assert.ThrowsAsync<TimeoutException>(() => service.ProcessAsync(settlement.Id));
+
+        Assert.Equal("Original bank timeout.", error.Message);
+        Assert.Equal(SettlementStatus.Processing, settlement.Status);
+        Assert.Equal(800_000, balance.AvailableIRR);
+        Assert.Equal(300_000, balance.ReservedForSettlementIRR);
+        Assert.Equal(500_000, balance.WithdrawableIRR);
+        Assert.Equal(2, transactionCalls);
+        payout.Verify(x => x.TransferAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private static IIdGenerator CreateIdGenerator()
     {
         long next = 12000;

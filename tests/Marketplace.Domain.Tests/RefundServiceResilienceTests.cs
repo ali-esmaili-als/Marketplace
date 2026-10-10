@@ -20,6 +20,125 @@ namespace Marketplace.Domain.Tests;
 public sealed class RefundServiceResilienceTests
 {
     [Fact]
+    public async Task Undefined_numeric_payment_provider_is_rejected_before_refund_reservation()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(820, 830, 840, 850, 500_000, 500_000);
+        order.MarkPaid(now);
+        order.MarkReady();
+        order.SetDeliveryExpiry(now.AddMinutes(1));
+        order.MarkDeliveryExpired(now.AddMinutes(2));
+        order.RequestRefund();
+
+        var payment = Payment.Create(860, order.Id, order.CustomerId, order.TotalAmountIRR);
+        var undefinedProvider = ((int)PaymentProviderCode.TestBank + 100).ToString();
+        payment.Redirect(undefinedProvider, "AUTH-860");
+        payment.Succeed("BANK-860");
+
+        Refund? createdRefund = null;
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetActiveRefundByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => (Refund?)null);
+        lifecycle.Setup(x => x.AddRefund(It.IsAny<Refund>()))
+            .Callback<Refund>(refund => createdRefund = refund);
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        payments.Setup(x => x.GetAsync(payment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        long nextId = 870;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Interlocked.Increment(ref nextId));
+
+        var gatewayFactory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        var service = new RefundService(
+            orders.Object, payments.Object, lifecycle.Object, uow.Object, ids.Object, gatewayFactory.Object);
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            service.ProcessAsync(order.Id, RefundReason.DeliveryExpired));
+
+        Assert.Null(createdRefund);
+        Assert.Equal(OrderStatus.RefundRequested, order.Status);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        gatewayFactory.VerifyNoOtherCalls();
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Gateway_factory_failure_marks_refund_failed_before_any_bank_request()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(920, 930, 940, 950, 500_000, 500_000);
+        order.MarkPaid(now);
+        order.MarkReady();
+        order.SetDeliveryExpiry(now.AddMinutes(1));
+        order.MarkDeliveryExpired(now.AddMinutes(2));
+        order.RequestRefund();
+
+        var payment = Payment.Create(960, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Redirect("TestBank", "AUTH-960");
+        payment.Succeed("BANK-960");
+
+        Refund? createdRefund = null;
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetActiveRefundByOrderAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => (Refund?)null);
+        lifecycle.Setup(x => x.AddRefund(It.IsAny<Refund>()))
+            .Callback<Refund>(refund => createdRefund = refund);
+        lifecycle.Setup(x => x.GetRefundAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => createdRefund);
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        payments.Setup(x => x.GetAsync(payment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+
+        var transactionCalls = 0;
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) =>
+            {
+                transactionCalls++;
+                return action(token);
+            });
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        long nextId = 970;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Interlocked.Increment(ref nextId));
+
+        var gatewayFactory = new Mock<IPaymentGatewayFactory>();
+        gatewayFactory.Setup(x => x.GetForExistingPaymentAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DomainException("Payment provider is not configured."));
+        var service = new RefundService(
+            orders.Object, payments.Object, lifecycle.Object, uow.Object, ids.Object, gatewayFactory.Object);
+
+        var error = await Assert.ThrowsAsync<DomainException>(
+            () => service.ProcessAsync(order.Id, RefundReason.DeliveryExpired));
+
+        Assert.Equal("Payment provider is not configured.", error.Message);
+        Assert.NotNull(createdRefund);
+        Assert.Equal(RefundStatus.Failed, createdRefund!.Status);
+        Assert.Equal(OrderStatus.RefundRequested, order.Status);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        Assert.Equal(2, transactionCalls);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+        gatewayFactory.Verify(x => x.GetForExistingPaymentAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Gateway_timeout_keeps_refund_processing_and_blocks_duplicate_refund_attempt()
     {
         var now = DateTime.UtcNow;
@@ -129,8 +248,8 @@ public sealed class RefundServiceResilienceTests
         var gateway = new Mock<IPaymentGateway>();
         gateway.SetupSequence(x => x.RefundAsync(
                 payment.ReferenceNumber, order.TotalAmountIRR, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false)
-            .ReturnsAsync(false);
+            .ReturnsAsync(new PaymentRefundResult(false, null, "Bank declined refund."))
+            .ReturnsAsync(new PaymentRefundResult(false, null, "Bank declined refund."));
         var gatewayFactory = new Mock<IPaymentGatewayFactory>();
         gatewayFactory.Setup(x => x.GetForExistingPaymentAsync(
                 PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
@@ -282,9 +401,14 @@ public sealed class RefundServiceResilienceTests
             .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
         uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
+        long nextId = 900;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Interlocked.Increment(ref nextId));
+
         var service = new RefundService(
             Mock.Of<IOrderRepository>(), Mock.Of<IPaymentRepository>(), lifecycle.Object, uow.Object,
-            Mock.Of<IIdGenerator>(), Mock.Of<IPaymentGatewayFactory>());
+            ids.Object, Mock.Of<IPaymentGatewayFactory>());
 
         await service.ReconcileAsync(refund.Id, adminUserId: 450, transferCompleted: false,
             bankReference: null, note: "Provider confirms no refund was sent");

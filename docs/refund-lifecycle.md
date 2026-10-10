@@ -14,6 +14,12 @@ A refund in Requested, Approved or Processing is considered active. SQL Server e
 
 Only a confirmed successful transfer enters the common finalization path that updates the refund, order, payment, seller hold/balance, refund ledger identity and commission reversal atomically. A timeout is not converted into a definitive failure and must not cause a second automatic bank refund.
 
+The refund aggregate enforces the same safety boundary: `Fail` is allowed only after gateway processing has started, and `Reject` is allowed only before processing begins. A `Processing` refund cannot be rejected to clear the active-refund guard; it must remain reserved until a definitive bank outcome is established and recorded through reconciliation.
+
+The configured payment provider is validated before creating the refund reservation. An unsupported provider is a local configuration error, not an ambiguous bank result, so the request fails without creating a `Processing` refund or issuing a gateway call. Once the gateway call may have been issued, timeout/transport errors remain `Processing` for manual reconciliation.
+
+If the provider is valid but its adapter cannot be initialized (for example, missing provider configuration), the service records a definitive `Failed` state because the gateway refund method has not been invoked. This recovery is deliberately limited to adapter initialization; exceptions or timeouts from the actual refund call remain `Processing` because the bank may already have received the request. If writing the local failure also fails, the original exception is preserved and the `Processing` row remains available for reconciliation.
+
 ## Verification
 
 The SQL Server integration test `RefundConcurrencyIntegrationTests` runs two refund requests against separate DbContexts. It blocks the first request at the gateway, submits a concurrent second request, then simulates a timeout. Assertions verify one gateway call, one Processing refund, unchanged successful payment state, and no premature ledger movement.

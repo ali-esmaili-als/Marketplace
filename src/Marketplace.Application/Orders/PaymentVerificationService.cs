@@ -49,7 +49,19 @@ public sealed class PaymentVerificationService
                 }
                 return 0;
             }, ct);
-            return new PaymentVerificationResult(false, null, "Test payment was cancelled.");
+
+            // The browser's cancellation return can race with a successful bank callback.
+            // Report the persisted outcome after the transaction, not the stale return flag.
+            var afterCancellation = await _payments.GetAsync(paymentId, ct)
+                ?? throw new DomainException("Payment not found.");
+            if (afterCancellation.Status == PaymentStatus.Succeeded)
+                return new PaymentVerificationResult(true, afterCancellation.ReferenceNumber, null);
+            if (afterCancellation.Status is PaymentStatus.ReconciliationRequired
+                or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+                return new PaymentVerificationResult(false, afterCancellation.ReferenceNumber,
+                    "Payment outcome requires financial reconciliation.");
+
+            return new PaymentVerificationResult(false, afterCancellation.ReferenceNumber, "Test payment was cancelled.");
         }
 
         var gateway = await _gatewayFactory.GetForExistingPaymentAsync(PaymentProviderCode.TestBank, ct);
@@ -58,14 +70,39 @@ public sealed class PaymentVerificationService
             return new PaymentVerificationResult(false, verification.Reference,
                 verification.Error ?? "Payment outcome is unknown. Refresh status; do not start another payment.", true);
         if (!verification.IsSuccessful)
-            return new PaymentVerificationResult(false, null, verification.Error);
+        {
+            await _uow.ExecuteInSerializableTransactionAsync(async token =>
+            {
+                var current = await _payments.GetAsync(paymentId, token)
+                    ?? throw new DomainException("Payment not found.");
+                if (current.Status is PaymentStatus.Pending or PaymentStatus.Redirected)
+                {
+                    current.Fail();
+                    var transaction = await _payments.GetLatestTransactionAsync(paymentId, token);
+                    transaction?.Fail();
+                    await _uow.SaveChangesAsync(token);
+                }
+                return 0;
+            }, ct);
+
+            // A concurrent callback may have succeeded while verification was in flight.
+            // Read persisted state before returning a definitive failure to the customer.
+            var afterRejection = await _payments.GetAsync(paymentId, ct)
+                ?? throw new DomainException("Payment not found.");
+            if (afterRejection.Status == PaymentStatus.Succeeded)
+                return new PaymentVerificationResult(true, afterRejection.ReferenceNumber, null);
+            if (afterRejection.Status is PaymentStatus.ReconciliationRequired
+                or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+                return new PaymentVerificationResult(false, afterRejection.ReferenceNumber,
+                    "Payment outcome requires financial reconciliation.");
+
+            return new PaymentVerificationResult(false, verification.Reference, verification.Error);
+        }
 
         var reference = verification.Reference ?? authority;
         await FinalizeVerifiedPaymentAsync(payment.Id, payment.OrderId, reference, ct);
         var current = await _payments.GetAsync(payment.Id, ct) ?? throw new DomainException("Payment not found.");
-        return current.Status == PaymentStatus.ReconciliationRequired
-            ? new PaymentVerificationResult(false, reference, "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required.")
-            : new PaymentVerificationResult(true, reference, null);
+        return ToFinalVerificationResult(current, reference);
     }
 
     public async Task<PaymentVerificationResult> VerifyAsync(long userId,long paymentId,string authority,CancellationToken ct=default)
@@ -84,7 +121,9 @@ public sealed class PaymentVerificationService
             or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
             return new PaymentVerificationResult(false,payment.ReferenceNumber,"Payment is no longer payable.");
 
-        var provider=Enum.TryParse<PaymentProviderCode>(payment.Provider,true,out var parsed) ? parsed : throw new DomainException("Invalid payment provider.");
+        if (!Enum.TryParse<PaymentProviderCode>(payment.Provider, true, out var provider)
+            || !Enum.IsDefined(typeof(PaymentProviderCode), provider))
+            throw new DomainException("Invalid payment provider.");
         var gateway=await _gatewayFactory.GetAsync(provider,ct);
         var result=await gateway.VerifyAsync(authority,payment.AmountIRR,ct);
 
@@ -126,10 +165,22 @@ public sealed class PaymentVerificationService
         var reference = result.Reference ?? authority;
         await FinalizeVerifiedPaymentAsync(payment.Id, payment.OrderId, reference, ct);
         var currentPayment = await _payments.GetAsync(payment.Id, ct) ?? throw new DomainException("Payment not found.");
-        return currentPayment.Status == PaymentStatus.ReconciliationRequired
-            ? new PaymentVerificationResult(false, reference, "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required.")
-            : new PaymentVerificationResult(true, reference, null);
+        return ToFinalVerificationResult(currentPayment, reference);
     }
+    private static PaymentVerificationResult ToFinalVerificationResult(Payment payment, string reference)
+    {
+        return payment.Status switch
+        {
+            PaymentStatus.Succeeded => new PaymentVerificationResult(true, payment.ReferenceNumber ?? reference, null),
+            PaymentStatus.ReconciliationRequired => new PaymentVerificationResult(false, payment.ReferenceNumber ?? reference,
+                "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required."),
+            PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded => new PaymentVerificationResult(false,
+                payment.ReferenceNumber ?? reference, "Payment has been refunded; verify the order and refund ledger before taking further action."),
+            _ => new PaymentVerificationResult(false, payment.ReferenceNumber ?? reference,
+                "Gateway confirmed payment, but the payment is not in a completed state. Manual reconciliation is required.")
+        };
+    }
+
     private async Task FinalizeVerifiedPaymentAsync(long paymentId,long orderId,string reference,CancellationToken ct)
     {
         try
@@ -152,6 +203,33 @@ public sealed class PaymentVerificationService
                 await _uow.SaveChangesAsync(token);
                 return 0;
             },ct);
+        }
+        catch(Exception)
+        {
+            // The provider already confirmed success, but finalizing the order/ledger failed
+            // for a non-domain reason (for example a persistence exception). Best-effort
+            // persist a reconciliation marker so a retry cannot mistake this payment for
+            // an ordinary unpaid checkout. If the database is unavailable, preserve and
+            // rethrow the original failure; operations must then reconcile from provider data.
+            try
+            {
+                await _uow.ExecuteInSerializableTransactionAsync(async token =>
+                {
+                    var current=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
+                    if(current.Status is PaymentStatus.Succeeded or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded
+                        or PaymentStatus.ReconciliationRequired)
+                        return 0;
+
+                    current.RequireReconciliation(reference);
+                    await _uow.SaveChangesAsync(token);
+                    return 0;
+                }, CancellationToken.None);
+            }
+            catch
+            {
+                // Do not mask the original finalization failure with a failed recovery write.
+                throw;
+            }
         }
     }
 }

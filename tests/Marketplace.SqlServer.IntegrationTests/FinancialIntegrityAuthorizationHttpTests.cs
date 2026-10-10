@@ -74,6 +74,7 @@ public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<Web
     }
 
     [Theory]
+    [InlineData("GET", "/api/admin/financial-integrity/work-queue")]
     [InlineData("GET", "/api/admin/financial-integrity/summary")]
     [InlineData("GET", "/api/admin/financial-integrity/items")]
     [InlineData("GET", "/api/admin/financial-integrity/ledger")]
@@ -81,6 +82,7 @@ public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<Web
     [InlineData("GET", "/api/admin/financial-integrity/order-trace/123")]
     [InlineData("GET", "/api/admin/financial-integrity/cases")]
     [InlineData("GET", "/api/admin/financial-integrity/cases/PaymentReview/123/history")]
+    [InlineData("POST", "/api/admin/financial-integrity/cases/PaymentReview/123/assignment")]
     [InlineData("POST", "/api/admin/financial-integrity/reviews")]
     [InlineData("POST", "/api/admin/financial-integrity/cases")]
     [InlineData("POST", "/api/admin/financial-integrity/cases/PaymentReview/123/recheck")]

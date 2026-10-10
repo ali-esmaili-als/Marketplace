@@ -15,10 +15,10 @@ public sealed class SellerBalance : AggregateRoot<long>
     public long WithdrawableIRR => Math.Max(0, AvailableIRR - ReservedForSettlementIRR);
     public static SellerBalance Create(long id,long sellerId)=>new(){Id=id,SellerId=sellerId,UpdatedAtUtc=DateTime.UtcNow};
     public void AddPending(long amount){Positive(amount);PendingIRR=checked(PendingIRR+amount);Touch();}
-    public void ReleasePending(long amount){Positive(amount);if(PendingIRR<amount)throw new DomainException("Insufficient pending balance.");PendingIRR-=amount;AvailableIRR=checked(AvailableIRR+amount);Touch();}
+    public void ReleasePending(long amount){Positive(amount);if(PendingIRR<amount)throw new DomainException("Insufficient pending balance.");var nextAvailable=checked(AvailableIRR+amount);var nextPending=PendingIRR-amount;AvailableIRR=nextAvailable;PendingIRR=nextPending;Touch();}
     public void RemovePending(long amount){Positive(amount);if(PendingIRR<amount)throw new DomainException("Insufficient pending balance.");PendingIRR-=amount;Touch();}
-    public void Block(long amount){Positive(amount);if(AvailableIRR<amount)throw new DomainException("Insufficient available balance.");AvailableIRR-=amount;BlockedIRR=checked(BlockedIRR+amount);Touch();}
-    public void ReleaseBlock(long amount){Positive(amount);if(BlockedIRR<amount)throw new DomainException("Insufficient blocked balance.");BlockedIRR-=amount;AvailableIRR=checked(AvailableIRR+amount);Touch();}
+    public void Block(long amount){Positive(amount);if(AvailableIRR<amount)throw new DomainException("Insufficient available balance.");var nextBlocked=checked(BlockedIRR+amount);var nextAvailable=AvailableIRR-amount;AvailableIRR=nextAvailable;BlockedIRR=nextBlocked;Touch();}
+    public void ReleaseBlock(long amount){Positive(amount);if(BlockedIRR<amount)throw new DomainException("Insufficient blocked balance.");var nextAvailable=checked(AvailableIRR+amount);var nextBlocked=BlockedIRR-amount;AvailableIRR=nextAvailable;BlockedIRR=nextBlocked;Touch();}
     public void ConsumeBlock(long amount){Positive(amount);if(BlockedIRR<amount)throw new DomainException("Insufficient blocked balance.");BlockedIRR-=amount;Touch();}
     public void ReserveForSettlement(long amount){Positive(amount);if(WithdrawableIRR<amount)throw new DomainException("Insufficient withdrawable balance.");ReservedForSettlementIRR=checked(ReservedForSettlementIRR+amount);Touch();}
     public void CompleteSettlement(long amount){Positive(amount);if(ReservedForSettlementIRR<amount)throw new DomainException("Insufficient reserved settlement balance.");ReservedForSettlementIRR-=amount;Touch();}

@@ -26,7 +26,7 @@ public abstract class BankGatewayAdapterBase : IPaymentGateway
     public virtual Task<PaymentVerification> VerifyAsync(string authority,long amountIRR,CancellationToken ct=default)
         => throw new DomainException($"{ProviderName} gateway protocol adapter is not configured. Configure the official bank protocol before enabling this provider.");
 
-    public virtual Task<bool> RefundAsync(string? paymentReference,long amountIRR,CancellationToken ct=default)
+    public virtual Task<PaymentRefundResult> RefundAsync(string? paymentReference,long amountIRR,CancellationToken ct=default)
         => throw new DomainException($"{ProviderName} gateway refund protocol adapter is not configured.");
 
     public static BankGatewayConfiguration Parse(string json)

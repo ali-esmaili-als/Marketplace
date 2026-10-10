@@ -132,8 +132,16 @@ public sealed class OrderFinancialTraceIntegrationTests
                 Assert.Equal(1, reader.GetInt32(8)); // seller balance
             }
 
-            // A completed refund without its own refund-linked ledger row must be detectable.
-            await ExecuteAsync(connection, "DELETE dbo.BalanceTransactions WHERE Id = 82002;");
+            // A legacy order-level refund posting without RefundId must not hide the
+            // missing posting for this specific completed refund.
+            await ExecuteAsync(connection, """
+                DELETE dbo.BalanceTransactions WHERE Id = 82002;
+                INSERT dbo.BalanceTransactions
+                    (Id, SellerId, OrderId, SettlementId, RefundId, Type, Bucket, AmountIRR,
+                     BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+                VALUES (82005, 72001, 75001, NULL, NULL, 3, 2, 1000000,
+                        900000, 0, N'LEGACY-REFUND-TRACE', SYSUTCDATETIME());
+                """);
             await using (var missingRefundLedger = new SqlCommand("""
                 SELECT COUNT(*)
                 FROM dbo.Refunds r
@@ -143,7 +151,9 @@ public sealed class OrderFinancialTraceIntegrationTests
                   (
                       SELECT 1 FROM dbo.BalanceTransactions bt
                       WHERE bt.Type = 3
-                        AND (bt.RefundId = r.Id OR (bt.RefundId IS NULL AND bt.OrderId = r.OrderId))
+                        AND bt.RefundId = r.Id
+                        AND bt.OrderId = r.OrderId
+                        AND bt.SellerId = 72001
                   );
                 """, connection))
             {

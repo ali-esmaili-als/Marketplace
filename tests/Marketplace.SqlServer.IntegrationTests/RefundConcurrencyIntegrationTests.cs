@@ -158,7 +158,7 @@ public sealed class RefundConcurrencyIntegrationTests
             => throw new NotSupportedException();
         public Task<PaymentVerification> VerifyAsync(string authority, long amountIRR, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
-        public async Task<bool> RefundAsync(string? paymentReference, long amountIRR, CancellationToken cancellationToken = default)
+        public async Task<PaymentRefundResult> RefundAsync(string? paymentReference, long amountIRR, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _callCount);
             Entered.TrySetResult();

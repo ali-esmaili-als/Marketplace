@@ -19,10 +19,13 @@ public sealed class OrderLifecycleService
     private readonly IIdGenerator _ids;
     private readonly OrderFinancialLifecycle _domain=new();
     private readonly INotificationRepository _notifications;
+    private readonly TimeProvider _timeProvider;
+    private static readonly TimeSpan ComplaintWindow = TimeSpan.FromDays(7);
 
-    public OrderLifecycleService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,INotificationRepository notifications)
+    public OrderLifecycleService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,INotificationRepository notifications,TimeProvider? timeProvider=null)
     {
         _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _notifications=notifications;
+        _timeProvider=timeProvider ?? TimeProvider.System;
     }
 
     private async Task NotifyAsync(long userId,string title,string body,long orderId,CancellationToken ct)
@@ -44,8 +47,16 @@ public sealed class OrderLifecycleService
         var p=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
 
-        if(p.Status==Marketplace.Domain.Payments.PaymentStatus.Succeeded && o.Status!=OrderStatus.PendingPayment)
+        if (p.Status == Marketplace.Domain.Payments.PaymentStatus.Succeeded)
+        {
+            // Idempotent callbacks are safe only after the order lifecycle has advanced
+            // consistently. A successful payment attached to a pending/cancelled order
+            // is a financial exception and must be reconciled, not silently ignored.
+            if (o.Status is OrderStatus.PendingPayment or OrderStatus.Cancelled)
+                throw new DomainException("Successful payment is inconsistent with the order status and requires reconciliation.");
+
             return 0;
+        }
 
         p.Succeed(reference);
         var paymentTransaction=await _payments.GetLatestTransactionAsync(p.Id,token);
@@ -146,22 +157,29 @@ public sealed class OrderLifecycleService
 
     public async Task MarkDeliveredAsync(long orderId,string deliveryCode,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)
     {
+        // Keep legacy parameters for caller compatibility, but never trust client/job supplied
+        // timestamps for a financial transition or complaint deadline.
+        _ = now;
+        _ = complaintExpiresAtUtc;
+
         var invalidCode = await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
+            var confirmedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            var complaintDeadlineUtc = confirmedAtUtc.Add(ComplaintWindow);
             var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
             var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
             var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
             var code=await _life.GetDeliveryCodeByOrderAsync(orderId,token)??throw new DomainException("Delivery code not found.");
-            if(!code.Verify(deliveryCode,now))
+            if(!code.Verify(deliveryCode,confirmedAtUtc))
             {
                 // Commit failed-attempt counters before returning the validation error.
                 await _uow.SaveChangesAsync(token);
                 return true;
             }
 
-            d.ConfirmDelivered(confirmationReference,now);
+            d.ConfirmDelivered(confirmationReference,confirmedAtUtc);
             var pendingBefore=b.PendingIRR;
-            _domain.OnDelivered(o,d,b,now,complaintExpiresAtUtc);
+            _domain.OnDelivered(o,d,b,confirmedAtUtc,complaintDeadlineUtc);
 
             var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
             foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
@@ -258,10 +276,16 @@ public sealed class OrderLifecycleService
         {
             c.ResolveForSeller(note);
             var blockedBefore=b.BlockedIRR;
+            var availableBefore=b.AvailableIRR;
             _domain.OnSellerWon(c,o,b,h);
+            // Releasing the complaint hold transfers value from Blocked to Available.
+            // Record both sides so each bucket's ledger snapshot remains reconcilable.
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
                 o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_SELLER_WON",BalanceBucket.Blocked));
+            _life.AddBalanceTransaction(BalanceTransaction.Create(
+                await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
+                o.SellerAmountIRR,availableBefore,b.AvailableIRR,"COMPLAINT_SELLER_WON",BalanceBucket.Available));
         }
 
         await NotifyAsync(o.CustomerId,customerWon?"نتیجه شکایت به نفع شما ثبت شد":"شکایت به نفع فروشنده تعیین تکلیف شد",$"رسیدگی به شکایت سفارش شماره {o.Id} به پایان رسید.",o.Id,token);
@@ -291,12 +315,17 @@ public sealed class OrderLifecycleService
         // Complete validates the complaint-window deadline and order state before any money moves.
         o.Complete(now);
         var blockedBefore=b.BlockedIRR;
+        var availableBefore=b.AvailableIRR;
         b.ReleaseBlock(o.SellerAmountIRR);
         h.Release();
 
+        // A block release affects both buckets; keep both ledger snapshots in this transaction.
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
             o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_WINDOW_CLOSED",BalanceBucket.Blocked));
+        _life.AddBalanceTransaction(BalanceTransaction.Create(
+            await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
+            o.SellerAmountIRR,availableBefore,b.AvailableIRR,"COMPLAINT_WINDOW_CLOSED",BalanceBucket.Available));
 
         await NotifyAsync(o.CustomerId,"سفارش تکمیل شد",$"سفارش شماره {o.Id} تکمیل شد.",o.Id,token);
         await NotifySellerAsync(o.SellerId,"سفارش تکمیل شد",$"سفارش شماره {o.Id} تکمیل شد و دوره شکایت به پایان رسید.",o.Id,token);

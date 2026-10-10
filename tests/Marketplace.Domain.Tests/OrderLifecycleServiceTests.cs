@@ -295,11 +295,18 @@ public sealed class OrderLifecycleServiceTests
         var service = new OrderLifecycleService(orders.Object, payments.Object, lifecycle.Object,
             uow.Object, ids.Object, notifications.Object);
 
-        await service.MarkDeliveredAsync(order.Id, "123456", " CUSTOMER-CONFIRM ", now, now.AddDays(2));
+        await service.MarkDeliveredAsync(order.Id, "123456", " CUSTOMER-CONFIRM ", now.AddYears(-1), now.AddYears(10));
 
         Assert.Equal(OrderStatus.Delivered, order.Status);
         Assert.Equal(Marketplace.Domain.Delivery.DeliveryStatus.Delivered, delivery.Status);
-        Assert.Equal(now, code.UsedAtUtc);
+        Assert.NotNull(code.UsedAtUtc);
+        Assert.InRange(code.UsedAtUtc!.Value, now.AddMinutes(-1), DateTime.UtcNow.AddMinutes(1));
+        Assert.NotNull(delivery.DeliveredAtUtc);
+        Assert.True((code.UsedAtUtc!.Value - delivery.DeliveredAtUtc!.Value).Duration() < TimeSpan.FromSeconds(1));
+        Assert.NotNull(order.ComplaintExpiresAtUtc);
+        Assert.True((order.ComplaintExpiresAtUtc!.Value - delivery.DeliveredAtUtc.Value.AddDays(7)).Duration() < TimeSpan.FromSeconds(1));
+        Assert.NotEqual(now.AddYears(-1), delivery.DeliveredAtUtc);
+        Assert.NotEqual(now.AddYears(10), order.ComplaintExpiresAtUtc);
         Assert.Equal(0, balance.PendingIRR);
         Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
         Assert.Equal(8, inventory.AvailableQuantity);
@@ -534,7 +541,12 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(BalanceHoldStatus.Released, hold.Status);
         lifecycle.Verify(x => x.AddBalanceTransaction(
             It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
-                t.Bucket == BalanceBucket.Blocked && t.AmountIRR == order.SellerAmountIRR)), Times.Once);
+                t.Bucket == BalanceBucket.Blocked && t.AmountIRR == order.SellerAmountIRR &&
+                t.BalanceBeforeIRR == order.SellerAmountIRR && t.BalanceAfterIRR == 0)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Available && t.AmountIRR == order.SellerAmountIRR &&
+                t.BalanceBeforeIRR == 0 && t.BalanceAfterIRR == order.SellerAmountIRR)), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -634,7 +646,12 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(order.SellerAmountIRR, balance.AvailableIRR);
         Assert.Equal(BalanceHoldStatus.Released, hold.Status);
         lifecycle.Verify(x => x.AddBalanceTransaction(
-            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased)), Times.Once);
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Blocked)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Available)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -678,10 +695,17 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(BalanceHoldStatus.Released, hold.Status);
         lifecycle.Verify(x => x.AddBalanceTransaction(
             It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
-                t.Reference == "COMPLAINT_WINDOW_CLOSED" && t.AmountIRR == order.SellerAmountIRR)), Times.Once);
+                t.Bucket == BalanceBucket.Blocked && t.Reference == "COMPLAINT_WINDOW_CLOSED" &&
+                t.AmountIRR == order.SellerAmountIRR && t.BalanceBeforeIRR == order.SellerAmountIRR &&
+                t.BalanceAfterIRR == 0)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Available && t.Reference == "COMPLAINT_WINDOW_CLOSED" &&
+                t.AmountIRR == order.SellerAmountIRR && t.BalanceBeforeIRR == 0 &&
+                t.BalanceAfterIRR == order.SellerAmountIRR)), Times.Once);
         await Assert.ThrowsAsync<DomainException>(() => service.CloseCompletedOrderAsync(order.Id, now));
         Assert.Equal(order.SellerAmountIRR, balance.AvailableIRR);
-        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -796,6 +820,43 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
         Assert.Equal(0, balance.AvailableIRR);
         Assert.Equal(BalanceHoldStatus.Active, wrongOrderHold.Status);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+
+    [Fact]
+    public async Task Successful_payment_callback_does_not_silently_ignore_cancelled_order()
+    {
+        var order = Order.Create(940, 941, 942, 943, 250_000, 250_000);
+        order.Cancel();
+
+        var payment = Payment.Create(944, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Redirect("TestBank", "AUTH-944");
+        payment.Succeed("BANK-944");
+        var balance = SellerBalance.Create(945, order.SellerId);
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        var service = new OrderLifecycleService(orders.Object, payments.Object, lifecycle.Object,
+            uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.PaymentSucceededAsync(order.Id, "BANK-944"));
+
+        Assert.Equal(OrderStatus.Cancelled, order.Status);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        Assert.Equal(0, balance.PendingIRR);
+        lifecycle.Verify(x => x.AddBalanceHold(It.IsAny<SellerBalanceHold>()), Times.Never);
+        lifecycle.Verify(x => x.AddDelivery(It.IsAny<DeliveryEntity>()), Times.Never);
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }

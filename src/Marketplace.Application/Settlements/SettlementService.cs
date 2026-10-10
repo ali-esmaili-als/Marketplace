@@ -115,17 +115,25 @@ public sealed class SettlementService
             // A thrown exception/timeout is ambiguous. Once the provider call has returned
             // control to us, move to OnHold so reconciliation cannot race an in-flight payout.
             // Do not release the reserved balance; an operator must verify the bank's final state.
-            await _uow.ExecuteInSerializableTransactionAsync(async token =>
+            try
             {
-                var settlement = await _life.GetSettlementAsync(settlementId, token);
-                if (settlement?.Status == SettlementStatus.Processing)
+                await _uow.ExecuteInSerializableTransactionAsync(async token =>
                 {
-                    settlement.PutOnHold();
-                    await AddOutboxAsync("Settlement.OnHold", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
-                    await _uow.SaveChangesAsync(token);
-                }
-                return 0;
-            }, CancellationToken.None);
+                    var settlement = await _life.GetSettlementAsync(settlementId, token);
+                    if (settlement?.Status == SettlementStatus.Processing)
+                    {
+                        settlement.PutOnHold();
+                        await AddOutboxAsync("Settlement.OnHold", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
+                        await _uow.SaveChangesAsync(token);
+                    }
+                    return 0;
+                }, CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original provider exception. If recovery persistence is also down,
+                // the reservation remains intact and Processing must be reconciled operationally.
+            }
             throw;
         }
 
@@ -137,6 +145,24 @@ public sealed class SettlementService
                 var balance=await _life.GetSellerBalanceAsync(sellerId,token)??throw new DomainException("Seller balance not found.");
                 if(settlement.Status==SettlementStatus.Completed)
                     return new SettlementResult(settlement.Id,settlement.AmountIRR,settlement.Status.ToString(),settlement.Reference);
+
+                // A "successful" provider response without a durable bank reference is not
+                // sufficient evidence to finalize a payout. Keep the reservation and require
+                // reconciliation rather than recording an untraceable completed transfer.
+                if (result.Success && string.IsNullOrWhiteSpace(result.Reference))
+                {
+                    settlement.PutOnHold();
+                    await AddOutboxAsync("Settlement.OnHold", new
+                    {
+                        settlement.Id,
+                        settlement.SellerId,
+                        settlement.AmountIRR,
+                        settlement.Status,
+                        Reason = "Provider reported success without a bank reference."
+                    }, token);
+                    await _uow.SaveChangesAsync(token);
+                    return new SettlementResult(settlement.Id, amount, settlement.Status.ToString(), null);
+                }
 
                 if(!result.Success)
                 {
@@ -153,12 +179,21 @@ public sealed class SettlementService
                 }
 
                 settlement.Complete(result.Reference);
-                var before=balance.AvailableIRR;
+                var reservedBeforeCompletion = balance.ReservedForSettlementIRR;
+                var before = balance.AvailableIRR;
                 balance.CompleteSettlement(amount);
                 balance.RemoveAvailable(amount);
+
+                // Both buckets change during payout completion. Persist both ledger snapshots
+                // in the same transaction as the settlement state, balance, and outbox event.
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
-                    await _ids.NextAsync(token),sellerId,null,settlement.Id,
-                    BalanceTransactionType.Settlement,amount,before,balance.AvailableIRR,result.Reference,BalanceBucket.Available));
+                    await _ids.NextAsync(token), sellerId, null, settlement.Id,
+                    BalanceTransactionType.Settlement, amount, reservedBeforeCompletion,
+                    balance.ReservedForSettlementIRR, "SETTLEMENT_COMPLETED", BalanceBucket.ReservedForSettlement));
+                _life.AddBalanceTransaction(BalanceTransaction.Create(
+                    await _ids.NextAsync(token), sellerId, null, settlement.Id,
+                    BalanceTransactionType.Settlement, amount, before, balance.AvailableIRR,
+                    result.Reference, BalanceBucket.Available));
 
                 await AddOutboxAsync("Settlement.Completed", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status, settlement.Reference }, token);
                 await _uow.SaveChangesAsync(token);
@@ -222,11 +257,19 @@ public sealed class SettlementService
                     throw new DomainException("Bank reference is required when confirming a completed transfer.");
 
                 settlement.Complete(bankReference);
+                var reservedBefore = balance.ReservedForSettlementIRR;
                 var before = balance.AvailableIRR;
                 balance.CompleteSettlement(amount);
                 balance.RemoveAvailable(amount);
                 var auditReference = $"RECONCILED_PAID:{bankReference.Trim()}:{note.Trim()}";
                 if (auditReference.Length > 200) auditReference = auditReference[..200];
+
+                // Manual confirmation of a completed bank transfer must reconcile the same
+                // two bucket transitions as the normal success path.
+                _life.AddBalanceTransaction(BalanceTransaction.Create(
+                    await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
+                    BalanceTransactionType.Settlement, amount, reservedBefore,
+                    balance.ReservedForSettlementIRR, auditReference, BalanceBucket.ReservedForSettlement));
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token), settlement.SellerId, null, settlement.Id,
                     BalanceTransactionType.Settlement, amount, before, balance.AvailableIRR,

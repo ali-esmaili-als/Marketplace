@@ -125,7 +125,8 @@ public sealed class SettlementConcurrencyIntegrationTests
             Assert.Equal((byte)3, reader.GetByte(0));
             Assert.Equal(500_000L, reader.GetInt64(1));
             Assert.Equal(0L, reader.GetInt64(2));
-            Assert.Equal(1L, reader.GetInt64(3));
+            // Completion records both the ReservedForSettlement and Available bucket transitions.
+            Assert.Equal(2L, reader.GetInt64(3));
             Assert.Equal(1L, reader.GetInt64(4));
             Assert.Equal(1L, reader.GetInt64(5));
         }

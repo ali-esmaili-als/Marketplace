@@ -65,8 +65,7 @@ WHERE r.Status = 4
       SELECT 1
       FROM dbo.BalanceTransactions AS bt
       WHERE bt.Type = 3 -- Refund
-        AND (bt.RefundId = r.Id
-             OR (bt.RefundId IS NULL AND bt.OrderId = r.OrderId))
+        AND bt.RefundId = r.Id
   );
 
 PRINT '6. Duplicate sale ledger entries per order (should return no rows)';
@@ -757,3 +756,484 @@ JOIN dbo.Refunds AS r ON r.Id = bt.RefundId
 JOIN dbo.Orders AS o ON o.Id = r.OrderId
 WHERE bt.Type = 3
   AND (bt.OrderId <> r.OrderId OR bt.SellerId <> o.SellerId);
+
+PRINT '65. Seller balance holds whose seller or amount differs from the order snapshot';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId AS HoldSellerId,
+       o.SellerId AS OrderSellerId, h.AmountIRR AS HoldAmountIRR,
+       o.SellerAmountIRR AS OrderSellerAmountIRR, h.Status AS HoldStatus
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE h.SellerId <> o.SellerId
+   OR h.AmountIRR <> o.SellerAmountIRR;
+
+PRINT '66. Financially progressed orders missing their seller balance hold';
+SELECT o.Id AS OrderId, o.SellerId, o.Status AS OrderStatus,
+       o.SellerAmountIRR, o.PaidAtUtc, o.DeliveredAtUtc
+FROM dbo.Orders AS o
+WHERE o.Status IN (2, 3, 4, 5, 6, 7, 8, 9) -- Paid through Completed/Refunded
+  AND NOT EXISTS
+  (
+      SELECT 1 FROM dbo.SellerBalanceHolds AS h WHERE h.OrderId = o.Id
+  );
+
+PRINT '67. Consumed/released seller balance hold conflicts with final order state';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId, h.AmountIRR,
+       h.Status AS HoldStatus, o.Status AS OrderStatus,
+       h.CreatedAtUtc
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE (h.Status = 3 AND o.Status <> 8) -- Consumed should accompany a refunded order
+   OR (h.Status = 2 AND o.Status <> 9); -- Released should accompany a completed order
+
+PRINT '68. Multiple successful provider transactions for one payment';
+SELECT pt.PaymentId, COUNT_BIG(*) AS SuccessfulTransactionCount,
+       MIN(pt.AmountIRR) AS MinimumAmountIRR,
+       MAX(pt.AmountIRR) AS MaximumAmountIRR,
+       MIN(pt.CreatedAtUtc) AS FirstSuccessAtUtc,
+       MAX(pt.CreatedAtUtc) AS LastSuccessAtUtc
+FROM dbo.PaymentTransactions AS pt
+WHERE pt.Status = 3 -- Succeeded
+GROUP BY pt.PaymentId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '69. Active inventory reservations attached to orders that should no longer reserve stock';
+SELECT r.Id AS ReservationId, r.OrderId, r.ProductVariantId, r.Quantity,
+       r.Status AS ReservationStatus, r.ExpiresAtUtc,
+       o.Status AS OrderStatus, o.CreatedAtUtc
+FROM dbo.InventoryReservations AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 1 -- Active
+  AND o.Status IN (5, 6, 7, 8, 9, 10); -- Delivered or any later/terminal lifecycle state
+
+PRINT '70. Inventory reserved quantity differs from the sum of active reservation records';
+;WITH ActiveReservations AS
+(
+    SELECT ProductVariantId, SUM(Quantity) AS ActiveReservedQuantity,
+           COUNT_BIG(*) AS ActiveReservationCount
+    FROM dbo.InventoryReservations
+    WHERE Status = 1 -- Active
+    GROUP BY ProductVariantId
+)
+SELECT i.Id AS InventoryItemId, i.ProductVariantId,
+       i.StockQuantity, i.ReservedQuantity,
+       ISNULL(r.ActiveReservedQuantity, 0) AS ReservationRecordsQuantity,
+       ISNULL(r.ActiveReservationCount, 0) AS ActiveReservationCount,
+       i.ReservedQuantity - ISNULL(r.ActiveReservedQuantity, 0) AS DifferenceQuantity
+FROM dbo.InventoryItems AS i
+LEFT JOIN ActiveReservations AS r ON r.ProductVariantId = i.ProductVariantId
+WHERE i.ReservedQuantity <> ISNULL(r.ActiveReservedQuantity, 0);
+
+PRINT '71. Expired pending-payment inventory reservations awaiting lifecycle cleanup';
+SELECT r.Id AS ReservationId, r.OrderId, r.ProductVariantId, r.Quantity,
+       r.ExpiresAtUtc, r.CreatedAtUtc, o.Status AS OrderStatus
+FROM dbo.InventoryReservations AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 1 -- Active
+  AND o.Status = 1 -- PendingPayment
+  AND r.ExpiresAtUtc <= SYSUTCDATETIME();
+
+
+PRINT '72. Reserved seller balance differs from active settlement requests';
+;WITH ActiveSettlementTotals AS
+(
+    SELECT s.SellerId, SUM(s.AmountIRR) AS ActiveSettlementAmountIRR,
+           COUNT_BIG(*) AS ActiveSettlementCount
+    FROM dbo.Settlements AS s
+    WHERE s.Status IN (1, 2, 6) -- Requested, Processing, OnHold
+    GROUP BY s.SellerId
+)
+SELECT sb.SellerId, sb.ReservedForSettlementIRR,
+       ISNULL(ast.ActiveSettlementAmountIRR, 0) AS ActiveSettlementAmountIRR,
+       sb.ReservedForSettlementIRR - ISNULL(ast.ActiveSettlementAmountIRR, 0) AS DifferenceIRR,
+       ISNULL(ast.ActiveSettlementCount, 0) AS ActiveSettlementCount
+FROM dbo.SellerBalances AS sb
+LEFT JOIN ActiveSettlementTotals AS ast ON ast.SellerId = sb.SellerId
+WHERE sb.ReservedForSettlementIRR <> ISNULL(ast.ActiveSettlementAmountIRR, 0);
+
+PRINT '73. Completed settlements missing a bank reference';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       s.Reference, s.CompletedAtUtc, s.RequestedAtUtc
+FROM dbo.Settlements AS s
+WHERE s.Status = 3 -- Completed
+  AND LEN(LTRIM(RTRIM(ISNULL(s.Reference, N'')))) = 0;
+
+PRINT '74. Completed or failed settlements missing their outcome ledger transaction';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT(bt.Id) AS SettlementLinkedLedgerTransactionCount,
+       MIN(bt.CreatedAtUtc) AS FirstLedgerAtUtc,
+       MAX(bt.CreatedAtUtc) AS LastLedgerAtUtc
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt ON bt.SettlementId = s.Id
+WHERE s.Status IN (3, 4) -- Completed, Failed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT(bt.Id) < 2; -- request reservation plus completion/failure outcome
+
+
+
+PRINT '75. Completed refunds whose amount differs from the full-refund order/payment snapshot';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId,
+       r.AmountIRR AS RefundAmountIRR,
+       o.TotalAmountIRR AS OrderTotalAmountIRR,
+       p.AmountIRR AS PaymentAmountIRR,
+       r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 4 -- Completed
+  AND (r.AmountIRR <> o.TotalAmountIRR OR r.AmountIRR <> p.AmountIRR);
+
+PRINT '76. Completed refunds with a commission but no reversal linked to that exact refund';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       c.Id AS CommissionId, c.CommissionAmountIRR,
+       r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Commissions AS c ON c.OrderId = r.OrderId
+WHERE r.Status = 4 -- Completed
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.CommissionReversals AS cr
+      WHERE cr.RefundId = r.Id
+        AND cr.CommissionId = c.Id
+        AND cr.OrderId = r.OrderId
+  );
+
+PRINT '77. Failed or rejected refunds with refund-linked financial postings';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       r.Status AS RefundStatus, bt.Id AS LedgerTransactionId,
+       bt.Type AS LedgerType, bt.AmountIRR AS LedgerAmountIRR,
+       cr.Id AS CommissionReversalId, cr.ReversedCommissionIRR
+FROM dbo.Refunds AS r
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.RefundId = r.Id AND bt.Type = 3 -- Refund
+LEFT JOIN dbo.CommissionReversals AS cr ON cr.RefundId = r.Id
+WHERE r.Status IN (5, 6) -- Failed, Rejected
+  AND (bt.Id IS NOT NULL OR cr.Id IS NOT NULL);
+
+PRINT '78. Payments marked refunded without a completed refund record';
+SELECT p.Id AS PaymentId, p.OrderId, p.AmountIRR,
+       p.Status AS PaymentStatus, o.Status AS OrderStatus,
+       p.ReferenceNumber
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.Status = 6 -- Refunded
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.Refunds AS r
+      WHERE r.PaymentId = p.Id
+        AND r.Status = 4 -- Completed
+  );
+
+PRINT '79. Refunds left processing for more than 30 minutes (manual reconciliation candidate)';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       r.Status, r.RequestedAtUtc,
+       DATEDIFF(MINUTE, r.RequestedAtUtc, SYSUTCDATETIME()) AS ProcessingMinutes,
+       r.ProviderReference
+FROM dbo.Refunds AS r
+WHERE r.Status = 3 -- Processing
+  AND r.RequestedAtUtc < DATEADD(MINUTE, -30, SYSUTCDATETIME());
+
+
+PRINT '80. Completed refunds missing their exact refund ledger identity';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       r.Status AS RefundStatus, r.CompletedAtUtc, o.SellerId, o.SellerAmountIRR
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 4 -- Completed
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.BalanceTransactions AS bt
+      WHERE bt.RefundId = r.Id
+        AND bt.Type = 3 -- Refund
+        AND bt.OrderId = r.OrderId
+        AND bt.SellerId = o.SellerId
+  );
+
+PRINT '81. Refund ledger posting does not match the seller-share debit contract';
+SELECT bt.Id AS LedgerTransactionId, bt.RefundId, bt.OrderId,
+       bt.SellerId, bt.AmountIRR AS LedgerAmountIRR,
+       o.SellerId AS OrderSellerId, o.SellerAmountIRR,
+       bt.Bucket, bt.Reference, r.Status AS RefundStatus
+FROM dbo.BalanceTransactions AS bt
+JOIN dbo.Refunds AS r ON r.Id = bt.RefundId
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE bt.Type = 3 -- Refund
+  AND
+  (
+      bt.OrderId <> r.OrderId
+      OR bt.SellerId <> o.SellerId
+      OR bt.AmountIRR NOT IN (0, o.SellerAmountIRR)
+  );
+
+PRINT '82. Total commission reversals exceed the original commission';
+;WITH ReversalTotals AS
+(
+    SELECT CommissionId, COUNT_BIG(*) AS ReversalCount,
+           SUM(ReversedCommissionIRR) AS TotalReversedCommissionIRR,
+           SUM(RefundAmountIRR) AS TotalRefundAmountIRR
+    FROM dbo.CommissionReversals
+    GROUP BY CommissionId
+)
+SELECT c.Id AS CommissionId, c.OrderId, c.SellerId,
+       c.CommissionAmountIRR,
+       rt.ReversalCount, rt.TotalReversedCommissionIRR,
+       rt.TotalRefundAmountIRR
+FROM dbo.Commissions AS c
+JOIN ReversalTotals AS rt ON rt.CommissionId = c.Id
+WHERE rt.TotalReversedCommissionIRR > c.CommissionAmountIRR;
+
+PRINT '83. Commission snapshot differs from the associated order financial snapshot';
+SELECT c.Id AS CommissionId, c.OrderId, c.SellerId,
+       c.OrderAmountIRR AS CommissionOrderAmountIRR,
+       o.TotalAmountIRR AS OrderTotalAmountIRR,
+       c.SellerAmountIRR AS CommissionSellerAmountIRR,
+       o.SellerAmountIRR AS OrderSellerAmountIRR,
+       c.CommissionAmountIRR,
+       c.CommissionAmountIRR + c.SellerAmountIRR AS CommissionSplitTotalIRR
+FROM dbo.Commissions AS c
+JOIN dbo.Orders AS o ON o.Id = c.OrderId
+WHERE c.SellerId <> o.SellerId
+   OR c.OrderAmountIRR <> o.TotalAmountIRR
+   OR c.SellerAmountIRR <> o.SellerAmountIRR
+   OR c.CommissionAmountIRR + c.SellerAmountIRR <> c.OrderAmountIRR;
+
+PRINT '84. Refund references a payment or customer that does not match its order';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.CustomerId,
+       o.CustomerId AS OrderCustomerId, p.OrderId AS PaymentOrderId,
+       p.CustomerId AS PaymentCustomerId, r.AmountIRR,
+       o.TotalAmountIRR, p.AmountIRR AS PaymentAmountIRR
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE p.OrderId <> r.OrderId
+   OR r.CustomerId <> o.CustomerId
+   OR p.CustomerId <> o.CustomerId
+   OR r.AmountIRR > o.TotalAmountIRR
+   OR r.AmountIRR > p.AmountIRR;
+
+PRINT '85. Multiple commission snapshots exist for a single order';
+SELECT c.OrderId, COUNT_BIG(*) AS CommissionCount,
+       MIN(c.CreatedAtUtc) AS FirstCommissionAtUtc,
+       MAX(c.CreatedAtUtc) AS LastCommissionAtUtc,
+       SUM(c.CommissionAmountIRR) AS TotalCommissionAmountIRR
+FROM dbo.Commissions AS c
+GROUP BY c.OrderId
+HAVING COUNT_BIG(*) > 1;
+
+
+PRINT '86. Active settlements missing their exact reservation ledger entry';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT(bt.Id) AS MatchingReservationEntryCount
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.SettlementId = s.Id
+   AND bt.Type = 4 -- Settlement
+   AND bt.Reference = N'SETTLEMENT_REQUESTED'
+   AND bt.AmountIRR = s.AmountIRR
+WHERE s.Status IN (1, 2, 6) -- Requested, Processing, OnHold
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT(bt.Id) <> 1;
+
+PRINT '87. Completed settlements missing the exact payout outcome ledger entry';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       s.Reference AS SettlementBankReference,
+       COUNT(bt.Id) AS MatchingOutcomeEntryCount
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.SettlementId = s.Id
+   AND bt.Type = 4 -- Settlement outcome
+   AND bt.AmountIRR = s.AmountIRR
+   AND (bt.Reference = s.Reference OR LEFT(bt.Reference, LEN(N'RECONCILED_PAID:' + s.Reference + N':')) = N'RECONCILED_PAID:' + s.Reference + N':')
+WHERE s.Status = 3 -- Completed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status, s.Reference
+HAVING COUNT(bt.Id) <> 1;
+
+PRINT '88. Failed settlements missing the exact reservation-release ledger entry';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT(bt.Id) AS MatchingFailureEntryCount
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.SettlementId = s.Id
+   AND bt.Type = 14 -- SettlementFailed
+   AND bt.AmountIRR = s.AmountIRR
+WHERE s.Status = 4 -- Failed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT(bt.Id) <> 1;
+
+
+PRINT '89. Completed refund is inconsistent with order or payment terminal state';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.Status AS RefundStatus,
+       o.Status AS OrderStatus, p.Status AS PaymentStatus,
+       r.AmountIRR, r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 4 -- Completed
+  AND (o.Status <> 8 OR p.Status <> 6); -- Refunded order and payment
+
+PRINT '90. Processing refund no longer has its expected order/payment state';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.Status AS RefundStatus,
+       o.Status AS OrderStatus, p.Status AS PaymentStatus,
+       r.AmountIRR, r.RequestedAtUtc, r.ProviderReference
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 3 -- Processing
+  AND (o.Status <> 7 OR p.Status <> 3); -- RefundRequested order, Succeeded payment
+
+PRINT '91. Failed or rejected refund is inconsistent with refunded order/payment state';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.Status AS RefundStatus,
+       o.Status AS OrderStatus, p.Status AS PaymentStatus,
+       r.AmountIRR, r.ProviderReference
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status IN (5, 6) -- Failed, Rejected
+  AND (o.Status = 8 OR p.Status = 6); -- A failed refund must not finalize the order/payment
+
+
+PRINT '92. Pending or redirected payment attached to an order that has left PendingPayment';
+SELECT p.Id AS PaymentId, p.OrderId, p.Status AS PaymentStatus,
+       o.Status AS OrderStatus, p.AmountIRR, p.ReferenceNumber
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.Status IN (1, 2) -- Pending, Redirected
+  AND o.Status <> 1; -- PendingPayment
+
+
+PRINT '93. Failed or cancelled payment attached to an order that progressed beyond payment/cancellation';
+SELECT p.Id AS PaymentId, p.OrderId, p.Status AS PaymentStatus,
+       o.Status AS OrderStatus, p.AmountIRR, p.ReferenceNumber
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.Status IN (4, 5) -- Failed, Cancelled
+  AND o.Status NOT IN (1, 10); -- PendingPayment, Cancelled
+
+PRINT '94. More than one completed full refund exists for a single order';
+SELECT r.OrderId, COUNT_BIG(*) AS CompletedRefundCount,
+       SUM(r.AmountIRR) AS TotalCompletedRefundIRR,
+       MAX(o.TotalAmountIRR) AS OrderTotalAmountIRR,
+       MIN(r.CompletedAtUtc) AS FirstCompletedAtUtc,
+       MAX(r.CompletedAtUtc) AS LastCompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 4 -- Completed
+GROUP BY r.OrderId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '95. Refund amount differs from the current full-refund contract';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId,
+       r.Status AS RefundStatus, r.AmountIRR,
+       o.TotalAmountIRR AS OrderTotalAmountIRR,
+       p.AmountIRR AS PaymentAmountIRR
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.AmountIRR <> o.TotalAmountIRR
+   OR r.AmountIRR <> p.AmountIRR;
+
+PRINT '96. Payment amount differs from its order total';
+SELECT p.Id AS PaymentId, p.OrderId, p.CustomerId,
+       p.Status AS PaymentStatus, p.AmountIRR AS PaymentAmountIRR,
+       o.CustomerId AS OrderCustomerId,
+       o.TotalAmountIRR AS OrderTotalAmountIRR
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.AmountIRR <> o.TotalAmountIRR
+   OR p.CustomerId <> o.CustomerId;
+
+PRINT '97. Multiple refund ledger postings exist for the same refund identity';
+SELECT bt.RefundId, COUNT_BIG(*) AS RefundLedgerPostingCount,
+       MIN(bt.AmountIRR) AS MinimumPostingIRR,
+       MAX(bt.AmountIRR) AS MaximumPostingIRR,
+       MIN(bt.CreatedAtUtc) AS FirstPostingAtUtc,
+       MAX(bt.CreatedAtUtc) AS LastPostingAtUtc
+FROM dbo.BalanceTransactions AS bt
+WHERE bt.Type = 3 -- Refund
+  AND bt.RefundId IS NOT NULL
+GROUP BY bt.RefundId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '98. Legacy refund ledger postings cannot be tied to a specific refund identity';
+SELECT bt.Id AS LedgerTransactionId, bt.OrderId, bt.SellerId,
+       bt.AmountIRR, bt.Reference, bt.CreatedAtUtc,
+       COUNT(r.Id) AS CandidateRefundCount
+FROM dbo.BalanceTransactions AS bt
+LEFT JOIN dbo.Refunds AS r ON r.OrderId = bt.OrderId
+    AND r.Status = 4 -- Completed
+WHERE bt.Type = 3 -- Refund
+  AND bt.RefundId IS NULL
+GROUP BY bt.Id, bt.OrderId, bt.SellerId, bt.AmountIRR, bt.Reference, bt.CreatedAtUtc
+ORDER BY bt.CreatedAtUtc, bt.Id;
+
+PRINT '99. Commission reversal refund amount snapshot differs from its linked refund';
+SELECT cr.Id AS CommissionReversalId, cr.RefundId, cr.OrderId,
+       cr.CommissionId, cr.RefundAmountIRR AS ReversalRefundAmountIRR,
+       r.AmountIRR AS ActualRefundAmountIRR,
+       cr.ReversedCommissionIRR, r.Status AS RefundStatus,
+       cr.CreatedAtUtc
+FROM dbo.CommissionReversals AS cr
+JOIN dbo.Refunds AS r ON r.Id = cr.RefundId
+WHERE cr.RefundAmountIRR <> r.AmountIRR;
+
+PRINT '100. More than one commission reversal exists for the same refund and commission';
+SELECT cr.RefundId, cr.CommissionId, COUNT_BIG(*) AS ReversalCount,
+       SUM(cr.ReversedCommissionIRR) AS TotalReversedCommissionIRR,
+       MIN(cr.CreatedAtUtc) AS FirstReversalAtUtc,
+       MAX(cr.CreatedAtUtc) AS LastReversalAtUtc
+FROM dbo.CommissionReversals AS cr
+GROUP BY cr.RefundId, cr.CommissionId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '101. Duplicate settlement reservation ledger postings';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT_BIG(bt.Id) AS ReservationPostingCount,
+       SUM(bt.AmountIRR) AS TotalReservationPostingIRR
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt
+  ON bt.SettlementId = s.Id
+ AND bt.SellerId = s.SellerId
+ AND bt.Type = 4 -- Settlement
+ AND bt.Bucket = 4 -- ReservedForSettlement
+ AND bt.Reference = N'SETTLEMENT_REQUESTED'
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT_BIG(bt.Id) > 1;
+
+PRINT '102. Duplicate successful payout ledger postings for a settlement';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT_BIG(bt.Id) AS PayoutPostingCount,
+       SUM(bt.AmountIRR) AS TotalPayoutPostingIRR
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt
+  ON bt.SettlementId = s.Id
+ AND bt.SellerId = s.SellerId
+ AND bt.Type = 4 -- Settlement
+ AND bt.Bucket = 1 -- Available
+ AND bt.AmountIRR = s.AmountIRR
+ AND
+ (
+     bt.Reference = s.Reference
+     OR LEFT(bt.Reference, LEN(N'RECONCILED_PAID:' + s.Reference + N':'))
+        = N'RECONCILED_PAID:' + s.Reference + N':'
+ )
+WHERE s.Status = 3 -- Completed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT_BIG(bt.Id) > 1;
+
+PRINT '103. Duplicate definitive failure release postings for a settlement';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT_BIG(bt.Id) AS FailureReleasePostingCount,
+       SUM(bt.AmountIRR) AS TotalFailureReleaseIRR
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt
+  ON bt.SettlementId = s.Id
+ AND bt.SellerId = s.SellerId
+ AND bt.Type = 14 -- SettlementFailed
+ AND bt.Bucket = 4 -- ReservedForSettlement
+ AND bt.AmountIRR = s.AmountIRR
+WHERE s.Status = 4 -- Failed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT_BIG(bt.Id) > 1;
+

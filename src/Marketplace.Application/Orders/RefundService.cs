@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Complaints;
@@ -34,6 +35,7 @@ public sealed class RefundService
         long paymentId = 0;
         long amount = 0;
         string? paymentReference = null;
+        PaymentProviderCode providerCode = default;
 
         // Reserve the refund in SQL and commit before calling the external gateway.
         await _uow.ExecuteInSerializableTransactionAsync(async token =>
@@ -45,6 +47,12 @@ public sealed class RefundService
 
             if (payment.Status != PaymentStatus.Succeeded)
                 throw new DomainException("Only successfully paid orders can be refunded.");
+
+            // Validate the configured provider before reserving the refund. No bank request has
+            // been issued at this point, so an invalid provider must not strand a refund in Processing.
+            if (!Enum.TryParse<PaymentProviderCode>(payment.Provider, true, out providerCode)
+                || !Enum.IsDefined(typeof(PaymentProviderCode), providerCode))
+                throw new DomainException("Invalid payment provider; refund was not reserved.");
 
             if (reason == RefundReason.AdminAdjustment || !Enum.IsDefined(reason))
                 throw new DomainException("This refund reason is not available to customers.");
@@ -85,14 +93,39 @@ public sealed class RefundService
         }, ct);
 
         // Never keep a database transaction open while calling an external payment provider.
-        var paymentForGateway = await _payments.GetAsync(paymentId, ct)
-            ?? throw new DomainException("Payment not found.");
-        if (!Enum.TryParse<PaymentProviderCode>(paymentForGateway.Provider, true, out var provider))
-            throw new DomainException("Invalid payment provider.");
+        IPaymentGateway gateway;
+        try
+        {
+            // Factory resolution/configuration completes before any refund request is sent to the bank.
+            gateway = await _gatewayFactory.GetForExistingPaymentAsync(providerCode, ct);
+        }
+        catch
+        {
+            // No gateway instance was returned, therefore no bank refund call was issued. Release the
+            // active-refund guard by recording a definitive local failure; never do this around RefundAsync.
+            try
+            {
+                await _uow.ExecuteInSerializableTransactionAsync(async token =>
+                {
+                    var refund = await _life.GetRefundAsync(refundId, token);
+                    if (refund is not null && refund.Status == RefundStatus.Processing)
+                    {
+                        refund.Fail("Payment gateway could not be initialized; no refund request was sent.");
+                        await _uow.SaveChangesAsync(token);
+                    }
+                    return 0;
+                }, CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original initialization exception. If persistence is unavailable, the
+                // reserved Processing row remains visible for audited manual reconciliation.
+            }
+            throw;
+        }
 
-        var gateway = await _gatewayFactory.GetForExistingPaymentAsync(provider, ct);
-        // An exception/timeout is intentionally not converted to Failed: the bank outcome may be unknown.
-        var gatewayOk = await gateway.RefundAsync(paymentReference, amount, ct);
+        // An exception/timeout from RefundAsync is intentionally not converted to Failed: the bank outcome may be unknown.
+        var gatewayResult = await gateway.RefundAsync(paymentReference, amount, ct);
 
         await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
@@ -106,14 +139,39 @@ public sealed class RefundService
             if (refund.Status == RefundStatus.Completed)
                 return 0;
 
-            if (!gatewayOk)
+            if (!gatewayResult.IsOutcomeDefinitive || (gatewayResult.IsSuccessful && string.IsNullOrWhiteSpace(gatewayResult.Reference)))
             {
-                refund.Fail("Payment gateway refund failed.");
+                // A positive boolean alone is not durable evidence of a completed refund. Keep the
+                // refund in Processing so the active-refund guard prevents a duplicate bank request.
+                _life.AddOutboxMessage(OutboxMessage.Create(
+                    await _ids.NextAsync(token),
+                    "Refund.ReconciliationRequired",
+                    JsonSerializer.Serialize(new { refund.Id, refund.OrderId, refund.PaymentId, refund.AmountIRR,
+                        Reason = !gatewayResult.IsOutcomeDefinitive ? "Provider outcome is ambiguous." : "Provider reported success without a refund reference." })));
                 await _uow.SaveChangesAsync(token);
                 return 0;
             }
 
-            await ApplySuccessfulRefundAsync(refund, order, payment, null, token);
+            if (!gatewayResult.IsSuccessful)
+            {
+                refund.Fail(gatewayResult.Error ?? "Payment gateway refund failed.");
+                _life.AddOutboxMessage(OutboxMessage.Create(
+                    await _ids.NextAsync(token),
+                    "Refund.Failed",
+                    JsonSerializer.Serialize(new
+                    {
+                        refund.Id,
+                        refund.OrderId,
+                        refund.PaymentId,
+                        refund.AmountIRR,
+                        Error = refund.FailureReason,
+                        Status = refund.Status.ToString()
+                    })));
+                await _uow.SaveChangesAsync(token);
+                return 0;
+            }
+
+            await ApplySuccessfulRefundAsync(refund, order, payment, gatewayResult.Reference, token);
             await _uow.SaveChangesAsync(token);
             return 0;
         }, ct);
@@ -135,7 +193,22 @@ public sealed class RefundService
             {
                 refund.Fail(note);
                 _life.AddRefundReconciliationAudit(
-                    RefundReconciliationAudit.Create(refund.Id, adminUserId, false, note, null));
+                    RefundReconciliationAudit.Create(refund.Id, adminUserId, false, note, bankReference));
+                _life.AddOutboxMessage(OutboxMessage.Create(
+                    await _ids.NextAsync(token),
+                    "Refund.Reconciled",
+                    JsonSerializer.Serialize(new
+                    {
+                        refund.Id,
+                        refund.OrderId,
+                        refund.PaymentId,
+                        refund.AmountIRR,
+                        AdminUserId = adminUserId,
+                        TransferCompleted = false,
+                        BankReference = bankReference,
+                        Note = note.Trim(),
+                        Status = refund.Status.ToString()
+                    })));
                 await _uow.SaveChangesAsync(token);
                 return 0;
             }
@@ -156,6 +229,21 @@ public sealed class RefundService
             await ApplySuccessfulRefundAsync(refund, order, payment, bankReference, token);
             _life.AddRefundReconciliationAudit(
                 RefundReconciliationAudit.Create(refund.Id, adminUserId, true, note, bankReference));
+            _life.AddOutboxMessage(OutboxMessage.Create(
+                await _ids.NextAsync(token),
+                "Refund.Reconciled",
+                JsonSerializer.Serialize(new
+                {
+                    refund.Id,
+                    refund.OrderId,
+                    refund.PaymentId,
+                    refund.AmountIRR,
+                    AdminUserId = adminUserId,
+                    TransferCompleted = true,
+                    BankReference = bankReference.Trim(),
+                    Note = note.Trim(),
+                    Status = refund.Status.ToString()
+                })));
             await _uow.SaveChangesAsync(token);
             return 0;
         }, ct);
@@ -163,24 +251,45 @@ public sealed class RefundService
     private async Task ApplySuccessfulRefundAsync(Refund refund, Order order, Payment payment,
         string? bankReference, CancellationToken token)
     {
-        refund.Complete(bankReference);
+        // Preflight all order/payment/refund/hold/balance invariants before mutating any aggregate.
+        // The SQL transaction rolls back on failure, but validating first also protects callers
+        // and tests that use non-transactional repositories or mocks.
+        if (refund.Status != RefundStatus.Processing)
+            throw new DomainException("Refund must be processing before finalization.");
+        if (refund.OrderId != order.Id || refund.PaymentId != payment.Id
+            || refund.CustomerId != order.CustomerId || refund.AmountIRR != order.TotalAmountIRR)
+            throw new DomainException("Refund does not match the order and payment.");
+        if (order.Status != OrderStatus.RefundRequested)
+            throw new DomainException("Order is not awaiting refund.");
+        if (payment.OrderId != order.Id || payment.CustomerId != order.CustomerId
+            || payment.AmountIRR != order.TotalAmountIRR || payment.Status != PaymentStatus.Succeeded)
+            throw new DomainException("Payment is not eligible for this refund.");
 
         var balance = await _life.GetSellerBalanceAsync(order.SellerId, token)
             ?? throw new DomainException("Seller balance not found.");
         var hold = await _life.GetActiveHoldByOrderAsync(order.Id, token)
             ?? throw new DomainException("Seller hold not found.");
+        if (balance.SellerId != order.SellerId
+            || hold.SellerId != order.SellerId
+            || hold.OrderId != order.Id
+            || hold.AmountIRR != order.SellerAmountIRR
+            || hold.Status != BalanceHoldStatus.Active)
+            throw new DomainException("Seller balance hold does not match the order and seller.");
+        if (order.SellerAmountIRR <= 0)
+            throw new DomainException("Seller share must be positive before refund finalization.");
 
         var bucket = BalanceBucket.Blocked;
         var bucketBefore = balance.BlockedIRR;
         var balanceDebited = true;
 
         if (balance.BlockedIRR >= order.SellerAmountIRR)
-            balance.ConsumeBlock(order.SellerAmountIRR);
+        {
+            // Prefer the held seller share when it is still in the blocked bucket.
+        }
         else if (balance.PendingIRR >= order.SellerAmountIRR)
         {
             bucket = BalanceBucket.Pending;
             bucketBefore = balance.PendingIRR;
-            balance.RemovePending(order.SellerAmountIRR);
         }
         else if (order.DeliveredAtUtc is null && order.DeliveryExpiresAtUtc.HasValue)
         {
@@ -193,6 +302,15 @@ public sealed class RefundService
         else
             throw new DomainException("Seller balance does not contain the refundable seller amount.");
 
+        // No domain mutation occurs before every cross-aggregate precondition is verified.
+        refund.Complete(bankReference);
+        if (balanceDebited)
+        {
+            if (bucket == BalanceBucket.Blocked)
+                balance.ConsumeBlock(order.SellerAmountIRR);
+            else
+                balance.RemovePending(order.SellerAmountIRR);
+        }
         hold.Consume();
         payment.MarkRefunded();
         order.MarkRefunded();
@@ -210,5 +328,20 @@ public sealed class RefundService
             _life.AddCommissionReversal(CommissionReversal.Create(
                 await _ids.NextAsync(token), commission.Id, order.Id, refund.Id, refund.AmountIRR, reversed));
         }
+
+        _life.AddOutboxMessage(OutboxMessage.Create(
+            await _ids.NextAsync(token),
+            "Refund.Completed",
+            JsonSerializer.Serialize(new
+            {
+                refund.Id,
+                refund.OrderId,
+                refund.PaymentId,
+                refund.AmountIRR,
+                refund.ProviderReference,
+                OrderStatus = order.Status.ToString(),
+                PaymentStatus = payment.Status.ToString(),
+                RefundStatus = refund.Status.ToString()
+            })));
     }
 }

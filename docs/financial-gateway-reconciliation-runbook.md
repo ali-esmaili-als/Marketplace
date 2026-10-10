@@ -239,3 +239,175 @@ Operational and client behavior:
 5. If the provider cannot distinguish definitive rejection from an uncertain result in its response, do not map the uncertain response to a definitive rejection. The gateway adapter contract must expose that distinction before such a provider is enabled for production.
 
 The existing automated timeout tests use mocked gateways and persistence. They establish that an exception/timeout does not mutate payment/transaction state, but they do not prove a real provider's semantics. Validate each production provider's definitive-rejection and ambiguous-response mapping against its official protocol and sandbox before enabling it.
+
+### Interpreting lifecycle diagnostics (checks 65–68)
+
+- **65 — Hold/order snapshot mismatch:** a seller-balance hold's seller or amount differs from the order's immutable seller-share snapshot. Treat this as a high-priority integrity incident; do not consume, release, or recreate the hold until the order, payment, and ledger history are traced.
+- **66 — Missing seller hold:** an order that progressed from payment into a later lifecycle state has no seller-balance hold. Verify whether payment finalization committed partially, whether legacy data predates the hold workflow, and whether a migration or out-of-band edit occurred. Do not create a hold from current balance totals without reconstructing the original transaction.
+- **67 — Hold/order terminal-state conflict:** a consumed hold is expected with a refunded order, while a released hold is expected with a completed order. Check the refund/complaint decision, balance transactions, and audit trail; a row is a review signal, not a safe automatic repair instruction.
+- **68 — Multiple successful provider transactions for one payment:** inspect every authority/reference and the provider's transaction history. Confirm whether the bank captured more than once. Do not assume duplicate rows are duplicate charges, and do not issue a compensating refund until the external outcome and local ledger effects are established.
+
+These checks complement payment/order, refund/commission, inventory-reservation, and settlement diagnostics. Run them before and after an authorized reconciliation. They are intentionally read-only and do not infer a corrective balance adjustment.
+
+### Successful gateway response for a cancelled or still-pending order
+
+The payment verification path must not turn a cancelled order back into a payable/fulfillable order merely because a gateway later reports success. If a definitive success cannot be committed together with the expected order transition, the payment is moved to ReconciliationRequired and its provider reference is retained.
+
+1. Verify the provider authority, amount, currency, and final bank status directly from the provider's transaction history.
+2. Trace the order, payment attempts, inventory reservations, seller balance hold, and ledger entries with the order financial trace and read-only consistency checks.
+3. If the bank did not capture funds, document the provider's definitive rejection and resolve the reconciliation case without creating seller funds.
+4. If the bank did capture funds, keep the payment in reconciliation until an authorized, auditable recovery decision is made. Do not recreate the order, reserve inventory again, or credit seller balance based only on the callback.
+5. Record the provider reference and the operator's evidence in the reconciliation audit. Confirm inventory availability and customer communication separately from financial settlement.
+
+A successful gateway response and a successful order finalization are separate facts. The first must never be treated as proof that inventory, seller funds, and order state were all committed.
+
+### Inventory reservation consistency checks (69–71)
+
+- **Check 69 — active reservation on a delivered or terminal order:** treat as a stock-accounting exception. Verify the order transition and reservation/stock movement history before correcting either record.
+- **Check 70 — inventory reserved quantity differs from active reservation rows:** compare the inventory item and all reservation rows for the variant. This can indicate a partial write, legacy data, or a double release/consume. Do not update ReservedQuantity by guesswork; reconcile quantities against the order and stock movement evidence.
+- **Check 71 — expired reservation on a pending-payment order:** this is a cleanup backlog candidate, not proof that the order should be cancelled immediately. Check payment status and provider outcome first. If a payment was captured or its outcome is ambiguous, use the payment reconciliation process before releasing stock.
+
+These checks are read-only. Run them before and after an authorized recovery and retain the result with the case audit. Never release a reservation while a payment could still have been captured without first establishing the provider's final outcome.
+
+
+### Settlement reserve and outcome diagnostics (72–74)
+
+- **Check 72 — reserved seller balance differs from active settlement requests:** compare the seller balance's reserved amount with the total of Requested, Processing, and OnHold settlements. Investigate missing settlement rows, duplicate reservations, failed finalization, or out-of-band balance edits. Do not alter the balance or settlement status until the ledger and provider outcome are reconstructed.
+- **Check 73 — completed settlement has no bank reference:** verify the payout directly with the payout provider/bank and inspect the settlement reconciliation audit. Do not treat the Completed status alone as proof of a traceable transfer.
+- **Check 74 — completed/failed settlement has fewer than two settlement-linked ledger rows:** the expected lifecycle includes the initial reservation entry and a final completion/failure entry. Review the settlement, balance snapshots, and transaction history; older or migrated data may need contextual review before correction.
+
+Checks 72–74 are read-only diagnostics. A non-empty result is a reconciliation lead, not an instruction to recreate ledger entries or change balances automatically.
+
+
+### Gateway-confirmed payment when local finalization fails unexpectedly
+
+A provider's definitive success response is not enough to prove that the order, inventory lifecycle, seller hold, and pending ledger entries were committed. If the payment finalization transaction fails for a non-domain reason, the application now makes a best-effort attempt to mark the payment `ReconciliationRequired` while retaining the gateway reference. If the recovery write also fails (for example, the database is unavailable), the original exception is preserved; the payment may still appear Redirected/Pending until the database recovers.
+
+1. Search the provider by the original authority and confirm the final captured amount/reference.
+2. Inspect the persisted payment and order state, inventory reservations, seller hold, delivery record, and seller ledger.
+3. If the payment is `ReconciliationRequired`, use the payment reconciliation workflow; do not start another checkout or credit seller funds directly.
+4. If the recovery write could not persist, rerun the read-only consistency checks once SQL Server is healthy and reconcile using the provider's definitive status and the complete order trace.
+5. Do not mark a payment failed or release inventory solely because the finalization request returned an exception after the bank confirmed success.
+
+The regression test for this path simulates a persistence exception before the lifecycle transaction can run, then verifies that the best-effort recovery records the payment as requiring reconciliation. It does not simulate a real SQL Server outage or prove that the recovery write will succeed during an outage.
+
+
+### Refund amount, commission reversal, and stale-processing diagnostics (75–79)
+
+- **Check 75 — completed refund amount differs from the order/payment snapshot:** the current application implements full-order refunds. Verify the order total, captured payment amount, provider transfer amount, and refund record. If partial refunds are introduced later, revise this check together with the refund domain contract before enabling them.
+- **Check 76 — completed refund lacks a commission reversal for its exact refund and commission:** inspect the refund-linked reversal and original commission. Do not create a reversal based only on the aggregate seller balance; confirm the provider transfer and refund lifecycle first.
+- **Check 77 — failed/rejected refund has a refund ledger posting or commission reversal:** investigate whether the refund was actually transferred, whether a later manual reconciliation changed the financial outcome, and whether the wrong refund identity was attached. Do not delete a ledger row to make the query clear.
+- **Check 78 — payment marked Refunded has no completed refund:** compare provider transaction history, payment status, order state, and refund audits. The payment's terminal status alone does not establish which refund transfer occurred.
+- **Check 79 — refund has remained Processing for over 30 minutes:** this is an operational triage threshold, not an automatic timeout. Confirm the provider's authoritative refund result before calling `ReconcileAsync`; a timeout or exception can mean the bank completed the transfer.
+
+Checks 75–79 are read-only. The 30-minute threshold is intentionally a review signal and must not trigger automatic failure, retry, or balance release. Current refund processing is a full-refund flow; any future partial-refund feature must update the amount diagnostics and financial invariants in the same change.
+
+
+### Payout confirmed but settlement finalization cannot be persisted
+
+The payout provider can return a definitive result while the subsequent SQL transaction that updates the settlement, seller balance, and final ledger row fails. The service makes a best-effort recovery transition from Processing to OnHold after such a finalization exception, without releasing reserved funds. The original persistence exception is preserved for logging and alerting. If the recovery write also fails, the settlement may remain Processing and requires operational review after the database recovers.
+
+1. Do not retry the payout or manually release the reserve.
+2. Query the bank/provider using the settlement's immutable bank-account snapshot, amount, and any returned reference.
+3. Inspect settlement status, reservation and outcome ledger entries, seller balance snapshots, and outbox events.
+4. If the record is OnHold, use the audited settlement reconciliation workflow only after confirming the provider's final transfer result.
+5. If it remains Processing because the recovery write could not persist, restore database availability and reconcile the original settlement before any payout retry.
+
+A regression test covers a successful provider response followed by a simulated finalization persistence exception. It verifies the settlement is put on hold, reserved funds remain unchanged, the original exception is rethrown, and the payout provider is called only once.
+
+
+### Refund ledger identity and commission snapshot diagnostics (80–85)
+
+- **Check 80 — completed refund lacks its exact refund ledger identity:** inspect the refund, seller-balance movement, and original order. A zero-value seller debit can be valid when delivery-expiry processing already removed the seller share; the refund-linked row must still exist to explain the lifecycle.
+- **Check 81 — refund ledger row disagrees with the order/seller or expected debit:** the current full-refund path records either zero seller debit (already removed) or the order's seller share. Confirm the delivery-expiry path and bucket snapshots before changing anything.
+- **Check 82 — commission reversals exceed the original commission:** inspect every refund and reversal for the commission. Do not delete or rewrite reversal records to force the total into range.
+- **Check 83 — commission snapshot differs from the order financial snapshot:** compare the immutable order and commission split, including shipping treatment and historical pricing rules. If older versions used a different snapshot contract, classify those rows before treating them as corruption.
+- **Check 84 — refund's payment/customer identity or amount conflicts with the order:** verify the original payment, order ownership, captured amount, and refund record. Do not execute a second provider refund while identities are inconsistent.
+- **Check 85 — multiple commission snapshots exist for one order:** inspect commission creation retries and ledger references. The current model expects one commission aggregate per order; do not consolidate rows without tracing associated balance transactions and reversals.
+
+Checks 80–85 are read-only investigation queries. They are designed to find inconsistent identities and aggregate totals; they do not automatically repair ledger history. In particular, check 83 should be interpreted against the commission snapshot contract that was active when the order was created.
+
+
+### Payout timeout when the OnHold recovery write also fails
+
+If the payout provider throws or times out, the transfer outcome is ambiguous. The service attempts to move the settlement from `Processing` to `OnHold` without releasing the reserved funds. If this recovery write also fails, the original provider exception is preserved and the settlement may remain `Processing`.
+
+1. Do not retry the payout and do not release the seller's reservation.
+2. After database availability is restored, inspect the settlement and its reservation ledger entries.
+3. Confirm the bank's final transfer status using the settlement amount, immutable bank-account snapshot, and any provider reference.
+4. Use the audited reconciliation flow only after the provider's final status is established.
+
+Failure to persist the recovery state is not evidence that the payout failed. A regression test verifies that the original bank timeout is preserved, funds remain reserved, and the payout is invoked only once.
+
+
+### Settlement ledger identity diagnostics (86–88)
+
+- **Check 86 — active settlement is missing exactly one reservation entry:** compare the settlement-linked SETTLEMENT_REQUESTED transaction with the settlement amount. An active settlement should have one reservation posting, regardless of whether its current status is Requested, Processing, or OnHold.
+- **Check 87 — completed settlement is missing exactly one matching payout entry:** compare the amount and bank reference against the settlement's final reference. A manually reconciled payout uses a RECONCILED_PAID ledger reference that retains the same bank reference; inspect that entry rather than creating another payout posting.
+- **Check 88 — failed settlement is missing exactly one reservation-release entry:** verify the SettlementFailed transaction and balance before/after values. Do not release funds a second time if a valid outcome entry already exists.
+
+Checks 86–88 are read-only. They complement check 74's coarse transaction-count check by verifying the expected settlement identity, amount, and outcome reference. Historical records created before the reservation ledger contract was deployed may need version-aware triage; do not automatically backfill financial postings from these query results.
+
+
+### Refund/order/payment state diagnostics (89–91)
+
+- **Check 89 — completed refund but order/payment is not in its refunded terminal state:** inspect the provider result and the atomic finalization transaction. The current refund implementation supports full refunds; a completed refund should correspond to a Refunded order and Refunded payment. Do not edit statuses independently of the ledger.
+- **Check 90 — Processing refund with an unexpected order/payment state:** confirm whether a manual action or older deployment changed the order or payment after the refund reservation. A normal ambiguous refund remains Processing while the order is RefundRequested and payment remains Succeeded. Confirm the bank outcome before reconciliation.
+- **Check 91 — failed/rejected refund but order/payment is marked refunded:** inspect audit history, provider result, and refund-linked postings. A failed or rejected refund must not finalize the order/payment. Do not revert the terminal status or delete financial records without tracing the original operation.
+
+Checks 89–91 are read-only and assume the current full-refund contract. If partial refunds are introduced, revise the expected payment state and amount invariants together with the domain lifecycle and ledger posting rules.
+
+
+### Payment/order state diagnostics (92–93)
+
+- **Check 92 — Pending/Redirected payment attached to an order that has left PendingPayment:** inspect the complete order trace and all provider attempts. A payment still awaiting a definitive outcome must not be assumed captured or failed merely because the order has advanced. Confirm the provider's authoritative status before changing payment, order, inventory, or seller-balance state.
+- **Check 93 — Failed/Cancelled payment attached to an order that progressed beyond PendingPayment/Cancelled:** compare the order transition history with the payment transaction and bank evidence. This can indicate a stale payment status, an incorrectly advanced order, or an incomplete finalization. Do not reverse an order or post/reverse seller funds based on this diagnostic alone.
+
+Checks 92–93 are read-only state-pair diagnostics and deliberately do not infer the bank outcome from the local status. Review them alongside checks 53–59 and the order trace; the correct recovery depends on the authoritative provider result and the ledger/inventory evidence. These checks must never trigger automatic retries, reservation release, balance changes, or ledger repair.
+
+### Full-refund amount and identity diagnostics (94–96)
+
+- **Check 94 — more than one completed refund exists for one order:** the current application contract is full refunds, and a completed refund makes the order/payment terminal. Inspect every refund attempt, provider reference, and refund-linked ledger/reversal entry. Do not delete duplicate rows or issue compensating transfers until the provider outcomes are independently confirmed.
+- **Check 95 — refund amount differs from the order total or payment amount:** the current refund workflow sends the full order total to the gateway. Verify the immutable order/payment snapshots and provider amount. If historical partial-refund behavior existed in an older deployment, classify those records before treating them as invalid.
+- **Check 96 — payment amount or customer identity differs from the order:** compare the payment attempt to the order's immutable total and owner. Do not retry payment, refund, or seller-balance operations while the financial identity is inconsistent.
+
+Checks 94–96 are read-only and supplement checks 75, 80–85, and 89–93. They do not initiate gateway requests, change order/payment/refund states, release inventory, or modify seller balances/ledger entries. These checks assume the current full-refund contract; a future partial-refund feature must update the application invariants, database diagnostics, and operator procedure together.
+
+### Order trace identity and refund controls
+
+The admin order-trace endpoint also reports read-only findings for:
+
+- `PaymentCustomerMismatch`: a payment attempt's customer differs from the order owner.
+- `ProviderTransactionAmountMismatch`: a persisted provider transaction amount differs from its linked payment attempt.
+- `RefundIdentityOrAmountMismatch`: a refund's amount differs from the current full-order refund contract, or its payment/customer identity does not match the order's payment records.
+- `MultipleCompletedRefunds`: more than one completed refund is attached to the same order.
+
+These findings are review signals, not proof that the bank transferred money incorrectly. Verify provider references and authoritative bank evidence before any financial action. The trace endpoint only reads persisted records; it does not retry payment/refund calls, alter inventory, repair the ledger, or change seller balances. The admin UI displays these alongside existing findings and includes them in the trace CSV export.
+
+The order-trace endpoint requires an exact `RefundId` match for a refund ledger posting. An older order-level refund entry with a null `RefundId` is not treated as proof that a particular refund was posted, because it could otherwise mask a missing posting for one or more refunds. Such legacy rows require manual correlation using timestamps, amounts, and provider evidence; do not relink or rewrite ledger rows automatically.
+
+### Refund ledger identity and duplicate-posting diagnostics (97–98)
+
+- **Check 97 — multiple refund ledger postings share one `RefundId`:** inspect every posting, refund state transition, and provider evidence to determine whether an idempotency or finalization path posted twice. Do not delete or offset entries automatically.
+- **Check 98 — legacy refund ledger posting has no `RefundId`:** these rows cannot prove which refund attempt they represent. Correlate the order, amount, reference, timestamps, and bank evidence manually. Check 5 and check 80 now require exact `RefundId` linkage; a legacy order-level posting no longer suppresses a missing-posting finding for a completed refund.
+
+Both checks are read-only. They do not create, relink, delete, or reverse financial postings, and they do not change payment, refund, order, inventory, or seller-balance state.
+
+### Commission reversal diagnostics (99–100)
+
+- **Check 99 — refund amount snapshot mismatch:** the refund amount stored with a commission reversal differs from the linked refund's amount. Review the refund history, reversal calculation, and original commission snapshot before deciding whether any correction is warranted.
+- **Check 100 — duplicate reversal for the same refund and commission:** multiple reversal records share the same `(RefundId, CommissionId)` pair. Verify whether a retry or recovery path created duplicate reversal entries and compare the total reversed amount with the original commission (also covered by check 82).
+
+These checks are read-only signals. Do not delete or amend reversal rows or adjust seller balances until the refund and commission evidence has been reconciled.
+
+### Settlement duplicate-posting diagnostics (101–103)
+
+- **Check 101 — duplicate reservation postings:** more than one `SETTLEMENT_REQUESTED` reserved-bucket ledger entry is linked to a settlement. Confirm whether request retries or recovery logic emitted duplicate reservation records.
+- **Check 102 — duplicate successful payout postings:** a completed settlement has multiple matching available-bucket payout entries, including the supported `RECONCILED_PAID:` reference form. Compare references, timestamps, bank evidence, and seller balance before deciding on any correction.
+- **Check 103 — duplicate failure-release postings:** a failed settlement has multiple matching reserved-bucket release entries. Confirm whether reservation release was repeated during recovery.
+
+These are read-only diagnostics. A duplicate ledger row does not by itself establish whether money was transferred twice; compare provider/bank evidence and the full ledger trail. Do not automatically delete entries, retry transfers, or adjust balances.
+
+### Atomic balance-bucket transfers
+
+Seller-balance bucket transfers must calculate every checked destination value before assigning either source or destination bucket. This is especially important for pending release, blocking, and block release: if the destination bucket would overflow, the operation must fail without changing either bucket. The domain tests cover these overflow boundaries. This is an in-memory consistency guarantee; it does not replace database transaction boundaries for persisting ledger and balance changes together.

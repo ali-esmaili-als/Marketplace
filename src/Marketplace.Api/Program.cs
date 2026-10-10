@@ -573,17 +573,22 @@ app.MapGet("/api/sellers/me/finance/transactions", async (
     var sellerId = await db.Sellers.AsNoTracking().Where(s => s.UserId == userId)
         .Select(s => (long?)s.Id).SingleOrDefaultAsync(ct);
     if (sellerId is null) return Results.NotFound(new { detail = "Seller profile not found." });
-    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value > toUtc.Value)
-        return Results.BadRequest(new { detail = "fromUtc must be earlier than toUtc." });
+    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value >= toUtc.Value)
+        return Results.BadRequest(new { detail = "toUtc must be later than fromUtc." });
+    if (orderId.HasValue && orderId.Value <= 0)
+        return Results.BadRequest(new { detail = "orderId must be a positive integer." });
 
     var query = db.BalanceTransactions.AsNoTracking().Where(x => x.SellerId == sellerId.Value);
     if (fromUtc.HasValue) query = query.Where(x => x.CreatedAtUtc >= fromUtc.Value);
     if (toUtc.HasValue) query = query.Where(x => x.CreatedAtUtc < toUtc.Value);
     if (orderId.HasValue) query = query.Where(x => x.OrderId == orderId.Value);
-    if (!string.IsNullOrWhiteSpace(type) && Enum.TryParse<Marketplace.Domain.Finance.BalanceTransactionType>(type, true, out var parsedType))
+    if (!string.IsNullOrWhiteSpace(type))
+    {
+        if (!Enum.TryParse<Marketplace.Domain.Finance.BalanceTransactionType>(type, true, out var parsedType)
+            || !Enum.IsDefined(typeof(Marketplace.Domain.Finance.BalanceTransactionType), parsedType))
+            return Results.BadRequest(new { detail = "Unknown transaction type." });
         query = query.Where(x => x.Type == parsedType);
-    else if (!string.IsNullOrWhiteSpace(type))
-        return Results.BadRequest(new { detail = "Unknown transaction type." });
+    }
 
     var limit = Math.Clamp(take ?? 50, 1, 100);
     var rows = await query.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
@@ -1180,6 +1185,84 @@ app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/recheck", a
     });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/assignment", async (
+    string kind,
+    string entityKey,
+    FinancialIntegrityCaseAssignmentRequest request,
+    System.Security.Claims.ClaimsPrincipal user,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    var allowedKinds = new[] { "PaymentOrderMismatch", "PaymentReview", "RefundProcessing", "SettlementOnHold" };
+    if (!allowedKinds.Contains(kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial case type.");
+    if (!long.TryParse(entityKey, out var entityId) || entityId <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
+    if (request.AssigneeUserId is <= 0)
+        throw new Marketplace.Domain.Common.DomainException("Assignee user ID must be positive or null to unassign.");
+    if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length > 800)
+        throw new Marketplace.Domain.Common.DomainException("An assignment note of at most 800 characters is required.");
+    var nextAction = request.NextAction?.Trim();
+    DateTimeOffset? dueAtUtc = null;
+    if (request.AssigneeUserId.HasValue)
+    {
+        if (string.IsNullOrWhiteSpace(nextAction) || nextAction.Length is < 5 or > 300)
+            throw new Marketplace.Domain.Common.DomainException("A next action between 5 and 300 characters is required when assigning a case.");
+        if (!request.DueAtUtc.HasValue)
+            throw new Marketplace.Domain.Common.DomainException("A due date is required when assigning a case.");
+        dueAtUtc = request.DueAtUtc.Value.ToUniversalTime();
+        if (dueAtUtc.Value <= DateTimeOffset.UtcNow)
+            throw new Marketplace.Domain.Common.DomainException("The due date must be in the future.");
+    }
+    else if (!string.IsNullOrWhiteSpace(nextAction) || request.DueAtUtc.HasValue)
+    {
+        throw new Marketplace.Domain.Common.DomainException("Next action and due date must be empty when unassigning a case.");
+    }
+
+    var exists = kind switch
+    {
+        "PaymentOrderMismatch" or "PaymentReview" => await db.Payments.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "RefundProcessing" => await db.Refunds.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        "SettlementOnHold" => await db.Settlements.AsNoTracking().AnyAsync(x => x.Id == entityId, ct),
+        _ => false
+    };
+    if (!exists) return Results.NotFound(new { detail = "Financial record not found." });
+    if (request.AssigneeUserId.HasValue
+        && !await db.Users.AsNoTracking().AnyAsync(x => x.Id == request.AssigneeUserId.Value, ct))
+        return Results.NotFound(new { detail = "Assignee user not found." });
+
+    var detailsJson = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        kind,
+        entityId,
+        assigneeUserId = request.AssigneeUserId,
+        note = request.Note.Trim(),
+        nextAction,
+        dueAtUtc,
+        workflowOnly = true
+    }, new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+    var correlationId = http.TraceIdentifier;
+    var audit = Marketplace.Domain.Auditing.AdminAuditEvent.Create(
+        CurrentUserId(user), "FinancialIntegrity.CaseAssigned", kind,
+        entityId.ToString(System.Globalization.CultureInfo.InvariantCulture), detailsJson,
+        correlationId.Length <= 100 ? correlationId : correlationId[..100]);
+    db.AdminAuditEvents.Add(audit);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new
+    {
+        auditId = audit.Id,
+        kind,
+        entityKey = entityId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        assigneeUserId = request.AssigneeUserId,
+        note = request.Note.Trim(),
+        nextAction,
+        dueAtUtc,
+        updatedAtUtc = audit.CreatedAtUtc,
+        workflowOnly = true
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", async (
     string kind,
     string entityKey,
@@ -1193,7 +1276,7 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
         throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
 
     var history = await db.AdminAuditEvents.AsNoTracking()
-        .Where(x => (x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseRechecked")
+        .Where(x => (x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseRechecked" || x.Action == "FinancialIntegrity.CaseAssigned")
             && x.EntityType == kind && x.EntityKey == entityId.ToString(System.Globalization.CultureInfo.InvariantCulture))
         .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
         .Take(200)
@@ -1224,6 +1307,12 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
                     && activeElement.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
                     findingActive = activeElement.GetBoolean();
                 status = findingActive == true ? "FindingStillActive" : "RecheckClear";
+            }
+            else if (x.Action == "FinancialIntegrity.CaseAssigned")
+            {
+                status = document.RootElement.TryGetProperty("assigneeUserId", out var assigneeElement)
+                    && assigneeElement.ValueKind == System.Text.Json.JsonValueKind.Number
+                    ? $"AssignedToUser:{assigneeElement.GetInt64()}" : "Unassigned";
             }
             else if (document.RootElement.TryGetProperty("status", out var statusElement))
                 status = statusElement.GetString() ?? "Unknown";
@@ -1583,6 +1672,16 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
         findings.Add(new { code = "OrderHasNoPayment", severity = "warning", message = "برای این سفارش رکورد پرداختی پیدا نشد." });
     if (payments.Any(x => x.AmountIRR != order.TotalAmountIRR))
         findings.Add(new { code = "PaymentAmountMismatch", severity = "error", message = "مبلغ حداقل یکی از پرداخت‌ها با مبلغ سفارش متفاوت است." });
+    if (payments.Any(x => x.CustomerId != order.CustomerId))
+        findings.Add(new { code = "PaymentCustomerMismatch", severity = "error", message = "شناسه مشتری حداقل یکی از پرداخت‌ها با مالک سفارش متفاوت است." });
+    if (paymentTransactions.Any(transaction =>
+        payments.Any(payment => payment.paymentId == transaction.PaymentId && payment.AmountIRR != transaction.AmountIRR)))
+        findings.Add(new { code = "ProviderTransactionAmountMismatch", severity = "error", message = "مبلغ حداقل یکی از تراکنش‌های ثبت‌شده درگاه با مبلغ تلاش پرداخت متناظر متفاوت است." });
+    if (refunds.Any(refund => refund.AmountIRR != order.TotalAmountIRR
+        || payments.All(payment => payment.paymentId != refund.PaymentId || payment.CustomerId != refund.CustomerId)))
+        findings.Add(new { code = "RefundIdentityOrAmountMismatch", severity = "error", message = "مبلغ یا ارتباط مشتری/پرداخت حداقل یکی از بازپرداخت‌ها با سفارش و پرداخت متناظر سازگار نیست." });
+    if (refunds.Count(x => x.status == (int)Marketplace.Domain.Refunds.RefundStatus.Completed) > 1)
+        findings.Add(new { code = "MultipleCompletedRefunds", severity = "error", message = "بیش از یک بازپرداخت تکمیل‌شده برای سفارش ثبت شده است؛ نتیجه هر انتقال باید با شواهد بانکی بررسی شود." });
     if (payments.Any(x => x.status == (int)Marketplace.Domain.Payments.PaymentStatus.Succeeded)
         && (order.Status == (int)Marketplace.Domain.Orders.OrderStatus.PendingPayment
             || order.Status == (int)Marketplace.Domain.Orders.OrderStatus.Cancelled
@@ -1605,8 +1704,11 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
 
     foreach (var refund in refunds.Where(x => x.status == (int)Marketplace.Domain.Refunds.RefundStatus.Completed))
     {
-        var refundLedgerExists = ledger.Any(x => x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Refund
-            && (x.RefundId == refund.refundId || (x.RefundId is null && x.OrderId == orderId)));
+        // Match the immutable refund identity only. An unlinked legacy order-level
+        // entry must not satisfy more than one refund's reconciliation check.
+        var refundLedgerExists = ledger.Any(x =>
+            x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Refund
+            && x.RefundId == refund.refundId);
         if (!refundLedgerExists)
             findings.Add(new { code = "RefundLedgerMissing", severity = "error", message = $"بازپرداخت #{refund.refundId} تکمیل شده اما ثبت دفتر متناظر پیدا نشد." });
         if (!reversals.Any(x => x.RefundId == refund.refundId))
@@ -1632,6 +1734,209 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
         findingCount = findings.Count,
         itemsTruncated = payments.Count >= 100 || paymentTransactions.Count >= 300
             || refunds.Count >= 100 || reversals.Count >= 200 || ledger.Count >= 500 || settlements.Count >= 50
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
+app.MapGet("/api/admin/financial-integrity/work-queue", async (
+    string? kind,
+    int? minAgeHours,
+    int? take,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    // Read-only triage queue: it classifies current unresolved financial states and never
+    // changes balances, statuses, reservations, or provider state.
+    var allowedKinds = new[] { "PaymentReview", "PaymentOrderMismatch", "RefundProcessing", "SettlementOnHold" };
+    if (!string.IsNullOrWhiteSpace(kind) && !allowedKinds.Contains(kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial work-queue kind.");
+
+    var ageFilter = Math.Clamp(minAgeHours ?? 0, 0, 24 * 365);
+    var limit = Math.Clamp(take ?? 100, 1, 500);
+    var now = DateTime.UtcNow;
+    var candidates = new List<FinancialWorkQueueItem>();
+
+    var paymentReviews = await db.Payments.AsNoTracking()
+        .Where(x => x.Status == Marketplace.Domain.Payments.PaymentStatus.ReconciliationRequired)
+        .OrderBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).Take(200)
+        .Select(x => new { x.Id, x.OrderId, x.CustomerId, x.AmountIRR, x.CreatedAtUtc, x.Provider, x.ReferenceNumber, Status = x.Status.ToString() })
+        .ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentReview")
+    {
+        candidates.AddRange(paymentReviews.Select(x => FinancialWorkQueueHelpers.Build(
+            "PaymentReview", x.Id, x.OrderId, null, x.AmountIRR, x.Status, x.CreatedAtUtc,
+            $"Payment provider={x.Provider}; reference={x.ReferenceNumber ?? "(missing)"}", now)));
+    }
+
+    var successfulMismatches = await (
+        from payment in db.Payments.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on payment.OrderId equals order.Id
+        where payment.Status == Marketplace.Domain.Payments.PaymentStatus.Succeeded
+            && (order.Status == Marketplace.Domain.Orders.OrderStatus.PendingPayment
+                || order.Status == Marketplace.Domain.Orders.OrderStatus.Cancelled
+                || order.Status == Marketplace.Domain.Orders.OrderStatus.Refunded)
+        orderby payment.CreatedAtUtc, payment.Id
+        select new { payment.Id, payment.OrderId, order.SellerId, payment.AmountIRR, payment.CreatedAtUtc,
+            PaymentStatus = payment.Status, OrderStatus = order.Status, payment.ReferenceNumber })
+        .Take(200).ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentOrderMismatch")
+    {
+        candidates.AddRange(successfulMismatches.Select(x => FinancialWorkQueueHelpers.Build(
+            "PaymentOrderMismatch", x.Id, x.OrderId, x.SellerId, x.AmountIRR,
+            $"Payment={x.PaymentStatus};Order={x.OrderStatus}", x.CreatedAtUtc,
+            $"Payment reference={x.ReferenceNumber ?? "(missing)"}", now)));
+    }
+
+    var refundedMismatches = await (
+        from payment in db.Payments.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on payment.OrderId equals order.Id
+        where payment.Status == Marketplace.Domain.Payments.PaymentStatus.Refunded
+            && order.Status != Marketplace.Domain.Orders.OrderStatus.Refunded
+        orderby payment.CreatedAtUtc, payment.Id
+        select new { payment.Id, payment.OrderId, order.SellerId, payment.AmountIRR, payment.CreatedAtUtc,
+            PaymentStatus = payment.Status, OrderStatus = order.Status, payment.ReferenceNumber })
+        .Take(200).ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentOrderMismatch")
+    {
+        candidates.AddRange(refundedMismatches.Select(x => FinancialWorkQueueHelpers.Build(
+            "PaymentOrderMismatch", x.Id, x.OrderId, x.SellerId, x.AmountIRR,
+            $"Payment={x.PaymentStatus};Order={x.OrderStatus}", x.CreatedAtUtc,
+            $"Payment reference={x.ReferenceNumber ?? "(missing)"}", now)));
+    }
+
+    var processingRefunds = await db.Refunds.AsNoTracking()
+        .Where(x => x.Status == Marketplace.Domain.Refunds.RefundStatus.Processing)
+        .OrderBy(x => x.RequestedAtUtc).ThenBy(x => x.Id).Take(200)
+        .Select(x => new { x.Id, x.OrderId, x.AmountIRR, x.RequestedAtUtc, x.ProviderReference, x.FailureReason, x.PaymentId })
+        .ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "RefundProcessing")
+    {
+        var orderIds = processingRefunds.Select(x => x.OrderId).Distinct().ToArray();
+        var sellerByOrder = await db.Orders.AsNoTracking().Where(x => orderIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.SellerId }).ToDictionaryAsync(x => x.Id, x => x.SellerId, ct);
+        candidates.AddRange(processingRefunds.Select(x => FinancialWorkQueueHelpers.Build(
+            "RefundProcessing", x.Id, x.OrderId,
+            sellerByOrder.TryGetValue(x.OrderId, out var sellerId) ? sellerId : null,
+            x.AmountIRR, "Processing", x.RequestedAtUtc,
+            $"PaymentId={x.PaymentId}; providerReference={x.ProviderReference ?? "(missing)"}; reason={x.FailureReason ?? "(none)"}", now)));
+    }
+
+    var heldSettlements = await db.Settlements.AsNoTracking()
+        .Where(x => x.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
+        .OrderBy(x => x.RequestedAtUtc).ThenBy(x => x.Id).Take(200)
+        .Select(x => new { x.Id, x.SellerId, x.AmountIRR, x.RequestedAtUtc, x.Reference, x.FailureReason })
+        .ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "SettlementOnHold")
+    {
+        candidates.AddRange(heldSettlements.Select(x => FinancialWorkQueueHelpers.Build(
+            "SettlementOnHold", x.Id, null, x.SellerId, x.AmountIRR, "OnHold", x.RequestedAtUtc,
+            $"Bank reference={x.Reference ?? "(missing)"}; reason={x.FailureReason ?? "(none)"}", now)));
+    }
+
+    var filtered = candidates
+        .Where(x => x.AgeHours >= ageFilter)
+        .OrderByDescending(x => x.Priority == "Critical")
+        .ThenByDescending(x => x.Priority == "High")
+        .ThenByDescending(x => x.AgeHours)
+        .ThenBy(x => x.Kind, StringComparer.Ordinal)
+        .ThenBy(x => x.EntityId)
+        .ToList();
+
+    // Join the operational workflow's latest status to the diagnostic finding without
+    // changing either the underlying financial record or the append-only audit history.
+    var workflowEvents = await db.AdminAuditEvents.AsNoTracking()
+        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseAssigned")
+        .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
+        .Take(2000)
+        .Select(x => new { x.EntityType, x.EntityKey, x.Action, x.DetailsJson, x.ActorUserId, x.CreatedAtUtc, x.Id })
+        .ToListAsync(ct);
+    var workflowByCase = new Dictionary<(string Kind, string EntityKey), (string Status, string Note, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
+    var assignmentByCase = new Dictionary<(string Kind, string EntityKey), (long? AssigneeUserId, string Note, string NextAction, DateTimeOffset? DueAtUtc, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
+    foreach (var activity in workflowEvents)
+    {
+        var key = (activity.EntityType, activity.EntityKey);
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(activity.DetailsJson);
+            if (activity.Action == "FinancialIntegrity.CaseAssigned")
+            {
+                if (!assignmentByCase.ContainsKey(key))
+                {
+                    long? assigneeId = null;
+                    if (document.RootElement.TryGetProperty("assigneeUserId", out var assigneeElement)
+                        && assigneeElement.ValueKind == System.Text.Json.JsonValueKind.Number
+                        && assigneeElement.TryGetInt64(out var parsedAssignee)) assigneeId = parsedAssignee;
+                    var note = document.RootElement.TryGetProperty("note", out var assignmentNote) ? assignmentNote.GetString() ?? "" : "";
+                    var nextAction = document.RootElement.TryGetProperty("nextAction", out var nextActionElement) ? nextActionElement.GetString() ?? "" : "";
+                    DateTimeOffset? dueAtUtc = null;
+                    if (document.RootElement.TryGetProperty("dueAtUtc", out var dueElement)
+                        && dueElement.ValueKind == System.Text.Json.JsonValueKind.String
+                        && DateTimeOffset.TryParse(dueElement.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsedDue))
+                        dueAtUtc = parsedDue;
+                    assignmentByCase[key] = (assigneeId, note, nextAction, dueAtUtc, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
+                }
+                continue;
+            }
+            if (!workflowByCase.ContainsKey(key))
+            {
+                var status = document.RootElement.TryGetProperty("status", out var statusElement) ? statusElement.GetString() ?? "Open" : "Open";
+                var note = document.RootElement.TryGetProperty("note", out var noteElement) ? noteElement.GetString() ?? "" : "";
+                workflowByCase[key] = (status, note, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
+            }
+        }
+        catch
+        {
+            // Ignore malformed legacy audit JSON; one event must not break the read-only queue.
+        }
+    }
+
+    var items = filtered.Take(limit).Select(item =>
+    {
+        var key = (item.Kind, item.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var hasWorkflow = workflowByCase.TryGetValue(key, out var workflow);
+        var hasAssignment = assignmentByCase.TryGetValue(key, out var assignment);
+        return new
+        {
+            item.Kind,
+            item.EntityId,
+            item.OrderId,
+            item.SellerId,
+            item.AmountIRR,
+            item.Status,
+            item.CreatedAtUtc,
+            item.AgeHours,
+            item.Priority,
+            item.Summary,
+            workflowStatus = hasWorkflow ? workflow.Status : "Open",
+            workflowNote = hasWorkflow ? workflow.Note : "",
+            workflowUpdatedAtUtc = hasWorkflow ? (DateTime?)workflow.UpdatedAtUtc : null,
+            workflowActorUserId = hasWorkflow ? (long?)workflow.ActorUserId : null,
+            workflowAuditId = hasWorkflow ? (long?)workflow.AuditId : null,
+            assignedUserId = hasAssignment ? assignment.AssigneeUserId : null,
+            assignmentNote = hasAssignment ? assignment.Note : "",
+            assignmentNextAction = hasAssignment ? assignment.NextAction : "",
+            assignmentDueAtUtc = hasAssignment ? assignment.DueAtUtc : null,
+            assignmentSlaStatus = !hasAssignment || !assignment.AssigneeUserId.HasValue ? "Unassigned"
+                : !assignment.DueAtUtc.HasValue ? "NoDeadline"
+                : assignment.DueAtUtc.Value <= DateTimeOffset.UtcNow ? "Overdue"
+                : assignment.DueAtUtc.Value <= DateTimeOffset.UtcNow.AddHours(4) ? "DueSoon" : "Scheduled",
+            assignmentUpdatedAtUtc = hasAssignment ? (DateTime?)assignment.UpdatedAtUtc : null,
+            assignmentActorUserId = hasAssignment ? (long?)assignment.ActorUserId : null,
+            assignmentAuditId = hasAssignment ? (long?)assignment.AuditId : null
+        };
+    }).ToList();
+
+    return Results.Ok(new
+    {
+        generatedAtUtc = now,
+        readOnly = true,
+        totalCandidates = filtered.Count,
+        returnedCount = items.Count,
+        itemsTruncated = filtered.Count > limit || candidates.Count >= 200 || workflowEvents.Count == 2000,
+        countsByKind = filtered.GroupBy(x => x.Kind).ToDictionary(g => g.Key, g => g.Count()),
+        countsByPriority = filtered.GroupBy(x => x.Priority).ToDictionary(g => g.Key, g => g.Count()),
+        countsByWorkflowStatus = items.GroupBy(x => x.workflowStatus).ToDictionary(g => g.Key, g => g.Count()),
+        items
     });
 }).RequirePermission("Admin.Settlement.Process");
 
@@ -2718,6 +3023,24 @@ public sealed record RefundReconciliationRequest(bool TransferCompleted,string? 
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
 public sealed record FinancialIntegrityCaseStatusRequest(string Kind,string EntityKey,string Status,string Note);
+public sealed record FinancialIntegrityCaseAssignmentRequest(long? AssigneeUserId, string Note, string? NextAction, DateTimeOffset? DueAtUtc);
+public sealed record FinancialWorkQueueItem(
+    string Kind, long EntityId, long? OrderId, long? SellerId, long? AmountIRR,
+    string Status, DateTime CreatedAtUtc, double AgeHours, string Priority, string Summary);
+
+public static class FinancialWorkQueueHelpers
+{
+    public static FinancialWorkQueueItem Build(
+        string kind, long entityId, long? orderId, long? sellerId, long? amountIRR,
+        string status, DateTime createdAtUtc, string summary, DateTime nowUtc)
+    {
+        var ageHours = Math.Max(0, (nowUtc - createdAtUtc).TotalHours);
+        var priority = ageHours >= 24 ? "Critical" : ageHours >= 4 ? "High" : "Normal";
+        return new FinancialWorkQueueItem(kind, entityId, orderId, sellerId, amountIRR,
+            status, createdAtUtc, Math.Round(ageHours, 2), priority, summary);
+    }
+}
+
 public sealed record FinancialLedgerFinding(long SellerId,string FindingType,string Bucket,long? CurrentBalanceIRR,long? LedgerBalanceAfterIRR,long? DifferenceIRR,long? LatestLedgerTransactionId,DateTime? LatestLedgerAtUtc,long? ActiveSettlementTotalIRR);
 public sealed record FinancialOrderFlowFinding(string FindingType,long OrderId,long EntityId,long? RefundId,long? SellerId,long? ExpectedSellerId,long AmountIRR,long? ExpectedAmountIRR,long? CommissionAmountIRR,long? SellerAmountIRR,DateTime CreatedAtUtc);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
@@ -2728,7 +3051,7 @@ public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,i
 public sealed record OtpRequest(string Mobile);
 public sealed record OtpVerifyRequest(string Mobile, string Otp);
 public sealed record PaymentVerifyRequest(string Authority);
-public sealed record DeliveryConfirmRequest(string Code,string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
+public sealed record DeliveryConfirmRequest(string Code,string Reference,DateTime DeliveredAtUtc = default,DateTime ComplaintExpiresAtUtc = default);
 public sealed record ComplaintRequest(long CustomerId,string Reason);
 public sealed record ComplaintResolveRequest(bool CustomerWon,string Note);
 public sealed record RefundRequest(Marketplace.Domain.Refunds.RefundReason Reason);

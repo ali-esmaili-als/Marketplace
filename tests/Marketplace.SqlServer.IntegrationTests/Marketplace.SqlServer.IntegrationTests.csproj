@@ -22,5 +22,6 @@
     <None Include="..\..\database\014_PaymentRefundSettlementStatusConstraints.sql" Link="database\014_PaymentRefundSettlementStatusConstraints.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\015_FinancialIdempotencyIndexes.sql" Link="database\015_FinancialIdempotencyIndexes.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\019_RefundLedgerIdentity.sql" Link="database\019_RefundLedgerIdentity.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\FinancialLedgerBucketReconciliation.sql" Link="database\FinancialLedgerBucketReconciliation.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
