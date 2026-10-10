@@ -401,9 +401,14 @@ public sealed class RefundServiceResilienceTests
             .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
         uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
+        long nextId = 900;
+        var ids = new Mock<IIdGenerator>();
+        ids.Setup(x => x.NextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Interlocked.Increment(ref nextId));
+
         var service = new RefundService(
             Mock.Of<IOrderRepository>(), Mock.Of<IPaymentRepository>(), lifecycle.Object, uow.Object,
-            Mock.Of<IIdGenerator>(), Mock.Of<IPaymentGatewayFactory>());
+            ids.Object, Mock.Of<IPaymentGatewayFactory>());
 
         await service.ReconcileAsync(refund.Id, adminUserId: 450, transferCompleted: false,
             bankReference: null, note: "Provider confirms no refund was sent");
