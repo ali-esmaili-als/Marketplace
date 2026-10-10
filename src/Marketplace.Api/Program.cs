@@ -215,7 +215,7 @@ app.MapGet("/api/cart/summary", async (System.Security.Claims.ClaimsPrincipal us
         select new
         {
             item.Id, item.ProductId, item.ProductVariantId, item.WarrantyId, item.Quantity,
-            product.Name, variant.SKU, variant.VariantKey, StoreId = store.Id, StoreSlug = store.Slug, StoreName = store.Name, StoreThemeCode = store.ThemeCode,
+            product.Name, variant.SKU, variant.VariantKey, StoreId = store.Id, StoreSlug = store.Slug, StoreName = store.Name, StoreThemeCode = store.ThemeCode, StorePaletteCode = store.PaletteCode,
             UnitPriceIRR = variant.PriceIRR ?? product.BasePriceIRR,
             WarrantyName = warranty == null ? null : warranty.Name,
             WarrantyPriceIRR = warranty == null ? 0L : warranty.PriceIRR
@@ -258,7 +258,7 @@ app.MapGet("/api/public/stores", async (int? take, Marketplace.Infrastructure.Pe
         orderby s.CreatedAtUtc descending
         select new
         {
-            s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.CreatedAtUtc,
+            s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.PaletteCode, s.CreatedAtUtc,
             ProductCount = db.Products.Count(p => p.StoreId == s.Id && p.Status == Marketplace.Domain.Catalog.ProductStatus.Active)
         }).Take(limit).ToListAsync(ct);
     return Results.Ok(stores);
@@ -272,7 +272,7 @@ app.MapGet("/api/public/stores/{storeId:long}/{slug}", async (long storeId, stri
         where s.Id == storeId && s.Slug == slug
               && s.Status == Marketplace.Domain.Sellers.StoreStatus.Active
               && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active
-        select new { s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.CreatedAtUtc }
+        select new { s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.PaletteCode, s.CreatedAtUtc }
     ).SingleOrDefaultAsync(ct);
     return store is null ? Results.NotFound() : Results.Ok(store);
 });
@@ -325,7 +325,7 @@ app.MapGet("/api/public/stores/{storeId:long}/{storeSlug}/products/{productSlug}
               && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active && category.IsActive
         select new
         {
-            p.Id, p.StoreId, SellerId = s.SellerId, StoreName = s.Name, StoreSlug = s.Slug, ThemeCode = s.ThemeCode,
+            p.Id, p.StoreId, SellerId = s.SellerId, StoreName = s.Name, StoreSlug = s.Slug, ThemeCode = s.ThemeCode, PaletteCode = s.PaletteCode,
             p.CategoryId, CategoryName = category.Name, p.Name, p.Slug, p.Description,
             p.BasePriceIRR, p.HasVariants, p.CreatedAtUtc
         }).SingleOrDefaultAsync(ct);
@@ -418,8 +418,9 @@ app.MapPut("/api/sellers/me/stores/{storeId:long}/theme", async (
     var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == seller.Id, ct);
     if (store is null) return Results.NotFound();
     store.ConfigureTheme(request.ThemeCode);
+    store.ConfigurePalette(request.PaletteCode);
     await db.SaveChangesAsync(ct);
-    return Results.Ok(new { store.Id, store.ThemeCode });
+    return Results.Ok(new { store.Id, store.ThemeCode, store.PaletteCode });
 }).RequirePermission("Seller.Catalog.Manage");
 
 app.MapPost("/api/sellers/me/stores/{storeId:long}/activate",async(System.Security.Claims.ClaimsPrincipal user,long storeId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
@@ -2593,7 +2594,7 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey,long? AddressId = null);
 public sealed record CustomerAddressRequest(long CityId,string RecipientName,string RecipientMobile,string AddressLine,string PostalCode,string? DeliveryNote,bool IsDefault);
-public sealed record StoreThemeRequest(string ThemeCode);
+public sealed record StoreThemeRequest(string ThemeCode, string PaletteCode);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record StoreShippingRateRequest(long CityId, long ShippingFeeIRR, int MinDeliveryDays, int MaxDeliveryDays);
 public sealed record StoreShippingRatesRequest(StoreShippingRateRequest[] Rates);
