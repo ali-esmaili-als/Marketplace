@@ -573,17 +573,22 @@ app.MapGet("/api/sellers/me/finance/transactions", async (
     var sellerId = await db.Sellers.AsNoTracking().Where(s => s.UserId == userId)
         .Select(s => (long?)s.Id).SingleOrDefaultAsync(ct);
     if (sellerId is null) return Results.NotFound(new { detail = "Seller profile not found." });
-    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value > toUtc.Value)
-        return Results.BadRequest(new { detail = "fromUtc must be earlier than toUtc." });
+    if (fromUtc.HasValue && toUtc.HasValue && fromUtc.Value >= toUtc.Value)
+        return Results.BadRequest(new { detail = "toUtc must be later than fromUtc." });
+    if (orderId.HasValue && orderId.Value <= 0)
+        return Results.BadRequest(new { detail = "orderId must be a positive integer." });
 
     var query = db.BalanceTransactions.AsNoTracking().Where(x => x.SellerId == sellerId.Value);
     if (fromUtc.HasValue) query = query.Where(x => x.CreatedAtUtc >= fromUtc.Value);
     if (toUtc.HasValue) query = query.Where(x => x.CreatedAtUtc < toUtc.Value);
     if (orderId.HasValue) query = query.Where(x => x.OrderId == orderId.Value);
-    if (!string.IsNullOrWhiteSpace(type) && Enum.TryParse<Marketplace.Domain.Finance.BalanceTransactionType>(type, true, out var parsedType))
+    if (!string.IsNullOrWhiteSpace(type))
+    {
+        if (!Enum.TryParse<Marketplace.Domain.Finance.BalanceTransactionType>(type, true, out var parsedType)
+            || !Enum.IsDefined(typeof(Marketplace.Domain.Finance.BalanceTransactionType), parsedType))
+            return Results.BadRequest(new { detail = "Unknown transaction type." });
         query = query.Where(x => x.Type == parsedType);
-    else if (!string.IsNullOrWhiteSpace(type))
-        return Results.BadRequest(new { detail = "Unknown transaction type." });
+    }
 
     var limit = Math.Clamp(take ?? 50, 1, 100);
     var rows = await query.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
