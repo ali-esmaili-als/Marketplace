@@ -165,6 +165,59 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task Seller_and_admin_theme_changes_are_persisted_to_public_storefront()
+    {
+        var sellerTheme = new
+        {
+            themeCode = "editorial",
+            paletteCode = "forest",
+            primaryColor = "#26734d",
+            secondaryColor = "#f1faf4",
+            backgroundColor = "#ffffff",
+            textColor = "#183b2b",
+            fontCode = "serif",
+            cornerStyle = "round"
+        };
+
+        using var sellerUpdate = await _client!.PutAsJsonAsync($"/api/sellers/me/stores/{StoreId}/theme", sellerTheme);
+        Assert.Equal(HttpStatusCode.OK, sellerUpdate.StatusCode);
+
+        using var publicAfterSeller = await _client.GetAsync($"/api/public/stores/{StoreId}/media-test-store-one");
+        Assert.Equal(HttpStatusCode.OK, publicAfterSeller.StatusCode);
+        using var sellerJson = System.Text.Json.JsonDocument.Parse(await publicAfterSeller.Content.ReadAsStringAsync());
+        Assert.Equal("editorial", sellerJson.RootElement.GetProperty("themeCode").GetString());
+        Assert.Equal("forest", sellerJson.RootElement.GetProperty("paletteCode").GetString());
+        Assert.Equal("#26734d", sellerJson.RootElement.GetProperty("themePrimaryColor").GetString());
+        Assert.Equal("serif", sellerJson.RootElement.GetProperty("themeFontCode").GetString());
+        Assert.Equal("round", sellerJson.RootElement.GetProperty("themeCornerStyle").GetString());
+
+        _client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateToken(SellerUserId, "Admin.Identity.Manage"));
+        var adminTheme = new
+        {
+            themeCode = "luxe",
+            paletteCode = "rose",
+            primaryColor = "#a83269",
+            secondaryColor = "#fff3f8",
+            backgroundColor = "#ffffff",
+            textColor = "#4a2036",
+            fontCode = "modern",
+            cornerStyle = "square"
+        };
+        using var adminUpdate = await _client.PutAsJsonAsync($"/api/admin/stores/{StoreId}/theme", adminTheme);
+        Assert.Equal(HttpStatusCode.OK, adminUpdate.StatusCode);
+
+        using var publicAfterAdmin = await _client.GetAsync($"/api/public/stores/{StoreId}/media-test-store-one");
+        Assert.Equal(HttpStatusCode.OK, publicAfterAdmin.StatusCode);
+        using var adminJson = System.Text.Json.JsonDocument.Parse(await publicAfterAdmin.Content.ReadAsStringAsync());
+        Assert.Equal("luxe", adminJson.RootElement.GetProperty("themeCode").GetString());
+        Assert.Equal("rose", adminJson.RootElement.GetProperty("paletteCode").GetString());
+        Assert.Equal("#a83269", adminJson.RootElement.GetProperty("themePrimaryColor").GetString());
+        Assert.Equal("modern", adminJson.RootElement.GetProperty("themeFontCode").GetString());
+        Assert.Equal("square", adminJson.RootElement.GetProperty("themeCornerStyle").GetString());
+    }
+
+    [Fact]
     public async Task Upload_rejects_mismatched_image_signature_without_persisting_file()
     {
         using var content = CreateUpload("fake.png", "image/png", Encoding.UTF8.GetBytes("not a png file"));
@@ -196,11 +249,11 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
         return content;
     }
 
-    private static string CreateToken(long userId)
+    private static string CreateToken(long userId, string permission = "Seller.Catalog.Manage")
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey));
         var token = new JwtSecurityToken(JwtIssuer, JwtAudience,
-            new[] { new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim("test:permission", "Seller.Catalog.Manage") },
+            new[] { new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim("test:permission", permission) },
             DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddMinutes(5),
             new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);
