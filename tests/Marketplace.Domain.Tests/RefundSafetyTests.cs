@@ -27,6 +27,31 @@ public sealed class RefundSafetyTests
     }
 
     [Fact]
+    public void ProcessingRefund_CannotBeRejectedWhileGatewayOutcomeMayBeUnknown()
+    {
+        var refund = Refund.Create(1, 2, 3, 4, 50_000, RefundReason.Other);
+        refund.Approve();
+        refund.StartProcessing();
+
+        Assert.Throws<DomainException>(() => refund.Reject("Operator has not confirmed bank outcome."));
+        Assert.Equal(RefundStatus.Processing, refund.Status);
+    }
+
+    [Fact]
+    public void Refund_CanFailOnlyAfterProcessingHasStarted()
+    {
+        var refund = Refund.Create(1, 2, 3, 4, 50_000, RefundReason.Other);
+
+        Assert.Throws<DomainException>(() => refund.Fail("Gateway rejected refund."));
+        Assert.Equal(RefundStatus.Requested, refund.Status);
+
+        refund.Approve();
+        refund.StartProcessing();
+        refund.Fail("Gateway rejected refund.");
+        Assert.Equal(RefundStatus.Failed, refund.Status);
+    }
+
+    [Fact]
     public void OrderRefundRequest_IsRejectedBeforeDelivery()
     {
         var order = Order.Create(1, 2, 3, 4, 100_000, 100_000);
