@@ -277,3 +277,16 @@ These checks are read-only. Run them before and after an authorized recovery and
 - **Check 74 — completed/failed settlement has fewer than two settlement-linked ledger rows:** the expected lifecycle includes the initial reservation entry and a final completion/failure entry. Review the settlement, balance snapshots, and transaction history; older or migrated data may need contextual review before correction.
 
 Checks 72–74 are read-only diagnostics. A non-empty result is a reconciliation lead, not an instruction to recreate ledger entries or change balances automatically.
+
+
+### Gateway-confirmed payment when local finalization fails unexpectedly
+
+A provider's definitive success response is not enough to prove that the order, inventory lifecycle, seller hold, and pending ledger entries were committed. If the payment finalization transaction fails for a non-domain reason, the application now makes a best-effort attempt to mark the payment `ReconciliationRequired` while retaining the gateway reference. If the recovery write also fails (for example, the database is unavailable), the original exception is preserved; the payment may still appear Redirected/Pending until the database recovers.
+
+1. Search the provider by the original authority and confirm the final captured amount/reference.
+2. Inspect the persisted payment and order state, inventory reservations, seller hold, delivery record, and seller ledger.
+3. If the payment is `ReconciliationRequired`, use the payment reconciliation workflow; do not start another checkout or credit seller funds directly.
+4. If the recovery write could not persist, rerun the read-only consistency checks once SQL Server is healthy and reconcile using the provider's definitive status and the complete order trace.
+5. Do not mark a payment failed or release inventory solely because the finalization request returned an exception after the bank confirmed success.
+
+The regression test for this path simulates a persistence exception before the lifecycle transaction can run, then verifies that the best-effort recovery records the payment as requiring reconciliation. It does not simulate a real SQL Server outage or prove that the recovery write will succeed during an outage.
