@@ -50,7 +50,7 @@ public static class StoreMediaEndpoints
         app.MapDelete("/api/sellers/me/stores/{storeId:long}/media/{mediaId:long}", async (
             ClaimsPrincipal user, long storeId, long mediaId, MarketplaceDbContext db,
             Marketplace.Application.Abstractions.ISellerManagementRepository sellers, IWebHostEnvironment env,
-            ILogger<StoreMediaEndpoints> logger, CancellationToken ct) =>
+            ILoggerFactory loggerFactory, CancellationToken ct) =>
         {
             var seller = await sellers.GetSellerByUserIdAsync(CurrentUserId(user), ct);
             if (seller is null) return Results.Unauthorized();
@@ -61,7 +61,7 @@ public static class StoreMediaEndpoints
             media.Deactivate();
             await NormalizeActiveGroupAsync(db, media, ct);
             await db.SaveChangesAsync(ct);
-            DeletePhysicalFile(media.Url, env, logger);
+            DeletePhysicalFile(media.Url, env, loggerFactory.CreateLogger("Marketplace.Api.StoreMediaEndpoints"));
             return Results.NoContent();
         }).RequirePermission("Seller.Catalog.Manage");
 
