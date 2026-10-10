@@ -49,7 +49,7 @@ public static class StoreMediaEndpoints
 
         app.MapDelete("/api/sellers/me/stores/{storeId:long}/media/{mediaId:long}", async (
             ClaimsPrincipal user, long storeId, long mediaId, MarketplaceDbContext db,
-            Marketplace.Application.Abstractions.ISellerManagementRepository sellers, CancellationToken ct) =>
+            Marketplace.Application.Abstractions.ISellerManagementRepository sellers, IWebHostEnvironment env, CancellationToken ct) =>
         {
             var seller = await sellers.GetSellerByUserIdAsync(CurrentUserId(user), ct);
             if (seller is null) return Results.Unauthorized();
@@ -59,16 +59,18 @@ public static class StoreMediaEndpoints
             if (store is null || store.SellerId != seller.Id) return Results.Forbid();
             media.Deactivate();
             await db.SaveChangesAsync(ct);
+            DeletePhysicalFile(media.Url, env);
             return Results.NoContent();
         }).RequirePermission("Seller.Catalog.Manage");
 
         app.MapDelete("/api/admin/stores/{storeId:long}/media/{mediaId:long}", async (
-            long storeId, long mediaId, MarketplaceDbContext db, CancellationToken ct) =>
+            long storeId, long mediaId, MarketplaceDbContext db, IWebHostEnvironment env, CancellationToken ct) =>
         {
             var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
             if (media is null) return Results.NotFound();
             media.Deactivate();
             await db.SaveChangesAsync(ct);
+            DeletePhysicalFile(media.Url, env);
             return Results.NoContent();
         }).RequirePermission("Admin.Identity.Manage");
 
@@ -126,6 +128,19 @@ public static class StoreMediaEndpoints
             if (File.Exists(fullPath)) File.Delete(fullPath);
             throw;
         }
+    }
+
+    private static void DeletePhysicalFile(string url, IWebHostEnvironment env)
+    {
+        const string prefix = "/uploads/storefront/";
+        if (!url.StartsWith(prefix, StringComparison.Ordinal)) return;
+        var root = env.WebRootPath;
+        if (string.IsNullOrWhiteSpace(root)) root = Path.Combine(env.ContentRootPath, "wwwroot");
+        var relative = url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+        var rootFull = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
+        var fileFull = Path.GetFullPath(Path.Combine(root, relative));
+        if (fileFull.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) && File.Exists(fileFull))
+            File.Delete(fileFull);
     }
 
     private static bool HasValidSignature(ReadOnlySpan<byte> bytes, string contentType) => contentType.ToLowerInvariant() switch
