@@ -11,6 +11,7 @@ public sealed class Store : AggregateRoot<long>
     public string Slug { get; private set; } = null!;
     public string? Description { get; private set; }
     public string ThemeCode { get; private set; } = "classic";
+    public string PaletteCode { get; private set; } = "ocean";
     public StoreStatus Status { get; private set; }
     public int CommissionRateBasisPoints { get; private set; }
     public long MinimumCommissionIRR { get; private set; }
@@ -56,9 +57,17 @@ public sealed class Store : AggregateRoot<long>
     public void ConfigureTheme(string themeCode)
     {
         var normalized = themeCode?.Trim().ToLowerInvariant();
-        if (normalized is not ("classic" or "minimal" or "vibrant"))
-            throw new DomainException("Theme must be classic, minimal, or vibrant.");
+        if (normalized is not ("classic" or "minimal" or "vibrant" or "editorial" or "boutique" or "magazine" or "grid" or "luxe" or "organic" or "tech" or "fashion" or "gallery" or "market" or "mono" or "pastel" or "bold" or "nordic" or "artisan" or "urban" or "elegant"))
+            throw new DomainException("Unsupported store layout.");
         ThemeCode = normalized;
+    }
+
+    public void ConfigurePalette(string paletteCode)
+    {
+        var normalized = paletteCode?.Trim().ToLowerInvariant();
+        if (normalized is not ("ocean" or "forest" or "sunset" or "rose" or "monochrome"))
+            throw new DomainException("Unsupported store color palette.");
+        PaletteCode = normalized;
     }
 
     public void ConfigureCommission(int rateBasisPoints, long minimumCommissionIrr)
