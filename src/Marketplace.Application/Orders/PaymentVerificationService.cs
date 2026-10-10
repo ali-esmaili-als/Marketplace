@@ -84,7 +84,9 @@ public sealed class PaymentVerificationService
             or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
             return new PaymentVerificationResult(false,payment.ReferenceNumber,"Payment is no longer payable.");
 
-        var provider=Enum.TryParse<PaymentProviderCode>(payment.Provider,true,out var parsed) ? parsed : throw new DomainException("Invalid payment provider.");
+        if (!Enum.TryParse<PaymentProviderCode>(payment.Provider, true, out var provider)
+            || !Enum.IsDefined(typeof(PaymentProviderCode), provider))
+            throw new DomainException("Invalid payment provider.");
         var gateway=await _gatewayFactory.GetAsync(provider,ct);
         var result=await gateway.VerifyAsync(authority,payment.AmountIRR,ct);
 
