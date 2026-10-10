@@ -934,3 +934,91 @@ SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
 FROM dbo.Refunds AS r
 WHERE r.Status = 3 -- Processing
   AND r.RequestedAtUtc < DATEADD(MINUTE, -30, SYSUTCDATETIME());
+
+
+PRINT '80. Completed refunds missing their exact refund ledger identity';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       r.Status AS RefundStatus, r.CompletedAtUtc, o.SellerId, o.SellerAmountIRR
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 4 -- Completed
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.BalanceTransactions AS bt
+      WHERE bt.RefundId = r.Id
+        AND bt.Type = 3 -- Refund
+        AND bt.OrderId = r.OrderId
+        AND bt.SellerId = o.SellerId
+  );
+
+PRINT '81. Refund ledger posting does not match the seller-share debit contract';
+SELECT bt.Id AS LedgerTransactionId, bt.RefundId, bt.OrderId,
+       bt.SellerId, bt.AmountIRR AS LedgerAmountIRR,
+       o.SellerId AS OrderSellerId, o.SellerAmountIRR,
+       bt.Bucket, bt.Reference, r.Status AS RefundStatus
+FROM dbo.BalanceTransactions AS bt
+JOIN dbo.Refunds AS r ON r.Id = bt.RefundId
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE bt.Type = 3 -- Refund
+  AND
+  (
+      bt.OrderId <> r.OrderId
+      OR bt.SellerId <> o.SellerId
+      OR bt.AmountIRR NOT IN (0, o.SellerAmountIRR)
+  );
+
+PRINT '82. Total commission reversals exceed the original commission';
+;WITH ReversalTotals AS
+(
+    SELECT CommissionId, COUNT_BIG(*) AS ReversalCount,
+           SUM(ReversedCommissionIRR) AS TotalReversedCommissionIRR,
+           SUM(RefundAmountIRR) AS TotalRefundAmountIRR
+    FROM dbo.CommissionReversals
+    GROUP BY CommissionId
+)
+SELECT c.Id AS CommissionId, c.OrderId, c.SellerId,
+       c.CommissionAmountIRR,
+       rt.ReversalCount, rt.TotalReversedCommissionIRR,
+       rt.TotalRefundAmountIRR
+FROM dbo.Commissions AS c
+JOIN ReversalTotals AS rt ON rt.CommissionId = c.Id
+WHERE rt.TotalReversedCommissionIRR > c.CommissionAmountIRR;
+
+PRINT '83. Commission snapshot differs from the associated order financial snapshot';
+SELECT c.Id AS CommissionId, c.OrderId, c.SellerId,
+       c.OrderAmountIRR AS CommissionOrderAmountIRR,
+       o.TotalAmountIRR AS OrderTotalAmountIRR,
+       c.SellerAmountIRR AS CommissionSellerAmountIRR,
+       o.SellerAmountIRR AS OrderSellerAmountIRR,
+       c.CommissionAmountIRR,
+       c.CommissionAmountIRR + c.SellerAmountIRR AS CommissionSplitTotalIRR
+FROM dbo.Commissions AS c
+JOIN dbo.Orders AS o ON o.Id = c.OrderId
+WHERE c.SellerId <> o.SellerId
+   OR c.OrderAmountIRR <> o.TotalAmountIRR
+   OR c.SellerAmountIRR <> o.SellerAmountIRR
+   OR c.CommissionAmountIRR + c.SellerAmountIRR <> c.OrderAmountIRR;
+
+PRINT '84. Refund references a payment or customer that does not match its order';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.CustomerId,
+       o.CustomerId AS OrderCustomerId, p.OrderId AS PaymentOrderId,
+       p.CustomerId AS PaymentCustomerId, r.AmountIRR,
+       o.TotalAmountIRR, p.AmountIRR AS PaymentAmountIRR
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE p.OrderId <> r.OrderId
+   OR r.CustomerId <> o.CustomerId
+   OR p.CustomerId <> o.CustomerId
+   OR r.AmountIRR > o.TotalAmountIRR
+   OR r.AmountIRR > p.AmountIRR;
+
+PRINT '85. Multiple commission snapshots exist for a single order';
+SELECT c.OrderId, COUNT_BIG(*) AS CommissionCount,
+       MIN(c.CreatedAtUtc) AS FirstCommissionAtUtc,
+       MAX(c.CreatedAtUtc) AS LastCommissionAtUtc,
+       SUM(c.CommissionAmountIRR) AS TotalCommissionAmountIRR
+FROM dbo.Commissions AS c
+GROUP BY c.OrderId
+HAVING COUNT_BIG(*) > 1;
