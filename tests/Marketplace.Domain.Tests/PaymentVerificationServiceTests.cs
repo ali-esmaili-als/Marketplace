@@ -210,6 +210,46 @@ public sealed class PaymentVerificationServiceTests
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task Verify_RefundedPaymentIsTerminalAndDoesNotCallGatewayAgain()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        payment.Succeed("BANK-REF-10");
+        payment.MarkRefunded();
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        var service = CreateService(payments, factory);
+
+        var result = await service.VerifyAsync(30, 10, "AUTH-10");
+
+        Assert.False(result.Paid);
+        Assert.Equal("BANK-REF-10", result.Reference);
+        Assert.Equal("Payment is no longer payable.", result.Error);
+        factory.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task VerifyTestReturn_RefundedPaymentIsTerminalAndDoesNotCallGatewayAgain()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        payment.Succeed("BANK-REF-10");
+        payment.MarkRefunded();
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        var service = CreateService(payments, factory);
+
+        var result = await service.VerifyTestReturnAsync(10, "AUTH-10", true);
+
+        Assert.False(result.Paid);
+        Assert.Equal("BANK-REF-10", result.Reference);
+        Assert.Equal("Payment is no longer payable.", result.Error);
+        factory.VerifyNoOtherCalls();
+    }
+
     private static PaymentVerificationService CreateService(
         Mock<IPaymentRepository> payments,
         Mock<IPaymentGatewayFactory> factory,
