@@ -191,6 +191,7 @@ public sealed class MarketplaceDbContext : DbContext
                 t.HasCheckConstraint("CK_StorefrontMedia_SortOrder", "SortOrder >= 0");
             });
             e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
             e.Property(x => x.Kind).HasMaxLength(20).IsRequired();
             e.Property(x => x.Url).HasMaxLength(500).IsRequired();
             e.Property(x => x.ContentType).HasMaxLength(50).IsRequired();
