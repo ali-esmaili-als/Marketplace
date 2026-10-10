@@ -392,3 +392,10 @@ The order-trace endpoint requires an exact `RefundId` match for a refund ledger 
 - **Check 98 — legacy refund ledger posting has no `RefundId`:** these rows cannot prove which refund attempt they represent. Correlate the order, amount, reference, timestamps, and bank evidence manually. Check 5 and check 80 now require exact `RefundId` linkage; a legacy order-level posting no longer suppresses a missing-posting finding for a completed refund.
 
 Both checks are read-only. They do not create, relink, delete, or reverse financial postings, and they do not change payment, refund, order, inventory, or seller-balance state.
+
+### Commission reversal diagnostics (99–100)
+
+- **Check 99 — refund amount snapshot mismatch:** the refund amount stored with a commission reversal differs from the linked refund's amount. Review the refund history, reversal calculation, and original commission snapshot before deciding whether any correction is warranted.
+- **Check 100 — duplicate reversal for the same refund and commission:** multiple reversal records share the same `(RefundId, CommissionId)` pair. Verify whether a retry or recovery path created duplicate reversal entries and compare the total reversed amount with the original commission (also covered by check 82).
+
+These checks are read-only signals. Do not delete or amend reversal rows or adjust seller balances until the refund and commission evidence has been reconciled.
