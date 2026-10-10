@@ -27,7 +27,9 @@ public sealed class StorefrontMedia
             throw new ArgumentException("Unsupported image content type.", nameof(contentType));
         if ((kind == "product") != productId.HasValue)
             throw new ArgumentException("Product media must reference a product, and store media must not.", nameof(productId));
-        if (altText?.Length > 250 || sortOrder < 0)
+        if (altText?.Length > 250)
+            throw new ArgumentOutOfRangeException(nameof(altText));
+        if (sortOrder < 0)
             throw new ArgumentOutOfRangeException(nameof(sortOrder));
 
         return new StorefrontMedia
