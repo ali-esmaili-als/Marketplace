@@ -215,7 +215,7 @@ app.MapGet("/api/cart/summary", async (System.Security.Claims.ClaimsPrincipal us
         select new
         {
             item.Id, item.ProductId, item.ProductVariantId, item.WarrantyId, item.Quantity,
-            product.Name, variant.SKU, variant.VariantKey, StoreId = store.Id, StoreSlug = store.Slug, StoreName = store.Name, StoreThemeCode = store.ThemeCode, StorePaletteCode = store.PaletteCode,
+            product.Name, variant.SKU, variant.VariantKey, StoreId = store.Id, StoreSlug = store.Slug, StoreName = store.Name, StoreThemeCode = store.ThemeCode, StorePaletteCode = store.PaletteCode, StoreThemePrimaryColor = store.ThemePrimaryColor, StoreThemeSecondaryColor = store.ThemeSecondaryColor, StoreThemeBackgroundColor = store.ThemeBackgroundColor, StoreThemeTextColor = store.ThemeTextColor, StoreThemeFontCode = store.ThemeFontCode, StoreThemeCornerStyle = store.ThemeCornerStyle,
             UnitPriceIRR = variant.PriceIRR ?? product.BasePriceIRR,
             WarrantyName = warranty == null ? null : warranty.Name,
             WarrantyPriceIRR = warranty == null ? 0L : warranty.PriceIRR
@@ -258,7 +258,7 @@ app.MapGet("/api/public/stores", async (int? take, Marketplace.Infrastructure.Pe
         orderby s.CreatedAtUtc descending
         select new
         {
-            s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.PaletteCode, s.CreatedAtUtc,
+            s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.PaletteCode, s.ThemePrimaryColor, s.ThemeSecondaryColor, s.ThemeBackgroundColor, s.ThemeTextColor, s.ThemeFontCode, s.ThemeCornerStyle, s.CreatedAtUtc,
             ProductCount = db.Products.Count(p => p.StoreId == s.Id && p.Status == Marketplace.Domain.Catalog.ProductStatus.Active)
         }).Take(limit).ToListAsync(ct);
     return Results.Ok(stores);
@@ -272,7 +272,7 @@ app.MapGet("/api/public/stores/{storeId:long}/{slug}", async (long storeId, stri
         where s.Id == storeId && s.Slug == slug
               && s.Status == Marketplace.Domain.Sellers.StoreStatus.Active
               && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active
-        select new { s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.PaletteCode, s.CreatedAtUtc }
+        select new { s.Id, s.Name, s.Slug, s.Description, s.ThemeCode, s.PaletteCode, s.ThemePrimaryColor, s.ThemeSecondaryColor, s.ThemeBackgroundColor, s.ThemeTextColor, s.ThemeFontCode, s.ThemeCornerStyle, s.CreatedAtUtc }
     ).SingleOrDefaultAsync(ct);
     return store is null ? Results.NotFound() : Results.Ok(store);
 });
@@ -325,7 +325,7 @@ app.MapGet("/api/public/stores/{storeId:long}/{storeSlug}/products/{productSlug}
               && seller.Status == Marketplace.Domain.Sellers.SellerStatus.Active && category.IsActive
         select new
         {
-            p.Id, p.StoreId, SellerId = s.SellerId, StoreName = s.Name, StoreSlug = s.Slug, ThemeCode = s.ThemeCode, PaletteCode = s.PaletteCode,
+            p.Id, p.StoreId, SellerId = s.SellerId, StoreName = s.Name, StoreSlug = s.Slug, ThemeCode = s.ThemeCode, PaletteCode = s.PaletteCode, ThemePrimaryColor = s.ThemePrimaryColor, ThemeSecondaryColor = s.ThemeSecondaryColor, ThemeBackgroundColor = s.ThemeBackgroundColor, ThemeTextColor = s.ThemeTextColor, ThemeFontCode = s.ThemeFontCode, ThemeCornerStyle = s.ThemeCornerStyle,
             p.CategoryId, CategoryName = category.Name, p.Name, p.Slug, p.Description,
             p.BasePriceIRR, p.HasVariants, p.CreatedAtUtc
         }).SingleOrDefaultAsync(ct);
@@ -2604,7 +2604,8 @@ app.MapGet("/api/admin/stores/themes", async (
             store.Id, store.Name, store.Slug,
             SellerId = seller.Id, SellerUserId = seller.UserId,
             store.Status, SellerStatus = seller.Status,
-            store.ThemeCode, store.PaletteCode,
+            store.ThemeCode, store.PaletteCode, store.ThemePrimaryColor, store.ThemeSecondaryColor,
+            store.ThemeBackgroundColor, store.ThemeTextColor, store.ThemeFontCode, store.ThemeCornerStyle,
             ProductCount = db.Products.Count(product =>
                 product.StoreId == store.Id && product.Status == Marketplace.Domain.Catalog.ProductStatus.Active),
             store.CreatedAtUtc
