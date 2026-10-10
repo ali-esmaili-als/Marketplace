@@ -90,9 +90,7 @@ public sealed class PaymentVerificationService
         var reference = verification.Reference ?? authority;
         await FinalizeVerifiedPaymentAsync(payment.Id, payment.OrderId, reference, ct);
         var current = await _payments.GetAsync(payment.Id, ct) ?? throw new DomainException("Payment not found.");
-        return current.Status == PaymentStatus.ReconciliationRequired
-            ? new PaymentVerificationResult(false, reference, "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required.")
-            : new PaymentVerificationResult(true, reference, null);
+        return ToFinalVerificationResult(current, reference);
     }
 
     public async Task<PaymentVerificationResult> VerifyAsync(long userId,long paymentId,string authority,CancellationToken ct=default)
@@ -155,10 +153,22 @@ public sealed class PaymentVerificationService
         var reference = result.Reference ?? authority;
         await FinalizeVerifiedPaymentAsync(payment.Id, payment.OrderId, reference, ct);
         var currentPayment = await _payments.GetAsync(payment.Id, ct) ?? throw new DomainException("Payment not found.");
-        return currentPayment.Status == PaymentStatus.ReconciliationRequired
-            ? new PaymentVerificationResult(false, reference, "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required.")
-            : new PaymentVerificationResult(true, reference, null);
+        return ToFinalVerificationResult(currentPayment, reference);
     }
+    private static PaymentVerificationResult ToFinalVerificationResult(Payment payment, string reference)
+    {
+        return payment.Status switch
+        {
+            PaymentStatus.Succeeded => new PaymentVerificationResult(true, payment.ReferenceNumber ?? reference, null),
+            PaymentStatus.ReconciliationRequired => new PaymentVerificationResult(false, payment.ReferenceNumber ?? reference,
+                "Gateway confirmed payment, but the order is no longer payable. Manual reconciliation is required."),
+            PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded => new PaymentVerificationResult(false,
+                payment.ReferenceNumber ?? reference, "Payment has been refunded; verify the order and refund ledger before taking further action."),
+            _ => new PaymentVerificationResult(false, payment.ReferenceNumber ?? reference,
+                "Gateway confirmed payment, but the payment is not in a completed state. Manual reconciliation is required.")
+        };
+    }
+
     private async Task FinalizeVerifiedPaymentAsync(long paymentId,long orderId,string reference,CancellationToken ct)
     {
         try
