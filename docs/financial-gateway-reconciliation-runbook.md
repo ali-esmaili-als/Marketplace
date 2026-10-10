@@ -407,3 +407,7 @@ These checks are read-only signals. Do not delete or amend reversal rows or adju
 - **Check 103 — duplicate failure-release postings:** a failed settlement has multiple matching reserved-bucket release entries. Confirm whether reservation release was repeated during recovery.
 
 These are read-only diagnostics. A duplicate ledger row does not by itself establish whether money was transferred twice; compare provider/bank evidence and the full ledger trail. Do not automatically delete entries, retry transfers, or adjust balances.
+
+### Atomic balance-bucket transfers
+
+Seller-balance bucket transfers must calculate every checked destination value before assigning either source or destination bucket. This is especially important for pending release, blocking, and block release: if the destination bucket would overflow, the operation must fail without changing either bucket. The domain tests cover these overflow boundaries. This is an in-memory consistency guarantee; it does not replace database transaction boundaries for persisting ledger and balance changes together.
