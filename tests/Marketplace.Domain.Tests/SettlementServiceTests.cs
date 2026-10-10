@@ -191,6 +191,53 @@ public sealed class SettlementServiceTests
     }
 
     [Fact]
+    public async Task SuccessfulPayoutWithoutBankReference_IsHeldForReconciliationAndKeepsFundsReserved()
+    {
+        var settlement = Settlement.Create(730, 731, 400_000, 732, "Test Bank", "IR0732", "Seller");
+        var balance = SellerBalance.Create(733, settlement.SellerId);
+        balance.AddAvailable(1_000_000);
+        balance.ReserveForSettlement(settlement.AmountIRR);
+
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSettlementAsync(settlement.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlement);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(settlement.SellerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(balance);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var payout = new Mock<ISellerPayoutGateway>();
+        payout.Setup(x => x.TransferAsync(
+                settlement.BankNameSnapshot, settlement.IbanSnapshot, settlement.AccountHolderNameSnapshot,
+                settlement.AmountIRR, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, (string?)null, (string?)null));
+
+        var service = new SettlementService(
+            lifecycle.Object, uow.Object, CreateIdGenerator(), payout.Object, Mock.Of<ISellerManagementRepository>());
+
+        var result = await service.ProcessAsync(settlement.Id);
+
+        Assert.Equal("OnHold", result.Status);
+        Assert.Equal(SettlementStatus.OnHold, settlement.Status);
+        Assert.Equal(600_000, balance.AvailableIRR);
+        Assert.Equal(400_000, balance.ReservedForSettlementIRR);
+        Assert.Null(settlement.Reference);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        lifecycle.Verify(x => x.AddOutboxMessage(It.Is<Marketplace.Domain.Notifications.OutboxMessage>(
+            message => message.EventType == "Settlement.OnHold")), Times.Once);
+        payout.Verify(x => x.TransferAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ProcessingAlreadyCompletedSettlement_DoesNotCallPayoutGatewayAgain()
     {
         var settlement = Settlement.Create(1, 2, 400_000, 3, "Test Bank", "IR0001", "Seller");
