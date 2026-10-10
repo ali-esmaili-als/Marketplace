@@ -1620,8 +1620,11 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
 
     foreach (var refund in refunds.Where(x => x.status == (int)Marketplace.Domain.Refunds.RefundStatus.Completed))
     {
-        var refundLedgerExists = ledger.Any(x => x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Refund
-            && (x.RefundId == refund.refundId || (x.RefundId is null && x.OrderId == orderId)));
+        // Match the immutable refund identity only. An unlinked legacy order-level
+        // entry must not satisfy more than one refund's reconciliation check.
+        var refundLedgerExists = ledger.Any(x =>
+            x.type == (int)Marketplace.Domain.Finance.BalanceTransactionType.Refund
+            && x.RefundId == refund.refundId);
         if (!refundLedgerExists)
             findings.Add(new { code = "RefundLedgerMissing", severity = "error", message = $"بازپرداخت #{refund.refundId} تکمیل شده اما ثبت دفتر متناظر پیدا نشد." });
         if (!reversals.Any(x => x.RefundId == refund.refundId))
