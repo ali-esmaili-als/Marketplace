@@ -239,3 +239,12 @@ Operational and client behavior:
 5. If the provider cannot distinguish definitive rejection from an uncertain result in its response, do not map the uncertain response to a definitive rejection. The gateway adapter contract must expose that distinction before such a provider is enabled for production.
 
 The existing automated timeout tests use mocked gateways and persistence. They establish that an exception/timeout does not mutate payment/transaction state, but they do not prove a real provider's semantics. Validate each production provider's definitive-rejection and ambiguous-response mapping against its official protocol and sandbox before enabling it.
+
+### Interpreting lifecycle diagnostics (checks 65–68)
+
+- **65 — Hold/order snapshot mismatch:** a seller-balance hold's seller or amount differs from the order's immutable seller-share snapshot. Treat this as a high-priority integrity incident; do not consume, release, or recreate the hold until the order, payment, and ledger history are traced.
+- **66 — Missing seller hold:** an order that progressed from payment into a later lifecycle state has no seller-balance hold. Verify whether payment finalization committed partially, whether legacy data predates the hold workflow, and whether a migration or out-of-band edit occurred. Do not create a hold from current balance totals without reconstructing the original transaction.
+- **67 — Hold/order terminal-state conflict:** a consumed hold is expected with a refunded order, while a released hold is expected with a completed order. Check the refund/complaint decision, balance transactions, and audit trail; a row is a review signal, not a safe automatic repair instruction.
+- **68 — Multiple successful provider transactions for one payment:** inspect every authority/reference and the provider's transaction history. Confirm whether the bank captured more than once. Do not assume duplicate rows are duplicate charges, and do not issue a compensating refund until the external outcome and local ledger effects are established.
+
+These checks complement payment/order, refund/commission, inventory-reservation, and settlement diagnostics. Run them before and after an authorized reconciliation. They are intentionally read-only and do not infer a corrective balance adjustment.
