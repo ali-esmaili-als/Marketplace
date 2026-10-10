@@ -74,7 +74,8 @@ public sealed class FinancialIntegrityAuthorizationHttpTests : IClassFixture<Web
     }
 
     [Theory]
-    [InlineData("GET", "/api/admin/financial-integrity/work-queue")]\n    [InlineData("GET", "/api/admin/financial-integrity/summary")]
+    [InlineData("GET", "/api/admin/financial-integrity/work-queue")]
+    [InlineData("GET", "/api/admin/financial-integrity/summary")]
     [InlineData("GET", "/api/admin/financial-integrity/items")]
     [InlineData("GET", "/api/admin/financial-integrity/ledger")]
     [InlineData("GET", "/api/admin/financial-integrity/order-flows")]
