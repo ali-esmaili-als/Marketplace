@@ -419,8 +419,11 @@ app.MapPut("/api/sellers/me/stores/{storeId:long}/theme", async (
     if (store is null) return Results.NotFound();
     store.ConfigureTheme(request.ThemeCode);
     store.ConfigurePalette(request.PaletteCode);
+    store.ConfigureAppearance(request.PrimaryColor, request.SecondaryColor, request.BackgroundColor,
+        request.TextColor, request.FontCode, request.CornerStyle);
     await db.SaveChangesAsync(ct);
-    return Results.Ok(new { store.Id, store.ThemeCode, store.PaletteCode });
+    return Results.Ok(new { store.Id, store.ThemeCode, store.PaletteCode, store.ThemePrimaryColor,
+        store.ThemeSecondaryColor, store.ThemeBackgroundColor, store.ThemeTextColor, store.ThemeFontCode, store.ThemeCornerStyle });
 }).RequirePermission("Seller.Catalog.Manage");
 
 app.MapPost("/api/sellers/me/stores/{storeId:long}/activate",async(System.Security.Claims.ClaimsPrincipal user,long storeId,Marketplace.Application.Sellers.SellerManagementService service,CancellationToken ct)=>{
@@ -2621,6 +2624,25 @@ app.MapGet("/api/admin/stores/themes", async (
     return Results.Ok(new { total, items });
 }).RequirePermission("Admin.Identity.Manage");
 
+app.MapPut("/api/admin/stores/{storeId:long}/theme", async (
+    System.Security.Claims.ClaimsPrincipal user, long storeId, StoreThemeRequest request,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId, ct);
+    if (store is null) return Results.NotFound();
+    var previous = new { store.ThemeCode, store.PaletteCode, store.ThemePrimaryColor, store.ThemeSecondaryColor,
+        store.ThemeBackgroundColor, store.ThemeTextColor, store.ThemeFontCode, store.ThemeCornerStyle };
+    store.ConfigureTheme(request.ThemeCode);
+    store.ConfigurePalette(request.PaletteCode);
+    store.ConfigureAppearance(request.PrimaryColor, request.SecondaryColor, request.BackgroundColor,
+        request.TextColor, request.FontCode, request.CornerStyle);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { store.Id, store.Name, previous, current = new {
+        store.ThemeCode, store.PaletteCode, store.ThemePrimaryColor, store.ThemeSecondaryColor,
+        store.ThemeBackgroundColor, store.ThemeTextColor, store.ThemeFontCode, store.ThemeCornerStyle },
+        changedByUserId = CurrentUserId(user), changedAtUtc = DateTime.UtcNow });
+}).RequirePermission("Admin.Identity.Manage");
+
 app.Run();
 
 public sealed record CustomerProfileUpdateRequest(string DisplayName, string? Email);
@@ -2628,7 +2650,7 @@ public sealed record CartItemRequest(long CustomerId,long SellerId,long StoreId,
 public sealed record CartQuantityRequest(int Quantity,long? WarrantyId);
 public sealed record CheckoutRequest(Marketplace.Domain.Payments.PaymentProviderCode Provider,long DestinationCityId,string? CouponCode,string? RequestKey,long? AddressId = null);
 public sealed record CustomerAddressRequest(long CityId,string RecipientName,string RecipientMobile,string AddressLine,string PostalCode,string? DeliveryNote,bool IsDefault);
-public sealed record StoreThemeRequest(string ThemeCode, string PaletteCode);
+public sealed record StoreThemeRequest(string ThemeCode, string PaletteCode, string? PrimaryColor = null, string? SecondaryColor = null, string? BackgroundColor = null, string? TextColor = null, string? FontCode = null, string? CornerStyle = null);
 public sealed record StoreShippingCitiesRequest(long[] CityIds);
 public sealed record StoreShippingRateRequest(long CityId, long ShippingFeeIRR, int MinDeliveryDays, int MaxDeliveryDays);
 public sealed record StoreShippingRatesRequest(StoreShippingRateRequest[] Rates);
