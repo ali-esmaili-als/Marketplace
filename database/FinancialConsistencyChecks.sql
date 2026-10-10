@@ -65,8 +65,7 @@ WHERE r.Status = 4
       SELECT 1
       FROM dbo.BalanceTransactions AS bt
       WHERE bt.Type = 3 -- Refund
-        AND (bt.RefundId = r.Id
-             OR (bt.RefundId IS NULL AND bt.OrderId = r.OrderId))
+        AND bt.RefundId = r.Id
   );
 
 PRINT '6. Duplicate sale ledger entries per order (should return no rows)';
@@ -1144,3 +1143,28 @@ FROM dbo.Payments AS p
 JOIN dbo.Orders AS o ON o.Id = p.OrderId
 WHERE p.AmountIRR <> o.TotalAmountIRR
    OR p.CustomerId <> o.CustomerId;
+
+PRINT '97. Multiple refund ledger postings exist for the same refund identity';
+SELECT bt.RefundId, COUNT_BIG(*) AS RefundLedgerPostingCount,
+       MIN(bt.AmountIRR) AS MinimumPostingIRR,
+       MAX(bt.AmountIRR) AS MaximumPostingIRR,
+       MIN(bt.CreatedAtUtc) AS FirstPostingAtUtc,
+       MAX(bt.CreatedAtUtc) AS LastPostingAtUtc
+FROM dbo.BalanceTransactions AS bt
+WHERE bt.Type = 3 -- Refund
+  AND bt.RefundId IS NOT NULL
+GROUP BY bt.RefundId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '98. Legacy refund ledger postings cannot be tied to a specific refund identity';
+SELECT bt.Id AS LedgerTransactionId, bt.OrderId, bt.SellerId,
+       bt.AmountIRR, bt.Reference, bt.CreatedAtUtc,
+       COUNT(r.Id) AS CandidateRefundCount
+FROM dbo.BalanceTransactions AS bt
+LEFT JOIN dbo.Refunds AS r ON r.OrderId = bt.OrderId
+    AND r.Status = 4 -- Completed
+WHERE bt.Type = 3 -- Refund
+  AND bt.RefundId IS NULL
+GROUP BY bt.Id, bt.OrderId, bt.SellerId, bt.AmountIRR, bt.Reference, bt.CreatedAtUtc
+ORDER BY bt.CreatedAtUtc, bt.Id;
+
