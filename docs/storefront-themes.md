@@ -55,7 +55,7 @@ Store logo, banner, and product-gallery images use local application storage rat
 - Seller hide: `DELETE /api/sellers/me/stores/{storeId}/media/{mediaId}`
 - Admin upload/hide: `POST /api/admin/stores/{storeId}/media` and `DELETE /api/admin/stores/{storeId}/media/{mediaId}`
 
-Uploads accept JPEG, PNG, or WebP only, up to 5 MiB. The API validates both declared MIME type and file signature, generates opaque filenames, and verifies store ownership for seller operations. A product image must reference a product belonging to the same store. Deactivation hides media from the public API but intentionally does not delete the physical file.
+Uploads accept JPEG, PNG, or WebP only, up to 5 MiB. The API validates both declared MIME type and file signature, generates opaque filenames, and verifies store ownership for seller operations. A product image must reference a product belonging to the same store. Deactivation hides media from the public API and removes the physical file so the direct static URL no longer serves the image.
 
 Existing database upgrade: run `database/034_StorefrontMedia.sql` after `033_StoreThemeCustomization.sql` (and after earlier numbered upgrades). A fresh database uses `database/Marketplace_Complete.sql`.
 
