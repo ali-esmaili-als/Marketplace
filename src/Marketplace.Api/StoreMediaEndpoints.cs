@@ -74,6 +74,34 @@ public static class StoreMediaEndpoints
             return Results.NoContent();
         }).RequirePermission("Admin.Identity.Manage");
 
+        app.MapPut("/api/sellers/me/stores/{storeId:long}/media/{mediaId:long}/sort-order", async (
+            ClaimsPrincipal user, long storeId, long mediaId, StoreMediaSortOrderRequest request,
+            MarketplaceDbContext db, Marketplace.Application.Abstractions.ISellerManagementRepository sellers, CancellationToken ct) =>
+        {
+            if (request.SortOrder < 0) return Results.BadRequest(new { error = "sortOrder must be non-negative." });
+            var seller = await sellers.GetSellerByUserIdAsync(CurrentUserId(user), ct);
+            if (seller is null) return Results.Unauthorized();
+            var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(x => x.Id == storeId, ct);
+            if (store is null) return Results.NotFound();
+            if (store.SellerId != seller.Id) return Results.Forbid();
+            var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
+            if (media is null) return Results.NotFound();
+            media.ChangeSortOrder(request.SortOrder);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        }).RequirePermission("Seller.Catalog.Manage");
+
+        app.MapPut("/api/admin/stores/{storeId:long}/media/{mediaId:long}/sort-order", async (
+            long storeId, long mediaId, StoreMediaSortOrderRequest request, MarketplaceDbContext db, CancellationToken ct) =>
+        {
+            if (request.SortOrder < 0) return Results.BadRequest(new { error = "sortOrder must be non-negative." });
+            var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
+            if (media is null) return Results.NotFound();
+            media.ChangeSortOrder(request.SortOrder);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        }).RequirePermission("Admin.Identity.Manage");
+
         return app;
     }
 
@@ -155,3 +183,5 @@ public static class StoreMediaEndpoints
         long.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
             ? id : throw new UnauthorizedAccessException();
 }
+
+public sealed record StoreMediaSortOrderRequest(int SortOrder);
