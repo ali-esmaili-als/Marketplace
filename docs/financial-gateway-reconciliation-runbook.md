@@ -326,3 +326,15 @@ A regression test covers a successful provider response followed by a simulated 
 - **Check 85 — multiple commission snapshots exist for one order:** inspect commission creation retries and ledger references. The current model expects one commission aggregate per order; do not consolidate rows without tracing associated balance transactions and reversals.
 
 Checks 80–85 are read-only investigation queries. They are designed to find inconsistent identities and aggregate totals; they do not automatically repair ledger history. In particular, check 83 should be interpreted against the commission snapshot contract that was active when the order was created.
+
+
+### Payout timeout when the OnHold recovery write also fails
+
+If the payout provider throws or times out, the transfer outcome is ambiguous. The service attempts to move the settlement from `Processing` to `OnHold` without releasing the reserved funds. If this recovery write also fails, the original provider exception is preserved and the settlement may remain `Processing`.
+
+1. Do not retry the payout and do not release the seller's reservation.
+2. After database availability is restored, inspect the settlement and its reservation ledger entries.
+3. Confirm the bank's final transfer status using the settlement amount, immutable bank-account snapshot, and any provider reference.
+4. Use the audited reconciliation flow only after the provider's final status is established.
+
+Failure to persist the recovery state is not evidence that the payout failed. A regression test verifies that the original bank timeout is preserved, funds remain reserved, and the payout is invoked only once.
