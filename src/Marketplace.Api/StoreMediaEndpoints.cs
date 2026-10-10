@@ -121,6 +121,7 @@ public static class StoreMediaEndpoints
     {
         kind = kind?.Trim().ToLowerInvariant() ?? "";
         if (kind is not ("logo" or "banner" or "product")) return Results.BadRequest(new { error = "kind must be logo, banner or product." });
+        if (altText?.Length > 250) return Results.BadRequest(new { error = "altText must be 250 characters or fewer." });
         if ((kind == "product") != productId.HasValue) return Results.BadRequest(new { error = "productId is required only for product media." });
         if (file is null || file.Length is <= 0 or > MaxImageBytes) return Results.BadRequest(new { error = "Image size must be between 1 byte and 5 MB." });
         if (!AllowedTypes.Contains(file.ContentType)) return Results.BadRequest(new { error = "Only JPEG, PNG and WebP images are supported." });
