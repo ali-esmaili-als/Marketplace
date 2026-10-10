@@ -78,6 +78,10 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
                     INSERT dbo.Stores(Id,SellerId,Name,Slug,Status,CommissionRateBasisPoints,MinimumCommissionIRR,CreatedAtUtc)
                     VALUES (73101,72101,N'Media Test Store One',N'media-test-store-one',2,1000,0,@now),
                            (73102,72102,N'Media Test Store Two',N'media-test-store-two',2,1000,0,@now);
+                    INSERT dbo.Categories(Id,ParentCategoryId,Name,Slug,Path,IsActive,CreatedAtUtc)
+                    VALUES (74101,NULL,N'Theme Test Category',N'theme-test-category','74101',1,@now);
+                    INSERT dbo.Products(Id,StoreId,CategoryId,Name,Slug,Description,BasePriceIRR,Status,HasVariants,CreatedAtUtc)
+                    VALUES (75101,73101,74101,N'Theme Test Product',N'theme-test-product',N'Public product for storefront theme integration tests',1000,2,0,@now);
                     """);
             }
 
@@ -198,6 +202,15 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
         });
         Assert.Equal(HttpStatusCode.BadRequest, invalidThemeUpdate.StatusCode);
 
+        using var catalogAfterSeller = await _client.GetAsync("/api/catalog/products?storeId=73101&take=10");
+        Assert.Equal(HttpStatusCode.OK, catalogAfterSeller.StatusCode);
+        using var catalogSellerJson = System.Text.Json.JsonDocument.Parse(await catalogAfterSeller.Content.ReadAsStringAsync());
+        var sellerProduct = Assert.Single(catalogSellerJson.RootElement.EnumerateArray().ToArray());
+        Assert.Equal("editorial", sellerProduct.GetProperty("storeThemeCode").GetString());
+        Assert.Equal("forest", sellerProduct.GetProperty("storePaletteCode").GetString());
+        Assert.Equal("#26734d", sellerProduct.GetProperty("storeThemePrimaryColor").GetString());
+        Assert.Equal("serif", sellerProduct.GetProperty("storeThemeFontCode").GetString());
+
         using var publicAfterSeller = await _client.GetAsync($"/api/public/stores/{StoreId}/media-test-store-one");
         Assert.Equal(HttpStatusCode.OK, publicAfterSeller.StatusCode);
         using var sellerJson = System.Text.Json.JsonDocument.Parse(await publicAfterSeller.Content.ReadAsStringAsync());
@@ -222,6 +235,15 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
         };
         using var adminUpdate = await _client.PutAsJsonAsync($"/api/admin/stores/{StoreId}/theme", adminTheme);
         Assert.Equal(HttpStatusCode.OK, adminUpdate.StatusCode);
+
+        using var catalogAfterAdmin = await _client.GetAsync("/api/catalog/products?storeId=73101&take=10");
+        Assert.Equal(HttpStatusCode.OK, catalogAfterAdmin.StatusCode);
+        using var catalogAdminJson = System.Text.Json.JsonDocument.Parse(await catalogAfterAdmin.Content.ReadAsStringAsync());
+        var adminProduct = Assert.Single(catalogAdminJson.RootElement.EnumerateArray().ToArray());
+        Assert.Equal("luxe", adminProduct.GetProperty("storeThemeCode").GetString());
+        Assert.Equal("rose", adminProduct.GetProperty("storePaletteCode").GetString());
+        Assert.Equal("#a83269", adminProduct.GetProperty("storeThemePrimaryColor").GetString());
+        Assert.Equal("modern", adminProduct.GetProperty("storeThemeFontCode").GetString());
 
         using var publicAfterAdmin = await _client.GetAsync($"/api/public/stores/{StoreId}/media-test-store-one");
         Assert.Equal(HttpStatusCode.OK, publicAfterAdmin.StatusCode);
