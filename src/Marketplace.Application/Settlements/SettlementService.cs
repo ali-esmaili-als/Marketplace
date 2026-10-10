@@ -115,17 +115,25 @@ public sealed class SettlementService
             // A thrown exception/timeout is ambiguous. Once the provider call has returned
             // control to us, move to OnHold so reconciliation cannot race an in-flight payout.
             // Do not release the reserved balance; an operator must verify the bank's final state.
-            await _uow.ExecuteInSerializableTransactionAsync(async token =>
+            try
             {
-                var settlement = await _life.GetSettlementAsync(settlementId, token);
-                if (settlement?.Status == SettlementStatus.Processing)
+                await _uow.ExecuteInSerializableTransactionAsync(async token =>
                 {
-                    settlement.PutOnHold();
-                    await AddOutboxAsync("Settlement.OnHold", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
-                    await _uow.SaveChangesAsync(token);
-                }
-                return 0;
-            }, CancellationToken.None);
+                    var settlement = await _life.GetSettlementAsync(settlementId, token);
+                    if (settlement?.Status == SettlementStatus.Processing)
+                    {
+                        settlement.PutOnHold();
+                        await AddOutboxAsync("Settlement.OnHold", new { settlement.Id, settlement.SellerId, settlement.AmountIRR, settlement.Status }, token);
+                        await _uow.SaveChangesAsync(token);
+                    }
+                    return 0;
+                }, CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original provider exception. If recovery persistence is also down,
+                // the reservation remains intact and Processing must be reconciled operationally.
+            }
             throw;
         }
 
