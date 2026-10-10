@@ -19,10 +19,13 @@ public sealed class OrderLifecycleService
     private readonly IIdGenerator _ids;
     private readonly OrderFinancialLifecycle _domain=new();
     private readonly INotificationRepository _notifications;
+    private readonly TimeProvider _timeProvider;
+    private static readonly TimeSpan ComplaintWindow = TimeSpan.FromDays(7);
 
-    public OrderLifecycleService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,INotificationRepository notifications)
+    public OrderLifecycleService(IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,INotificationRepository notifications,TimeProvider? timeProvider=null)
     {
         _orders=orders; _payments=payments; _life=life; _uow=uow; _ids=ids; _notifications=notifications;
+        _timeProvider=timeProvider ?? TimeProvider.System;
     }
 
     private async Task NotifyAsync(long userId,string title,string body,long orderId,CancellationToken ct)
@@ -154,22 +157,29 @@ public sealed class OrderLifecycleService
 
     public async Task MarkDeliveredAsync(long orderId,string deliveryCode,string confirmationReference,DateTime now,DateTime complaintExpiresAtUtc,CancellationToken ct=default)
     {
+        // Keep legacy parameters for caller compatibility, but never trust client/job supplied
+        // timestamps for a financial transition or complaint deadline.
+        _ = now;
+        _ = complaintExpiresAtUtc;
+
         var invalidCode = await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
+            var confirmedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            var complaintDeadlineUtc = confirmedAtUtc.Add(ComplaintWindow);
             var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
             var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
             var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
             var code=await _life.GetDeliveryCodeByOrderAsync(orderId,token)??throw new DomainException("Delivery code not found.");
-            if(!code.Verify(deliveryCode,now))
+            if(!code.Verify(deliveryCode,confirmedAtUtc))
             {
                 // Commit failed-attempt counters before returning the validation error.
                 await _uow.SaveChangesAsync(token);
                 return true;
             }
 
-            d.ConfirmDelivered(confirmationReference,now);
+            d.ConfirmDelivered(confirmationReference,confirmedAtUtc);
             var pendingBefore=b.PendingIRR;
-            _domain.OnDelivered(o,d,b,now,complaintExpiresAtUtc);
+            _domain.OnDelivered(o,d,b,confirmedAtUtc,complaintDeadlineUtc);
 
             var reservations=await _life.GetReservationsByOrderAsync(o.Id,token);
             foreach(var reservation in reservations.Where(x=>x.Status==Marketplace.Domain.Inventory.InventoryReservationStatus.Active))
