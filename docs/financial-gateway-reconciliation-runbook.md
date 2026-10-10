@@ -290,3 +290,14 @@ A provider's definitive success response is not enough to prove that the order, 
 5. Do not mark a payment failed or release inventory solely because the finalization request returned an exception after the bank confirmed success.
 
 The regression test for this path simulates a persistence exception before the lifecycle transaction can run, then verifies that the best-effort recovery records the payment as requiring reconciliation. It does not simulate a real SQL Server outage or prove that the recovery write will succeed during an outage.
+
+
+### Refund amount, commission reversal, and stale-processing diagnostics (75–79)
+
+- **Check 75 — completed refund amount differs from the order/payment snapshot:** the current application implements full-order refunds. Verify the order total, captured payment amount, provider transfer amount, and refund record. If partial refunds are introduced later, revise this check together with the refund domain contract before enabling them.
+- **Check 76 — completed refund lacks a commission reversal for its exact refund and commission:** inspect the refund-linked reversal and original commission. Do not create a reversal based only on the aggregate seller balance; confirm the provider transfer and refund lifecycle first.
+- **Check 77 — failed/rejected refund has a refund ledger posting or commission reversal:** investigate whether the refund was actually transferred, whether a later manual reconciliation changed the financial outcome, and whether the wrong refund identity was attached. Do not delete a ledger row to make the query clear.
+- **Check 78 — payment marked Refunded has no completed refund:** compare provider transaction history, payment status, order state, and refund audits. The payment's terminal status alone does not establish which refund transfer occurred.
+- **Check 79 — refund has remained Processing for over 30 minutes:** this is an operational triage threshold, not an automatic timeout. Confirm the provider's authoritative refund result before calling `ReconcileAsync`; a timeout or exception can mean the bank completed the transfer.
+
+Checks 75–79 are read-only. The 30-minute threshold is intentionally a review signal and must not trigger automatic failure, retry, or balance release. Current refund processing is a full-refund flow; any future partial-refund feature must update the amount diagnostics and financial invariants in the same change.
