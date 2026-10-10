@@ -853,7 +853,7 @@ WHERE sb.ReservedForSettlementIRR <> ISNULL(ast.ActiveSettlementAmountIRR, 0);
 
 PRINT '73. Completed settlements missing a bank reference';
 SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
-       s.Reference, s.CompletedAtUtc, s.CreatedAtUtc
+       s.Reference, s.CompletedAtUtc, s.RequestedAtUtc
 FROM dbo.Settlements AS s
 WHERE s.Status = 3 -- Completed
   AND LEN(LTRIM(RTRIM(ISNULL(s.Reference, N'')))) = 0;
