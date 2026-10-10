@@ -49,7 +49,19 @@ public sealed class PaymentVerificationService
                 }
                 return 0;
             }, ct);
-            return new PaymentVerificationResult(false, null, "Test payment was cancelled.");
+
+            // The browser's cancellation return can race with a successful bank callback.
+            // Report the persisted outcome after the transaction, not the stale return flag.
+            var afterCancellation = await _payments.GetAsync(paymentId, ct)
+                ?? throw new DomainException("Payment not found.");
+            if (afterCancellation.Status == PaymentStatus.Succeeded)
+                return new PaymentVerificationResult(true, afterCancellation.ReferenceNumber, null);
+            if (afterCancellation.Status is PaymentStatus.ReconciliationRequired
+                or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+                return new PaymentVerificationResult(false, afterCancellation.ReferenceNumber,
+                    "Payment outcome requires financial reconciliation.");
+
+            return new PaymentVerificationResult(false, afterCancellation.ReferenceNumber, "Test payment was cancelled.");
         }
 
         var gateway = await _gatewayFactory.GetForExistingPaymentAsync(PaymentProviderCode.TestBank, ct);
