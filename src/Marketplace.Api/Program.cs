@@ -1757,16 +1757,72 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
         .ThenBy(x => x.EntityId)
         .ToList();
 
+    // Join the operational workflow's latest status to the diagnostic finding without
+    // changing either the underlying financial record or the append-only audit history.
+    var workflowEvents = await db.AdminAuditEvents.AsNoTracking()
+        .Where(x => x.Action == "FinancialIntegrity.CaseStatusChanged")
+        .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
+        .Take(2000)
+        .Select(x => new { x.EntityType, x.EntityKey, x.DetailsJson, x.ActorUserId, x.CreatedAtUtc, x.Id })
+        .ToListAsync(ct);
+    var workflowByCase = new Dictionary<(string Kind, string EntityKey), (string Status, string Note, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
+    foreach (var activity in workflowEvents)
+    {
+        var key = (activity.EntityType, activity.EntityKey);
+        if (workflowByCase.ContainsKey(key)) continue;
+        var status = "Open";
+        var note = "";
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(activity.DetailsJson);
+            if (document.RootElement.TryGetProperty("status", out var statusElement))
+                status = statusElement.GetString() ?? "Open";
+            if (document.RootElement.TryGetProperty("note", out var noteElement))
+                note = noteElement.GetString() ?? "";
+        }
+        catch
+        {
+            status = "Open";
+            note = "جزئیات وضعیت رسیدگی قابل خواندن نیست";
+        }
+        workflowByCase[key] = (status, note, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
+    }
+
+    var items = filtered.Take(limit).Select(item =>
+    {
+        var key = (item.Kind, item.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var hasWorkflow = workflowByCase.TryGetValue(key, out var workflow);
+        return new
+        {
+            item.Kind,
+            item.EntityId,
+            item.OrderId,
+            item.SellerId,
+            item.AmountIRR,
+            item.Status,
+            item.CreatedAtUtc,
+            item.AgeHours,
+            item.Priority,
+            item.Summary,
+            workflowStatus = hasWorkflow ? workflow.Status : "Open",
+            workflowNote = hasWorkflow ? workflow.Note : "",
+            workflowUpdatedAtUtc = hasWorkflow ? (DateTime?)workflow.UpdatedAtUtc : null,
+            workflowActorUserId = hasWorkflow ? (long?)workflow.ActorUserId : null,
+            workflowAuditId = hasWorkflow ? (long?)workflow.AuditId : null
+        };
+    }).ToList();
+
     return Results.Ok(new
     {
         generatedAtUtc = now,
         readOnly = true,
         totalCandidates = filtered.Count,
-        returnedCount = Math.Min(limit, filtered.Count),
-        itemsTruncated = filtered.Count > limit || candidates.Count >= 200,
+        returnedCount = items.Count,
+        itemsTruncated = filtered.Count > limit || candidates.Count >= 200 || workflowEvents.Count == 2000,
         countsByKind = filtered.GroupBy(x => x.Kind).ToDictionary(g => g.Key, g => g.Count()),
         countsByPriority = filtered.GroupBy(x => x.Priority).ToDictionary(g => g.Key, g => g.Count()),
-        items = filtered.Take(limit).ToList()
+        countsByWorkflowStatus = items.GroupBy(x => x.workflowStatus).ToDictionary(g => g.Key, g => g.Count()),
+        items
     });
 }).RequirePermission("Admin.Settlement.Process");
 
