@@ -63,13 +63,14 @@ CREATE TABLE dbo.Sellers(
 CREATE TABLE dbo.Stores(
  Id BIGINT NOT NULL CONSTRAINT PK_Stores PRIMARY KEY, SellerId BIGINT NOT NULL,
  Name NVARCHAR(200) NOT NULL, Slug NVARCHAR(250) NOT NULL, Description NVARCHAR(2000) NULL,
- ThemeCode NVARCHAR(20) NOT NULL CONSTRAINT DF_Stores_ThemeCode DEFAULT(N'classic'),
+ ThemeCode NVARCHAR(20) NOT NULL CONSTRAINT DF_Stores_ThemeCode DEFAULT(N'classic'), PaletteCode NVARCHAR(20) NOT NULL CONSTRAINT DF_Stores_PaletteCode DEFAULT(N'ocean'),
  Status TINYINT NOT NULL, CommissionRateBasisPoints INT NOT NULL CONSTRAINT DF_Stores_CommissionRate DEFAULT(0),
  MinimumCommissionIRR BIGINT NOT NULL CONSTRAINT DF_Stores_MinCommission DEFAULT(0),
  CreatedAtUtc DATETIME2(7) NOT NULL,
  CONSTRAINT UQ_Stores_Seller_Slug UNIQUE(SellerId,Slug),
  CONSTRAINT CK_Stores_Commission CHECK(CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR>=0),
- CONSTRAINT CK_Stores_ThemeCode CHECK(ThemeCode IN (N'classic',N'minimal',N'vibrant'))
+ CONSTRAINT CK_Stores_ThemeCode CHECK(ThemeCode IN (N'classic',N'minimal',N'vibrant',N'editorial',N'boutique',N'magazine',N'grid',N'luxe',N'organic',N'tech',N'fashion',N'gallery',N'market',N'mono',N'pastel',N'bold',N'nordic',N'artisan',N'urban',N'elegant')),
+ CONSTRAINT CK_Stores_PaletteCode CHECK(PaletteCode IN (N'ocean',N'forest',N'sunset',N'rose',N'monochrome'))
 );
 CREATE TABLE dbo.SellerBankAccounts(
  Id BIGINT NOT NULL CONSTRAINT PK_SellerBankAccounts PRIMARY KEY, SellerId BIGINT NOT NULL,
