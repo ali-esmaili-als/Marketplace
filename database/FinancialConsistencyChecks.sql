@@ -1093,3 +1093,21 @@ JOIN dbo.Orders AS o ON o.Id = r.OrderId
 JOIN dbo.Payments AS p ON p.Id = r.PaymentId
 WHERE r.Status IN (5, 6) -- Failed, Rejected
   AND (o.Status = 8 OR p.Status = 6); -- A failed refund must not finalize the order/payment
+
+
+PRINT '92. Pending or redirected payment attached to an order that has left PendingPayment';
+SELECT p.Id AS PaymentId, p.OrderId, p.Status AS PaymentStatus,
+       o.Status AS OrderStatus, p.AmountIRR, p.ReferenceNumber
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.Status IN (1, 2) -- Pending, Redirected
+  AND o.Status <> 1; -- PendingPayment
+
+
+PRINT '93. Failed or cancelled payment attached to an order that progressed beyond payment/cancellation';
+SELECT p.Id AS PaymentId, p.OrderId, p.Status AS PaymentStatus,
+       o.Status AS OrderStatus, p.AmountIRR, p.ReferenceNumber
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.Status IN (4, 5) -- Failed, Cancelled
+  AND o.Status NOT IN (1, 10); -- PendingPayment, Cancelled
