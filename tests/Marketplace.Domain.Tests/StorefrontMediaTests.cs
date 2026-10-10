@@ -1,3 +1,4 @@
+using System;
 using Marketplace.Domain.Catalog;
 using Xunit;
 
