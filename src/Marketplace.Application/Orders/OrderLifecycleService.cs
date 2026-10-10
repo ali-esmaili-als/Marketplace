@@ -111,6 +111,12 @@ public sealed class OrderLifecycleService
     public Task MarkReadyForDeliveryAsync(long orderId,CancellationToken ct=default)=>_uow.ExecuteInSerializableTransactionAsync(async token=>{
         var o=await _orders.GetAsync(orderId,token)??throw new DomainException("Order not found.");
         var d=await _life.GetDeliveryByOrderAsync(orderId,token)??throw new DomainException("Delivery not found.");
+        // Seller actions may be retried after a timeout. Once the ready state and its
+        // delivery code are committed, repeating the command must not issue a new code.
+        if (o.Status == OrderStatus.ReadyForDelivery
+            && d.Status == Marketplace.Domain.Delivery.DeliveryStatus.Ready
+            && await _life.GetDeliveryCodeByOrderAsync(orderId,token) is not null)
+            return 0;
         if (o.Status == OrderStatus.Paid) o.StartPreparing();
         d.MarkReady();
         o.MarkReady();
