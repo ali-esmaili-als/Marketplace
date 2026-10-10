@@ -111,15 +111,6 @@ public sealed class FinancialLedgerBucketReconciliationScriptTests
             VALUES
                 (910001, 910001, 70, 25, 0, 40, 0, '2026-01-03T00:00:00');
 
-            INSERT dbo.BalanceTransactions
-                (Id, SellerId, OrderId, SettlementId, RefundId, Type, Bucket, AmountIRR,
-                 BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
-            VALUES
-                (910001, 910001, NULL, NULL, NULL, 1, 1, 100, 0, 100, N'SEED_AVAILABLE_1', '2026-01-01T00:00:00'),
-                (910002, 910001, NULL, NULL, NULL, 2, 1, 30, 80, 50, N'SEED_AVAILABLE_2', '2026-01-02T00:00:00'),
-                (910003, 910001, NULL, 920002, NULL, 4, 4, 100, 0, 100, N'SETTLEMENT_REQUESTED', '2026-01-04T00:00:00'),
-                (910004, 910001, NULL, 920002, NULL, 4, 1, 100, 100, 0, N'BANK-920002', '2026-01-05T00:00:00');
-
             INSERT dbo.Settlements
                 (Id, SellerId, RequestKey, AmountIRR, Status, BankAccountId, BankNameSnapshot,
                  IbanSnapshot, AccountHolderNameSnapshot, Reference, FailureReason, RequestedAtUtc, CompletedAtUtc)
@@ -129,6 +120,15 @@ public sealed class FinancialLedgerBucketReconciliationScriptTests
                 (920002, 910001, N'seed-request-920002', 100, 3, 930001, N'Test Bank',
                  N'IR000000000000000000000000', N'Test Seller', N'BANK-920002', NULL,
                  '2026-01-04T00:00:00', '2026-01-05T00:00:00');
+
+            INSERT dbo.BalanceTransactions
+                (Id, SellerId, OrderId, SettlementId, RefundId, Type, Bucket, AmountIRR,
+                 BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
+            VALUES
+                (910001, 910001, NULL, NULL, NULL, 1, 1, 100, 0, 100, N'SEED_AVAILABLE_1', '2026-01-01T00:00:00'),
+                (910002, 910001, NULL, NULL, NULL, 2, 1, 30, 80, 50, N'SEED_AVAILABLE_2', '2026-01-02T00:00:00'),
+                (910003, 910001, NULL, 920002, NULL, 4, 4, 100, 0, 100, N'SETTLEMENT_REQUESTED', '2026-01-04T00:00:00'),
+                (910004, 910001, NULL, 920002, NULL, 4, 1, 100, 100, 0, N'BANK-920002', '2026-01-05T00:00:00');
             """, connection);
         await command.ExecuteNonQueryAsync();
     }
