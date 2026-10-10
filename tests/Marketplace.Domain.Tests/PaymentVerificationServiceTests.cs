@@ -82,6 +82,22 @@ public sealed class PaymentVerificationServiceTests
     }
 
     [Fact]
+    public async Task Verify_RejectsUndefinedNumericProviderBeforeCallingGateway()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        var undefinedProvider = ((int)PaymentProviderCode.TestBank + 100).ToString();
+        payment.Redirect(undefinedProvider, "AUTH-10");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        var service = CreateService(payments, factory);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.VerifyAsync(30, 10, "AUTH-10"));
+
+        factory.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Verify_ProviderTimeoutKeepsPaymentAndTransactionPendingForSafeRetry()
     {
         var payment = Payment.Create(10, 20, 30, 500_000);
