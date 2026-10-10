@@ -314,3 +314,15 @@ The payout provider can return a definitive result while the subsequent SQL tran
 5. If it remains Processing because the recovery write could not persist, restore database availability and reconcile the original settlement before any payout retry.
 
 A regression test covers a successful provider response followed by a simulated finalization persistence exception. It verifies the settlement is put on hold, reserved funds remain unchanged, the original exception is rethrown, and the payout provider is called only once.
+
+
+### Refund ledger identity and commission snapshot diagnostics (80–85)
+
+- **Check 80 — completed refund lacks its exact refund ledger identity:** inspect the refund, seller-balance movement, and original order. A zero-value seller debit can be valid when delivery-expiry processing already removed the seller share; the refund-linked row must still exist to explain the lifecycle.
+- **Check 81 — refund ledger row disagrees with the order/seller or expected debit:** the current full-refund path records either zero seller debit (already removed) or the order's seller share. Confirm the delivery-expiry path and bucket snapshots before changing anything.
+- **Check 82 — commission reversals exceed the original commission:** inspect every refund and reversal for the commission. Do not delete or rewrite reversal records to force the total into range.
+- **Check 83 — commission snapshot differs from the order financial snapshot:** compare the immutable order and commission split, including shipping treatment and historical pricing rules. If older versions used a different snapshot contract, classify those rows before treating them as corruption.
+- **Check 84 — refund's payment/customer identity or amount conflicts with the order:** verify the original payment, order ownership, captured amount, and refund record. Do not execute a second provider refund while identities are inconsistent.
+- **Check 85 — multiple commission snapshots exist for one order:** inspect commission creation retries and ledger references. The current model expects one commission aggregate per order; do not consolidate rows without tracing associated balance transactions and reversals.
+
+Checks 80–85 are read-only investigation queries. They are designed to find inconsistent identities and aggregate totals; they do not automatically repair ledger history. In particular, check 83 should be interpreted against the commission snapshot contract that was active when the order was created.
