@@ -94,6 +94,16 @@ public sealed class FinancialLedgerBucketReconciliationScriptTests
     private static async Task SeedKnownFindingsAsync(SqlConnection connection)
     {
         await using var command = new SqlCommand("""
+            INSERT dbo.Users (Id, Mobile, Email, PasswordHash, DisplayName, IsActive, IsMobileVerified, CreatedAtUtc)
+            VALUES (910001, N'+989100000001', NULL, N'test-hash', N'Ledger Diagnostics Seller', 1, 1, '2026-01-01T00:00:00');
+
+            INSERT dbo.Sellers (Id, UserId, Status, CreatedAtUtc, ActivatedAtUtc)
+            VALUES (910001, 910001, 2, '2026-01-01T00:00:00', '2026-01-01T00:00:00');
+
+            INSERT dbo.SellerBankAccounts
+                (Id, SellerId, BankName, Iban, AccountHolderName, IsDefault, IsVerified, CreatedAtUtc)
+            VALUES (930001, 910001, N'Test Bank', N'IR000000000000000000000000', N'Test Seller', 1, 1, '2026-01-01T00:00:00');
+
             INSERT dbo.SellerBalances
                 (Id, SellerId, AvailableIRR, PendingIRR, BlockedIRR, ReservedForSettlementIRR, LiabilityIRR, UpdatedAtUtc)
             VALUES
