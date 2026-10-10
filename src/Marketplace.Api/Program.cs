@@ -1678,7 +1678,7 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
         .ToListAsync(ct);
     if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentReview")
     {
-        candidates.AddRange(paymentReviews.Select(x => BuildFinancialWorkQueueItem(
+        candidates.AddRange(paymentReviews.Select(x => FinancialWorkQueueHelpers.Build(
             "PaymentReview", x.Id, x.OrderId, null, x.AmountIRR, x.Status, x.CreatedAtUtc,
             $"Payment provider={x.Provider}; reference={x.ReferenceNumber ?? "(missing)"}", now)));
     }
@@ -1696,7 +1696,7 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
         .Take(200).ToListAsync(ct);
     if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentOrderMismatch")
     {
-        candidates.AddRange(successfulMismatches.Select(x => BuildFinancialWorkQueueItem(
+        candidates.AddRange(successfulMismatches.Select(x => FinancialWorkQueueHelpers.Build(
             "PaymentOrderMismatch", x.Id, x.OrderId, x.SellerId, x.AmountIRR,
             $"Payment={x.PaymentStatus};Order={x.OrderStatus}", x.CreatedAtUtc,
             $"Payment reference={x.ReferenceNumber ?? "(missing)"}", now)));
@@ -1713,7 +1713,7 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
         .Take(200).ToListAsync(ct);
     if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentOrderMismatch")
     {
-        candidates.AddRange(refundedMismatches.Select(x => BuildFinancialWorkQueueItem(
+        candidates.AddRange(refundedMismatches.Select(x => FinancialWorkQueueHelpers.Build(
             "PaymentOrderMismatch", x.Id, x.OrderId, x.SellerId, x.AmountIRR,
             $"Payment={x.PaymentStatus};Order={x.OrderStatus}", x.CreatedAtUtc,
             $"Payment reference={x.ReferenceNumber ?? "(missing)"}", now)));
@@ -1729,7 +1729,7 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
         var orderIds = processingRefunds.Select(x => x.OrderId).Distinct().ToArray();
         var sellerByOrder = await db.Orders.AsNoTracking().Where(x => orderIds.Contains(x.Id))
             .Select(x => new { x.Id, x.SellerId }).ToDictionaryAsync(x => x.Id, x => x.SellerId, ct);
-        candidates.AddRange(processingRefunds.Select(x => BuildFinancialWorkQueueItem(
+        candidates.AddRange(processingRefunds.Select(x => FinancialWorkQueueHelpers.Build(
             "RefundProcessing", x.Id, x.OrderId,
             sellerByOrder.TryGetValue(x.OrderId, out var sellerId) ? sellerId : null,
             x.AmountIRR, "Processing", x.RequestedAtUtc,
@@ -1743,7 +1743,7 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
         .ToListAsync(ct);
     if (string.IsNullOrWhiteSpace(kind) || kind == "SettlementOnHold")
     {
-        candidates.AddRange(heldSettlements.Select(x => BuildFinancialWorkQueueItem(
+        candidates.AddRange(heldSettlements.Select(x => FinancialWorkQueueHelpers.Build(
             "SettlementOnHold", x.Id, null, x.SellerId, x.AmountIRR, "OnHold", x.RequestedAtUtc,
             $"Bank reference={x.Reference ?? "(missing)"}; reason={x.FailureReason ?? "(none)"}", now)));
     }
@@ -2857,14 +2857,17 @@ public sealed record FinancialWorkQueueItem(
     string Kind, long EntityId, long? OrderId, long? SellerId, long? AmountIRR,
     string Status, DateTime CreatedAtUtc, double AgeHours, string Priority, string Summary);
 
-static FinancialWorkQueueItem BuildFinancialWorkQueueItem(
-    string kind, long entityId, long? orderId, long? sellerId, long? amountIRR,
-    string status, DateTime createdAtUtc, string summary, DateTime nowUtc)
+public static class FinancialWorkQueueHelpers
 {
-    var ageHours = Math.Max(0, (nowUtc - createdAtUtc).TotalHours);
-    var priority = ageHours >= 24 ? "Critical" : ageHours >= 4 ? "High" : "Normal";
-    return new FinancialWorkQueueItem(kind, entityId, orderId, sellerId, amountIRR,
-        status, createdAtUtc, Math.Round(ageHours, 2), priority, summary);
+    public static FinancialWorkQueueItem Build(
+        string kind, long entityId, long? orderId, long? sellerId, long? amountIRR,
+        string status, DateTime createdAtUtc, string summary, DateTime nowUtc)
+    {
+        var ageHours = Math.Max(0, (nowUtc - createdAtUtc).TotalHours);
+        var priority = ageHours >= 24 ? "Critical" : ageHours >= 4 ? "High" : "Normal";
+        return new FinancialWorkQueueItem(kind, entityId, orderId, sellerId, amountIRR,
+            status, createdAtUtc, Math.Round(ageHours, 2), priority, summary);
+    }
 }
 
 public sealed record FinancialLedgerFinding(long SellerId,string FindingType,string Bucket,long? CurrentBalanceIRR,long? LedgerBalanceAfterIRR,long? DifferenceIRR,long? LatestLedgerTransactionId,DateTime? LatestLedgerAtUtc,long? ActiveSettlementTotalIRR);
