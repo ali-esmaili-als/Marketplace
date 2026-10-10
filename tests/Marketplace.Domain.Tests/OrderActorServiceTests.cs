@@ -55,6 +55,9 @@ public sealed class OrderActorServiceTests
         uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
                 It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
             .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<bool>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<bool>> action, CancellationToken token) => action(token));
         uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         var nextId = 100L;
