@@ -800,4 +800,41 @@ public sealed class OrderLifecycleServiceTests
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+
+    [Fact]
+    public async Task Successful_payment_callback_does_not_silently_ignore_cancelled_order()
+    {
+        var order = Order.Create(940, 941, 942, 943, 250_000, 250_000);
+        order.Cancel();
+
+        var payment = Payment.Create(944, order.Id, order.CustomerId, order.TotalAmountIRR);
+        payment.Redirect("TestBank", "AUTH-944");
+        payment.Succeed("BANK-944");
+        var balance = SellerBalance.Create(945, order.SellerId);
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(order.SellerId, It.IsAny<CancellationToken>())).ReturnsAsync(balance);
+
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        var service = new OrderLifecycleService(orders.Object, payments.Object, lifecycle.Object,
+            uow.Object, new Mock<IIdGenerator>().Object, new Mock<INotificationRepository>().Object);
+
+        await Assert.ThrowsAsync<DomainException>(() => service.PaymentSucceededAsync(order.Id, "BANK-944"));
+
+        Assert.Equal(OrderStatus.Cancelled, order.Status);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        Assert.Equal(0, balance.PendingIRR);
+        lifecycle.Verify(x => x.AddBalanceHold(It.IsAny<SellerBalanceHold>()), Times.Never);
+        lifecycle.Verify(x => x.AddDelivery(It.IsAny<DeliveryEntity>()), Times.Never);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
 }
