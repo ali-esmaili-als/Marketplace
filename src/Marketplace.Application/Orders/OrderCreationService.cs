@@ -28,6 +28,9 @@ public sealed class OrderCreationService
     public OrderCreationService(ICartRepository carts,ICatalogRepository catalog,IOrderRepository orders,IPaymentRepository payments,ILifecycleRepository life,IUnitOfWork uow,IIdGenerator ids,IPaymentGatewayFactory gatewayFactory,IShippingRepository shipping,PricingService pricing)
     { _carts=carts;_catalog=catalog;_orders=orders;_payments=payments;_life=life;_uow=uow;_ids=ids;_gatewayFactory=gatewayFactory;_shipping=shipping;_pricing=pricing; }
 
+    private static string? NormalizeCouponCode(string? code)
+        => string.IsNullOrWhiteSpace(code) ? null : code.Trim().ToUpperInvariant();
+
     public async Task<CheckoutQuoteResult> QuoteAsync(long customerId,long destinationCityId,string? couponCode,CancellationToken ct=default)
     {
         if(customerId<=0)throw new DomainException("Invalid customer.");
@@ -75,7 +78,30 @@ public sealed class OrderCreationService
                 var existing=await _orders.GetByCustomerRequestKeyAsync(customerId,requestKey,token);
                 if(existing is not null)
                 {
-                    var existingPayment=await _payments.GetByOrderAsync(existing.Id,token)??throw new DomainException("Existing checkout payment is missing; reconciliation is required.");
+                    var existingPayment=await _payments.GetByOrderAsync(existing.Id,token)
+                        ??throw new DomainException("Existing checkout payment is missing; reconciliation is required.");
+
+                    // Idempotency keys identify one logical checkout request, not merely one customer.
+                    // Reject accidental key reuse with changed inputs instead of silently redirecting
+                    // the buyer to an old order with a different address, city, coupon or provider.
+                    if (existing.DestinationCityId != destinationCityId
+                        || !string.Equals(existing.CouponCodeSnapshot, NormalizeCouponCode(couponCode), StringComparison.Ordinal)
+                        || !Enum.TryParse<PaymentProviderCode>(existingPayment.Provider, true, out var existingProvider)
+                        || existingProvider != provider)
+                        throw new DomainException("This checkout request key was already used with different checkout details.");
+
+                    if (deliveryAddress is not null
+                        && (!string.Equals(existing.DeliveryRecipientNameSnapshot, deliveryAddress.RecipientName.Trim(), StringComparison.Ordinal)
+                            || !string.Equals(existing.DeliveryRecipientMobileSnapshot, deliveryAddress.RecipientMobile.Trim(), StringComparison.Ordinal)
+                            || !string.Equals(existing.DeliveryAddressLineSnapshot, deliveryAddress.AddressLine.Trim(), StringComparison.Ordinal)
+                            || !string.Equals(existing.DeliveryPostalCodeSnapshot, deliveryAddress.PostalCode.Trim(), StringComparison.Ordinal)
+                            || !string.Equals(existing.DeliveryNoteSnapshot, string.IsNullOrWhiteSpace(deliveryAddress.DeliveryNote) ? null : deliveryAddress.DeliveryNote.Trim(), StringComparison.Ordinal)))
+                        throw new DomainException("This checkout request key was already used with a different delivery address.");
+
+                    if (existingPayment.Status is not (PaymentStatus.Pending or PaymentStatus.Redirected)
+                        || string.IsNullOrWhiteSpace(existingPayment.RedirectUrl))
+                        throw new DomainException("This checkout request already exists but its payment cannot be safely restarted. Refresh the order status; do not create a duplicate order.");
+
                     orderId=existing.Id;paymentId=existingPayment.Id;total=existing.TotalAmountIRR;subtotal=existing.SubtotalAmountIRR;
                     campaignDiscount=existing.CampaignDiscountIRR;couponDiscount=existing.CouponDiscountIRR;shippingFee=existing.ShippingFeeIRR;appliedCoupon=existing.CouponCodeSnapshot;
                     savedRedirectUrl=existingPayment.RedirectUrl;savedProvider=existingPayment.Provider;savedAuthority=existingPayment.Authority;reused=true;
