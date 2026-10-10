@@ -1,6 +1,7 @@
 using Marketplace.Application;
 using Marketplace.Infrastructure;
 using Marketplace.Api.Auth;
+using Marketplace.Api;
 using Marketplace.Api.DTOs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -111,6 +112,7 @@ app.UseExceptionHandler(errorApp=>errorApp.Run(async context=>{var feature=conte
 
 long CurrentUserId(System.Security.Claims.ClaimsPrincipal user)
     => long.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : throw new UnauthorizedAccessException();
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
@@ -2643,6 +2645,8 @@ app.MapPut("/api/admin/stores/{storeId:long}/theme", async (
         store.ThemeBackgroundColor, store.ThemeTextColor, store.ThemeFontCode, store.ThemeCornerStyle },
         changedByUserId = CurrentUserId(user), changedAtUtc = DateTime.UtcNow });
 }).RequirePermission("Admin.Identity.Manage");
+
+app.MapStoreMediaEndpoints();
 
 app.Run();
 
