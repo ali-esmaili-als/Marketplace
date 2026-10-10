@@ -12,6 +12,12 @@ public sealed class Store : AggregateRoot<long>
     public string? Description { get; private set; }
     public string ThemeCode { get; private set; } = "classic";
     public string PaletteCode { get; private set; } = "ocean";
+    public string ThemePrimaryColor { get; private set; } = "#3159c9";
+    public string ThemeSecondaryColor { get; private set; } = "#f3f7ff";
+    public string ThemeBackgroundColor { get; private set; } = "#ffffff";
+    public string ThemeTextColor { get; private set; } = "#232b49";
+    public string ThemeFontCode { get; private set; } = "iran-yekan";
+    public string ThemeCornerStyle { get; private set; } = "soft";
     public StoreStatus Status { get; private set; }
     public int CommissionRateBasisPoints { get; private set; }
     public long MinimumCommissionIRR { get; private set; }
@@ -68,6 +74,39 @@ public sealed class Store : AggregateRoot<long>
         if (normalized is not ("ocean" or "forest" or "sunset" or "rose" or "monochrome"))
             throw new DomainException("Unsupported store color palette.");
         PaletteCode = normalized;
+    }
+
+    public void ConfigureAppearance(string? primaryColor, string? secondaryColor, string? backgroundColor,
+        string? textColor, string? fontCode, string? cornerStyle)
+    {
+        ThemePrimaryColor = NormalizeColor(primaryColor, ThemePrimaryColor, nameof(primaryColor));
+        ThemeSecondaryColor = NormalizeColor(secondaryColor, ThemeSecondaryColor, nameof(secondaryColor));
+        ThemeBackgroundColor = NormalizeColor(backgroundColor, ThemeBackgroundColor, nameof(backgroundColor));
+        ThemeTextColor = NormalizeColor(textColor, ThemeTextColor, nameof(textColor));
+        if (!string.IsNullOrWhiteSpace(fontCode))
+        {
+            var font = fontCode.Trim().ToLowerInvariant();
+            if (font is not ("iran-yekan" or "system" or "serif" or "modern"))
+                throw new DomainException("Unsupported store font.");
+            ThemeFontCode = font;
+        }
+        if (!string.IsNullOrWhiteSpace(cornerStyle))
+        {
+            var corners = cornerStyle.Trim().ToLowerInvariant();
+            if (corners is not ("soft" or "square" or "round"))
+                throw new DomainException("Unsupported store corner style.");
+            ThemeCornerStyle = corners;
+        }
+    }
+
+    private static string NormalizeColor(string? value, string current, string field)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return current;
+        var normalized = value.Trim().ToLowerInvariant();
+        if (normalized.Length != 7 || normalized[0] != '#' ||
+            !System.Text.RegularExpressions.Regex.IsMatch(normalized[1..], "^[0-9a-f]{6}$"))
+            throw new DomainException($"Invalid color value for {field}.");
+        return normalized;
     }
 
     public void ConfigureCommission(int rateBasisPoints, long minimumCommissionIrr)
