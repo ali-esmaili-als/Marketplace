@@ -86,7 +86,12 @@ public static class StoreMediaEndpoints
             if (store.SellerId != seller.Id) return Results.Forbid();
             var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
             if (media is null) return Results.NotFound();
-            media.ChangeSortOrder(request.SortOrder);
+            var group = await db.StorefrontMedia
+                .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
+                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ToListAsync(ct);
+            group.Remove(media);
+            group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
+            for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
             await db.SaveChangesAsync(ct);
             return Results.NoContent();
         }).RequirePermission("Seller.Catalog.Manage");
@@ -97,7 +102,12 @@ public static class StoreMediaEndpoints
             if (request.SortOrder < 0) return Results.BadRequest(new { error = "sortOrder must be non-negative." });
             var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
             if (media is null) return Results.NotFound();
-            media.ChangeSortOrder(request.SortOrder);
+            var group = await db.StorefrontMedia
+                .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
+                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ToListAsync(ct);
+            group.Remove(media);
+            group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
+            for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
             await db.SaveChangesAsync(ct);
             return Results.NoContent();
         }).RequirePermission("Admin.Identity.Manage");
