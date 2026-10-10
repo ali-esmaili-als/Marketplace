@@ -195,24 +195,45 @@ public sealed class RefundService
     private async Task ApplySuccessfulRefundAsync(Refund refund, Order order, Payment payment,
         string? bankReference, CancellationToken token)
     {
-        refund.Complete(bankReference);
+        // Preflight all order/payment/refund/hold/balance invariants before mutating any aggregate.
+        // The SQL transaction rolls back on failure, but validating first also protects callers
+        // and tests that use non-transactional repositories or mocks.
+        if (refund.Status != RefundStatus.Processing)
+            throw new DomainException("Refund must be processing before finalization.");
+        if (refund.OrderId != order.Id || refund.PaymentId != payment.Id
+            || refund.CustomerId != order.CustomerId || refund.AmountIRR != order.TotalAmountIRR)
+            throw new DomainException("Refund does not match the order and payment.");
+        if (order.Status != OrderStatus.RefundRequested)
+            throw new DomainException("Order is not awaiting refund.");
+        if (payment.OrderId != order.Id || payment.CustomerId != order.CustomerId
+            || payment.AmountIRR != order.TotalAmountIRR || payment.Status != PaymentStatus.Succeeded)
+            throw new DomainException("Payment is not eligible for this refund.");
 
         var balance = await _life.GetSellerBalanceAsync(order.SellerId, token)
             ?? throw new DomainException("Seller balance not found.");
         var hold = await _life.GetActiveHoldByOrderAsync(order.Id, token)
             ?? throw new DomainException("Seller hold not found.");
+        if (balance.SellerId != order.SellerId
+            || hold.SellerId != order.SellerId
+            || hold.OrderId != order.Id
+            || hold.AmountIRR != order.SellerAmountIRR
+            || hold.Status != BalanceHoldStatus.Active)
+            throw new DomainException("Seller balance hold does not match the order and seller.");
+        if (order.SellerAmountIRR <= 0)
+            throw new DomainException("Seller share must be positive before refund finalization.");
 
         var bucket = BalanceBucket.Blocked;
         var bucketBefore = balance.BlockedIRR;
         var balanceDebited = true;
 
         if (balance.BlockedIRR >= order.SellerAmountIRR)
-            balance.ConsumeBlock(order.SellerAmountIRR);
+        {
+            // Prefer the held seller share when it is still in the blocked bucket.
+        }
         else if (balance.PendingIRR >= order.SellerAmountIRR)
         {
             bucket = BalanceBucket.Pending;
             bucketBefore = balance.PendingIRR;
-            balance.RemovePending(order.SellerAmountIRR);
         }
         else if (order.DeliveredAtUtc is null && order.DeliveryExpiresAtUtc.HasValue)
         {
@@ -225,6 +246,15 @@ public sealed class RefundService
         else
             throw new DomainException("Seller balance does not contain the refundable seller amount.");
 
+        // No domain mutation occurs before every cross-aggregate precondition is verified.
+        refund.Complete(bankReference);
+        if (balanceDebited)
+        {
+            if (bucket == BalanceBucket.Blocked)
+                balance.ConsumeBlock(order.SellerAmountIRR);
+            else
+                balance.RemovePending(order.SellerAmountIRR);
+        }
         hold.Consume();
         payment.MarkRefunded();
         order.MarkRefunded();
