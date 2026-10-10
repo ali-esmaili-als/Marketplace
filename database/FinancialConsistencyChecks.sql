@@ -869,3 +869,68 @@ WHERE s.Status IN (3, 4) -- Completed, Failed
 GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
 HAVING COUNT(bt.Id) < 2; -- request reservation plus completion/failure outcome
 
+
+
+PRINT '75. Completed refunds whose amount differs from the full-refund order/payment snapshot';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId,
+       r.AmountIRR AS RefundAmountIRR,
+       o.TotalAmountIRR AS OrderTotalAmountIRR,
+       p.AmountIRR AS PaymentAmountIRR,
+       r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 4 -- Completed
+  AND (r.AmountIRR <> o.TotalAmountIRR OR r.AmountIRR <> p.AmountIRR);
+
+PRINT '76. Completed refunds with a commission but no reversal linked to that exact refund';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       c.Id AS CommissionId, c.CommissionAmountIRR,
+       r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Commissions AS c ON c.OrderId = r.OrderId
+WHERE r.Status = 4 -- Completed
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.CommissionReversals AS cr
+      WHERE cr.RefundId = r.Id
+        AND cr.CommissionId = c.Id
+        AND cr.OrderId = r.OrderId
+  );
+
+PRINT '77. Failed or rejected refunds with refund-linked financial postings';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       r.Status AS RefundStatus, bt.Id AS LedgerTransactionId,
+       bt.Type AS LedgerType, bt.AmountIRR AS LedgerAmountIRR,
+       cr.Id AS CommissionReversalId, cr.ReversedCommissionIRR
+FROM dbo.Refunds AS r
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.RefundId = r.Id AND bt.Type = 3 -- Refund
+LEFT JOIN dbo.CommissionReversals AS cr ON cr.RefundId = r.Id
+WHERE r.Status IN (5, 6) -- Failed, Rejected
+  AND (bt.Id IS NOT NULL OR cr.Id IS NOT NULL);
+
+PRINT '78. Payments marked refunded without a completed refund record';
+SELECT p.Id AS PaymentId, p.OrderId, p.AmountIRR,
+       p.Status AS PaymentStatus, o.Status AS OrderStatus,
+       p.ReferenceNumber
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.Status = 6 -- Refunded
+  AND NOT EXISTS
+  (
+      SELECT 1
+      FROM dbo.Refunds AS r
+      WHERE r.PaymentId = p.Id
+        AND r.Status = 4 -- Completed
+  );
+
+PRINT '79. Refunds left processing for more than 30 minutes (manual reconciliation candidate)';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.AmountIRR,
+       r.Status, r.RequestedAtUtc,
+       DATEDIFF(MINUTE, r.RequestedAtUtc, SYSUTCDATETIME()) AS ProcessingMinutes,
+       r.ProviderReference
+FROM dbo.Refunds AS r
+WHERE r.Status = 3 -- Processing
+  AND r.RequestedAtUtc < DATEADD(MINUTE, -30, SYSUTCDATETIME());
