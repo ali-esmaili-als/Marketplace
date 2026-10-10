@@ -268,3 +268,12 @@ A successful gateway response and a successful order finalization are separate f
 - **Check 71 — expired reservation on a pending-payment order:** this is a cleanup backlog candidate, not proof that the order should be cancelled immediately. Check payment status and provider outcome first. If a payment was captured or its outcome is ambiguous, use the payment reconciliation process before releasing stock.
 
 These checks are read-only. Run them before and after an authorized recovery and retain the result with the case audit. Never release a reservation while a payment could still have been captured without first establishing the provider's final outcome.
+
+
+### Settlement reserve and outcome diagnostics (72–74)
+
+- **Check 72 — reserved seller balance differs from active settlement requests:** compare the seller balance's reserved amount with the total of Requested, Processing, and OnHold settlements. Investigate missing settlement rows, duplicate reservations, failed finalization, or out-of-band balance edits. Do not alter the balance or settlement status until the ledger and provider outcome are reconstructed.
+- **Check 73 — completed settlement has no bank reference:** verify the payout directly with the payout provider/bank and inspect the settlement reconciliation audit. Do not treat the Completed status alone as proof of a traceable transfer.
+- **Check 74 — completed/failed settlement has fewer than two settlement-linked ledger rows:** the expected lifecycle includes the initial reservation entry and a final completion/failure entry. Review the settlement, balance snapshots, and transaction history; older or migrated data may need contextual review before correction.
+
+Checks 72–74 are read-only diagnostics. A non-empty result is a reconciliation lead, not an instruction to recreate ledger entries or change balances automatically.
