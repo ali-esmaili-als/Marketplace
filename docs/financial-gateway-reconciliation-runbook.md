@@ -383,3 +383,5 @@ The admin order-trace endpoint also reports read-only findings for:
 - `MultipleCompletedRefunds`: more than one completed refund is attached to the same order.
 
 These findings are review signals, not proof that the bank transferred money incorrectly. Verify provider references and authoritative bank evidence before any financial action. The trace endpoint only reads persisted records; it does not retry payment/refund calls, alter inventory, repair the ledger, or change seller balances. The admin UI displays these alongside existing findings and includes them in the trace CSV export.
+
+The order-trace endpoint requires an exact `RefundId` match for a refund ledger posting. An older order-level refund entry with a null `RefundId` is not treated as proof that a particular refund was posted, because it could otherwise mask a missing posting for one or more refunds. Such legacy rows require manual correlation using timestamps, amounts, and provider evidence; do not relink or rewrite ledger rows automatically.
