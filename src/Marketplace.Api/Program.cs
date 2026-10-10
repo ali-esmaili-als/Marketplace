@@ -2733,7 +2733,7 @@ public sealed record SmsProviderConfigureRequest(bool IsEnabled,bool IsVisible,i
 public sealed record OtpRequest(string Mobile);
 public sealed record OtpVerifyRequest(string Mobile, string Otp);
 public sealed record PaymentVerifyRequest(string Authority);
-public sealed record DeliveryConfirmRequest(string Code,string Reference,DateTime DeliveredAtUtc,DateTime ComplaintExpiresAtUtc);
+public sealed record DeliveryConfirmRequest(string Code,string Reference,DateTime DeliveredAtUtc = default,DateTime ComplaintExpiresAtUtc = default);
 public sealed record ComplaintRequest(long CustomerId,string Reason);
 public sealed record ComplaintResolveRequest(bool CustomerWon,string Note);
 public sealed record RefundRequest(Marketplace.Domain.Refunds.RefundReason Reason);
