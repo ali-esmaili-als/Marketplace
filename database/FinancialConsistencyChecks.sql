@@ -1168,3 +1168,22 @@ WHERE bt.Type = 3 -- Refund
 GROUP BY bt.Id, bt.OrderId, bt.SellerId, bt.AmountIRR, bt.Reference, bt.CreatedAtUtc
 ORDER BY bt.CreatedAtUtc, bt.Id;
 
+PRINT '99. Commission reversal refund amount snapshot differs from its linked refund';
+SELECT cr.Id AS CommissionReversalId, cr.RefundId, cr.OrderId,
+       cr.CommissionId, cr.RefundAmountIRR AS ReversalRefundAmountIRR,
+       r.AmountIRR AS ActualRefundAmountIRR,
+       cr.ReversedCommissionIRR, r.Status AS RefundStatus,
+       cr.CreatedAtUtc
+FROM dbo.CommissionReversals AS cr
+JOIN dbo.Refunds AS r ON r.Id = cr.RefundId
+WHERE cr.RefundAmountIRR <> r.AmountIRR;
+
+PRINT '100. More than one commission reversal exists for the same refund and commission';
+SELECT cr.RefundId, cr.CommissionId, COUNT_BIG(*) AS ReversalCount,
+       SUM(cr.ReversedCommissionIRR) AS TotalReversedCommissionIRR,
+       MIN(cr.CreatedAtUtc) AS FirstReversalAtUtc,
+       MAX(cr.CreatedAtUtc) AS LastReversalAtUtc
+FROM dbo.CommissionReversals AS cr
+GROUP BY cr.RefundId, cr.CommissionId
+HAVING COUNT_BIG(*) > 1;
+
