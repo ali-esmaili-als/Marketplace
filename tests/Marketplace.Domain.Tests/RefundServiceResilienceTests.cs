@@ -248,8 +248,8 @@ public sealed class RefundServiceResilienceTests
         var gateway = new Mock<IPaymentGateway>();
         gateway.SetupSequence(x => x.RefundAsync(
                 payment.ReferenceNumber, order.TotalAmountIRR, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false)
-            .ReturnsAsync(false);
+            .ReturnsAsync(new PaymentRefundResult(false, null, "Bank declined refund."))
+            .ReturnsAsync(new PaymentRefundResult(false, null, "Bank declined refund."));
         var gatewayFactory = new Mock<IPaymentGatewayFactory>();
         gatewayFactory.Setup(x => x.GetForExistingPaymentAsync(
                 PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
