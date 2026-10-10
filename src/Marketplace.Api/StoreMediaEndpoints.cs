@@ -49,7 +49,8 @@ public static class StoreMediaEndpoints
 
         app.MapDelete("/api/sellers/me/stores/{storeId:long}/media/{mediaId:long}", async (
             ClaimsPrincipal user, long storeId, long mediaId, MarketplaceDbContext db,
-            Marketplace.Application.Abstractions.ISellerManagementRepository sellers, IWebHostEnvironment env, CancellationToken ct) =>
+            Marketplace.Application.Abstractions.ISellerManagementRepository sellers, IWebHostEnvironment env,
+            ILogger<StoreMediaEndpoints> logger, CancellationToken ct) =>
         {
             var seller = await sellers.GetSellerByUserIdAsync(CurrentUserId(user), ct);
             if (seller is null) return Results.Unauthorized();
@@ -60,19 +61,20 @@ public static class StoreMediaEndpoints
             media.Deactivate();
             await NormalizeActiveGroupAsync(db, media, ct);
             await db.SaveChangesAsync(ct);
-            DeletePhysicalFile(media.Url, env);
+            DeletePhysicalFile(media.Url, env, logger);
             return Results.NoContent();
         }).RequirePermission("Seller.Catalog.Manage");
 
         app.MapDelete("/api/admin/stores/{storeId:long}/media/{mediaId:long}", async (
-            long storeId, long mediaId, MarketplaceDbContext db, IWebHostEnvironment env, CancellationToken ct) =>
+            long storeId, long mediaId, MarketplaceDbContext db, IWebHostEnvironment env,
+            ILogger<StoreMediaEndpoints> logger, CancellationToken ct) =>
         {
             var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
             if (media is null) return Results.NotFound();
             media.Deactivate();
             await NormalizeActiveGroupAsync(db, media, ct);
             await db.SaveChangesAsync(ct);
-            DeletePhysicalFile(media.Url, env);
+            DeletePhysicalFile(media.Url, env, logger);
             return Results.NoContent();
         }).RequirePermission("Admin.Identity.Manage");
 
@@ -177,10 +179,26 @@ public static class StoreMediaEndpoints
                     .MaxAsync(ct);
                 resolvedSortOrder = (maxSortOrder ?? -1) + 1;
             }
+            // Keep the database row and gallery ordering in one transaction. If either save fails,
+            // the transaction rolls back and the outer catch removes the newly written file.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
             var media = StorefrontMedia.Create(await ids.NextAsync(ct), storeId, productId, kind,
                 $"/uploads/storefront/{storeId}/{fileName}", file.ContentType.ToLowerInvariant(), altText, Math.Max(0, resolvedSortOrder.Value));
             db.StorefrontMedia.Add(media);
             await db.SaveChangesAsync(ct);
+
+            var group = await db.StorefrontMedia
+                .Where(x => x.StoreId == storeId && x.ProductId == productId && x.Kind == kind && x.IsActive)
+                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)
+                .ToListAsync(ct);
+            group.Remove(media);
+            group.Insert(Math.Clamp(Math.Max(0, resolvedSortOrder.Value), 0, group.Count), media);
+            for (var index = 0; index < group.Count; index++)
+                if (group[index].SortOrder != index)
+                    group[index].ChangeSortOrder(index);
+
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
             return Results.Created($"/api/public/stores/{storeId}/media", new
             {
                 media.Id, media.StoreId, media.ProductId, media.Kind, media.Url, media.ContentType,
@@ -194,7 +212,7 @@ public static class StoreMediaEndpoints
         }
     }
 
-    private static void DeletePhysicalFile(string url, IWebHostEnvironment env)
+    private static void DeletePhysicalFile(string url, IWebHostEnvironment env, ILogger logger)
     {
         const string prefix = "/uploads/storefront/";
         if (!url.StartsWith(prefix, StringComparison.Ordinal)) return;
@@ -203,8 +221,22 @@ public static class StoreMediaEndpoints
         var relative = url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
         var rootFull = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
         var fileFull = Path.GetFullPath(Path.Combine(root, relative));
-        if (fileFull.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) && File.Exists(fileFull))
-            File.Delete(fileFull);
+        if (!fileFull.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase)) return;
+
+        try
+        {
+            if (File.Exists(fileFull)) File.Delete(fileFull);
+        }
+        catch (IOException ex)
+        {
+            // The database is already committed; report cleanup failure without returning a false
+            // deletion failure to the client. A later orphan-file cleanup can safely retry this.
+            logger.LogWarning(ex, "Could not delete storefront media file {MediaUrl} after deactivation.", url);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            logger.LogWarning(ex, "Access denied while deleting storefront media file {MediaUrl} after deactivation.", url);
+        }
     }
 
     private static bool HasValidSignature(ReadOnlySpan<byte> bytes, string contentType) => contentType.ToLowerInvariant() switch
