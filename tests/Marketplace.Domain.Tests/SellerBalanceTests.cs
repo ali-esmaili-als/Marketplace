@@ -112,4 +112,33 @@ public sealed class SellerBalanceTests
         Assert.Equal(0, balance.ReservedForSettlementIRR);
     }
 
+
+    [Fact]
+    public void Block_OverflowLeavesAvailableUnchanged()
+    {
+        var balance = SellerBalance.Create(1, 2);
+        balance.AddAvailable(long.MaxValue);
+        balance.Block(long.MaxValue);
+        balance.AddAvailable(1);
+
+        Assert.Throws<OverflowException>(() => balance.Block(1));
+
+        Assert.Equal(1, balance.AvailableIRR);
+        Assert.Equal(long.MaxValue, balance.BlockedIRR);
+    }
+
+    [Fact]
+    public void ReleaseBlock_OverflowLeavesBothBucketsUnchanged()
+    {
+        var balance = SellerBalance.Create(1, 2);
+        balance.AddAvailable(long.MaxValue - 1);
+        balance.Block(1);
+        balance.AddAvailable(2);
+
+        Assert.Throws<OverflowException>(() => balance.ReleaseBlock(1));
+
+        Assert.Equal(long.MaxValue, balance.AvailableIRR);
+        Assert.Equal(1, balance.BlockedIRR);
+    }
+
 }
