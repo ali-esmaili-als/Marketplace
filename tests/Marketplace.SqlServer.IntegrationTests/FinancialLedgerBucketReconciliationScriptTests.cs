@@ -70,8 +70,10 @@ public sealed class FinancialLedgerBucketReconciliationScriptTests
                 Assert.Contains("910001", findings[2]);
                 // FLR-04: reserved bucket is 40 while the active settlement total is 50.
                 Assert.Contains("910001", findings[3]);
-                // FLR-05: Requested settlement has no reservation posting.
+                // FLR-05: the Requested settlement has no reservation posting, and the Completed
+                // settlement has a reservation and payout entry but lacks the reservation release.
                 Assert.Contains("920001", findings[4]);
+                Assert.Contains("920002", findings[4]);
                 // FLR-06: schema constraints prevent the deliberately seeded invalid bucket/snapshot row.
                 Assert.Empty(findings[5]);
             }
@@ -114,14 +116,19 @@ public sealed class FinancialLedgerBucketReconciliationScriptTests
                  BalanceBeforeIRR, BalanceAfterIRR, Reference, CreatedAtUtc)
             VALUES
                 (910001, 910001, NULL, NULL, NULL, 1, 1, 100, 0, 100, N'SEED_AVAILABLE_1', '2026-01-01T00:00:00'),
-                (910002, 910001, NULL, NULL, NULL, 2, 1, 30, 80, 50, N'SEED_AVAILABLE_2', '2026-01-02T00:00:00');
+                (910002, 910001, NULL, NULL, NULL, 2, 1, 30, 80, 50, N'SEED_AVAILABLE_2', '2026-01-02T00:00:00'),
+                (910003, 910001, NULL, 920002, NULL, 4, 4, 100, 0, 100, N'SETTLEMENT_REQUESTED', '2026-01-04T00:00:00'),
+                (910004, 910001, NULL, 920002, NULL, 4, 1, 100, 100, 0, N'BANK-920002', '2026-01-05T00:00:00');
 
             INSERT dbo.Settlements
                 (Id, SellerId, RequestKey, AmountIRR, Status, BankAccountId, BankNameSnapshot,
                  IbanSnapshot, AccountHolderNameSnapshot, Reference, FailureReason, RequestedAtUtc, CompletedAtUtc)
             VALUES
                 (920001, 910001, N'seed-request-920001', 50, 1, 930001, N'Test Bank',
-                 N'IR000000000000000000000000', N'Test Seller', NULL, NULL, '2026-01-03T00:00:00', NULL);
+                 N'IR000000000000000000000000', N'Test Seller', NULL, NULL, '2026-01-03T00:00:00', NULL),
+                (920002, 910001, N'seed-request-920002', 100, 3, 930001, N'Test Bank',
+                 N'IR000000000000000000000000', N'Test Seller', N'BANK-920002', NULL,
+                 '2026-01-04T00:00:00', '2026-01-05T00:00:00');
             """, connection);
         await command.ExecuteNonQueryAsync();
     }
