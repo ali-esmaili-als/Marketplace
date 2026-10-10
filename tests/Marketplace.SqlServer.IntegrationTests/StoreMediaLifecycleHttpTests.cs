@@ -182,6 +182,22 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
         using var sellerUpdate = await _client!.PutAsJsonAsync($"/api/sellers/me/stores/{StoreId}/theme", sellerTheme);
         Assert.Equal(HttpStatusCode.OK, sellerUpdate.StatusCode);
 
+        using var otherStoreUpdate = await _client.PutAsJsonAsync($"/api/sellers/me/stores/{OtherStoreId}/theme", sellerTheme);
+        Assert.Equal(HttpStatusCode.NotFound, otherStoreUpdate.StatusCode);
+
+        using var invalidThemeUpdate = await _client.PutAsJsonAsync($"/api/sellers/me/stores/{StoreId}/theme", new
+        {
+            themeCode = "unknown-layout",
+            paletteCode = "forest",
+            primaryColor = "#26734d",
+            secondaryColor = "#f1faf4",
+            backgroundColor = "#ffffff",
+            textColor = "#183b2b",
+            fontCode = "serif",
+            cornerStyle = "round"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidThemeUpdate.StatusCode);
+
         using var publicAfterSeller = await _client.GetAsync($"/api/public/stores/{StoreId}/media-test-store-one");
         Assert.Equal(HttpStatusCode.OK, publicAfterSeller.StatusCode);
         using var sellerJson = System.Text.Json.JsonDocument.Parse(await publicAfterSeller.Content.ReadAsStringAsync());
