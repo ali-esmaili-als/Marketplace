@@ -1187,3 +1187,53 @@ FROM dbo.CommissionReversals AS cr
 GROUP BY cr.RefundId, cr.CommissionId
 HAVING COUNT_BIG(*) > 1;
 
+PRINT '101. Duplicate settlement reservation ledger postings';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT_BIG(bt.Id) AS ReservationPostingCount,
+       SUM(bt.AmountIRR) AS TotalReservationPostingIRR
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt
+  ON bt.SettlementId = s.Id
+ AND bt.SellerId = s.SellerId
+ AND bt.Type = 4 -- Settlement
+ AND bt.Bucket = 4 -- ReservedForSettlement
+ AND bt.Reference = N'SETTLEMENT_REQUESTED'
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT_BIG(bt.Id) > 1;
+
+PRINT '102. Duplicate successful payout ledger postings for a settlement';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT_BIG(bt.Id) AS PayoutPostingCount,
+       SUM(bt.AmountIRR) AS TotalPayoutPostingIRR
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt
+  ON bt.SettlementId = s.Id
+ AND bt.SellerId = s.SellerId
+ AND bt.Type = 4 -- Settlement
+ AND bt.Bucket = 1 -- Available
+ AND bt.AmountIRR = s.AmountIRR
+ AND
+ (
+     bt.Reference = s.Reference
+     OR LEFT(bt.Reference, LEN(N'RECONCILED_PAID:' + s.Reference + N':'))
+        = N'RECONCILED_PAID:' + s.Reference + N':'
+ )
+WHERE s.Status = 3 -- Completed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT_BIG(bt.Id) > 1;
+
+PRINT '103. Duplicate definitive failure release postings for a settlement';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT_BIG(bt.Id) AS FailureReleasePostingCount,
+       SUM(bt.AmountIRR) AS TotalFailureReleaseIRR
+FROM dbo.Settlements AS s
+JOIN dbo.BalanceTransactions AS bt
+  ON bt.SettlementId = s.Id
+ AND bt.SellerId = s.SellerId
+ AND bt.Type = 14 -- SettlementFailed
+ AND bt.Bucket = 4 -- ReservedForSettlement
+ AND bt.AmountIRR = s.AmountIRR
+WHERE s.Status = 4 -- Failed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT_BIG(bt.Id) > 1;
+
