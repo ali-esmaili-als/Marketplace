@@ -385,3 +385,10 @@ The admin order-trace endpoint also reports read-only findings for:
 These findings are review signals, not proof that the bank transferred money incorrectly. Verify provider references and authoritative bank evidence before any financial action. The trace endpoint only reads persisted records; it does not retry payment/refund calls, alter inventory, repair the ledger, or change seller balances. The admin UI displays these alongside existing findings and includes them in the trace CSV export.
 
 The order-trace endpoint requires an exact `RefundId` match for a refund ledger posting. An older order-level refund entry with a null `RefundId` is not treated as proof that a particular refund was posted, because it could otherwise mask a missing posting for one or more refunds. Such legacy rows require manual correlation using timestamps, amounts, and provider evidence; do not relink or rewrite ledger rows automatically.
+
+### Refund ledger identity and duplicate-posting diagnostics (97–98)
+
+- **Check 97 — multiple refund ledger postings share one `RefundId`:** inspect every posting, refund state transition, and provider evidence to determine whether an idempotency or finalization path posted twice. Do not delete or offset entries automatically.
+- **Check 98 — legacy refund ledger posting has no `RefundId`:** these rows cannot prove which refund attempt they represent. Correlate the order, amount, reference, timestamps, and bank evidence manually. Check 5 and check 80 now require exact `RefundId` linkage; a legacy order-level posting no longer suppresses a missing-posting finding for a completed refund.
+
+Both checks are read-only. They do not create, relink, delete, or reverse financial postings, and they do not change payment, refund, order, inventory, or seller-balance state.
