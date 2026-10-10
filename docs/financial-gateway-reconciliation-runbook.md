@@ -372,3 +372,14 @@ Checks 92–93 are read-only state-pair diagnostics and deliberately do not infe
 - **Check 96 — payment amount or customer identity differs from the order:** compare the payment attempt to the order's immutable total and owner. Do not retry payment, refund, or seller-balance operations while the financial identity is inconsistent.
 
 Checks 94–96 are read-only and supplement checks 75, 80–85, and 89–93. They do not initiate gateway requests, change order/payment/refund states, release inventory, or modify seller balances/ledger entries. These checks assume the current full-refund contract; a future partial-refund feature must update the application invariants, database diagnostics, and operator procedure together.
+
+### Order trace identity and refund controls
+
+The admin order-trace endpoint also reports read-only findings for:
+
+- `PaymentCustomerMismatch`: a payment attempt's customer differs from the order owner.
+- `ProviderTransactionAmountMismatch`: a persisted provider transaction amount differs from its linked payment attempt.
+- `RefundIdentityOrAmountMismatch`: a refund's amount differs from the current full-order refund contract, or its payment/customer identity does not match the order's payment records.
+- `MultipleCompletedRefunds`: more than one completed refund is attached to the same order.
+
+These findings are review signals, not proof that the bank transferred money incorrectly. Verify provider references and authoritative bank evidence before any financial action. The trace endpoint only reads persisted records; it does not retry payment/refund calls, alter inventory, repair the ledger, or change seller balances. The admin UI displays these alongside existing findings and includes them in the trace CSV export.
