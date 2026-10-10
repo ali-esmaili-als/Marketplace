@@ -49,6 +49,37 @@ public sealed class StoreThemeTests
         Assert.Throws<DomainException>(() => store.ConfigureTheme(theme));
     }
 
+    [Fact]
+    public void ConfigureAppearance_PersistsValidColorsFontAndCornerStyle()
+    {
+        var store = Store.Create(1, 2, "Store", "store");
+        store.ConfigureAppearance("#A1B2C3", "#DDEEFF", "#ffffff", "#112233", "serif", "round");
+        Assert.Equal("#a1b2c3", store.ThemePrimaryColor);
+        Assert.Equal("#ddeeff", store.ThemeSecondaryColor);
+        Assert.Equal("#ffffff", store.ThemeBackgroundColor);
+        Assert.Equal("#112233", store.ThemeTextColor);
+        Assert.Equal("serif", store.ThemeFontCode);
+        Assert.Equal("round", store.ThemeCornerStyle);
+    }
+
+    [Theory]
+    [InlineData("red")]
+    [InlineData("#123")]
+    [InlineData("#12GG56")]
+    public void ConfigureAppearance_RejectsInvalidHexColors(string color)
+    {
+        var store = Store.Create(1, 2, "Store", "store");
+        Assert.Throws<DomainException>(() => store.ConfigureAppearance(color, null, null, null, null, null));
+    }
+
+    [Fact]
+    public void ConfigureAppearance_RejectsUnsupportedFontAndCornerStyle()
+    {
+        var store = Store.Create(1, 2, "Store", "store");
+        Assert.Throws<DomainException>(() => store.ConfigureAppearance(null, null, null, null, "script", null));
+        Assert.Throws<DomainException>(() => store.ConfigureAppearance(null, null, null, null, null, "pill"));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("unknown")]
