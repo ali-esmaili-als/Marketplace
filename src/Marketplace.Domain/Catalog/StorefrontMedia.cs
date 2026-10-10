@@ -38,5 +38,11 @@ public sealed class StorefrontMedia
         };
     }
 
+    public void ChangeSortOrder(int sortOrder)
+    {
+        if (sortOrder < 0) throw new ArgumentOutOfRangeException(nameof(sortOrder));
+        SortOrder = sortOrder;
+    }
+
     public void Deactivate() => IsActive = false;
 }
