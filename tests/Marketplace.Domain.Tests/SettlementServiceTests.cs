@@ -226,8 +226,9 @@ public sealed class SettlementServiceTests
 
         Assert.Equal("OnHold", result.Status);
         Assert.Equal(SettlementStatus.OnHold, settlement.Status);
-        Assert.Equal(600_000, balance.AvailableIRR);
+        Assert.Equal(1_000_000, balance.AvailableIRR);
         Assert.Equal(400_000, balance.ReservedForSettlementIRR);
+        Assert.Equal(600_000, balance.WithdrawableIRR);
         Assert.Null(settlement.Reference);
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
         lifecycle.Verify(x => x.AddOutboxMessage(It.Is<Marketplace.Domain.Finance.OutboxMessage>(
