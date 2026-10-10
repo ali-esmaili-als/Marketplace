@@ -34,6 +34,7 @@ public sealed class RefundService
         long paymentId = 0;
         long amount = 0;
         string? paymentReference = null;
+        PaymentProviderCode providerCode = default;
 
         // Reserve the refund in SQL and commit before calling the external gateway.
         await _uow.ExecuteInSerializableTransactionAsync(async token =>
@@ -45,6 +46,12 @@ public sealed class RefundService
 
             if (payment.Status != PaymentStatus.Succeeded)
                 throw new DomainException("Only successfully paid orders can be refunded.");
+
+            // Validate the configured provider before reserving the refund. No bank request has
+            // been issued at this point, so an invalid provider must not strand a refund in Processing.
+            if (!Enum.TryParse<PaymentProviderCode>(payment.Provider, true, out providerCode)
+                || !Enum.IsDefined(typeof(PaymentProviderCode), providerCode))
+                throw new DomainException("Invalid payment provider; refund was not reserved.");
 
             if (reason == RefundReason.AdminAdjustment || !Enum.IsDefined(reason))
                 throw new DomainException("This refund reason is not available to customers.");
@@ -85,13 +92,7 @@ public sealed class RefundService
         }, ct);
 
         // Never keep a database transaction open while calling an external payment provider.
-        var paymentForGateway = await _payments.GetAsync(paymentId, ct)
-            ?? throw new DomainException("Payment not found.");
-        if (!Enum.TryParse<PaymentProviderCode>(paymentForGateway.Provider, true, out var provider)
-            || !Enum.IsDefined(typeof(PaymentProviderCode), provider))
-            throw new DomainException("Invalid payment provider.");
-
-        var gateway = await _gatewayFactory.GetForExistingPaymentAsync(provider, ct);
+        var gateway = await _gatewayFactory.GetForExistingPaymentAsync(providerCode, ct);
         // An exception/timeout is intentionally not converted to Failed: the bank outcome may be unknown.
         var gatewayOk = await gateway.RefundAsync(paymentReference, amount, ct);
 
