@@ -266,10 +266,16 @@ public sealed class OrderLifecycleService
         {
             c.ResolveForSeller(note);
             var blockedBefore=b.BlockedIRR;
+            var availableBefore=b.AvailableIRR;
             _domain.OnSellerWon(c,o,b,h);
+            // Releasing the complaint hold transfers value from Blocked to Available.
+            // Record both sides so each bucket's ledger snapshot remains reconcilable.
             _life.AddBalanceTransaction(BalanceTransaction.Create(
                 await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
                 o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_SELLER_WON",BalanceBucket.Blocked));
+            _life.AddBalanceTransaction(BalanceTransaction.Create(
+                await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
+                o.SellerAmountIRR,availableBefore,b.AvailableIRR,"COMPLAINT_SELLER_WON",BalanceBucket.Available));
         }
 
         await NotifyAsync(o.CustomerId,customerWon?"نتیجه شکایت به نفع شما ثبت شد":"شکایت به نفع فروشنده تعیین تکلیف شد",$"رسیدگی به شکایت سفارش شماره {o.Id} به پایان رسید.",o.Id,token);
@@ -299,12 +305,17 @@ public sealed class OrderLifecycleService
         // Complete validates the complaint-window deadline and order state before any money moves.
         o.Complete(now);
         var blockedBefore=b.BlockedIRR;
+        var availableBefore=b.AvailableIRR;
         b.ReleaseBlock(o.SellerAmountIRR);
         h.Release();
 
+        // A block release affects both buckets; keep both ledger snapshots in this transaction.
         _life.AddBalanceTransaction(BalanceTransaction.Create(
             await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
             o.SellerAmountIRR,blockedBefore,b.BlockedIRR,"COMPLAINT_WINDOW_CLOSED",BalanceBucket.Blocked));
+        _life.AddBalanceTransaction(BalanceTransaction.Create(
+            await _ids.NextAsync(token),o.SellerId,o.Id,null,BalanceTransactionType.ComplaintHoldReleased,
+            o.SellerAmountIRR,availableBefore,b.AvailableIRR,"COMPLAINT_WINDOW_CLOSED",BalanceBucket.Available));
 
         await NotifyAsync(o.CustomerId,"سفارش تکمیل شد",$"سفارش شماره {o.Id} تکمیل شد.",o.Id,token);
         await NotifySellerAsync(o.SellerId,"سفارش تکمیل شد",$"سفارش شماره {o.Id} تکمیل شد و دوره شکایت به پایان رسید.",o.Id,token);
