@@ -757,3 +757,42 @@ JOIN dbo.Refunds AS r ON r.Id = bt.RefundId
 JOIN dbo.Orders AS o ON o.Id = r.OrderId
 WHERE bt.Type = 3
   AND (bt.OrderId <> r.OrderId OR bt.SellerId <> o.SellerId);
+
+PRINT '65. Seller balance holds whose seller or amount differs from the order snapshot';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId AS HoldSellerId,
+       o.SellerId AS OrderSellerId, h.AmountIRR AS HoldAmountIRR,
+       o.SellerAmountIRR AS OrderSellerAmountIRR, h.Status AS HoldStatus
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE h.SellerId <> o.SellerId
+   OR h.AmountIRR <> o.SellerAmountIRR;
+
+PRINT '66. Financially progressed orders missing their seller balance hold';
+SELECT o.Id AS OrderId, o.SellerId, o.Status AS OrderStatus,
+       o.SellerAmountIRR, o.PaidAtUtc, o.DeliveredAtUtc
+FROM dbo.Orders AS o
+WHERE o.Status IN (2, 3, 4, 5, 6, 7, 8, 9) -- Paid through Completed/Refunded
+  AND NOT EXISTS
+  (
+      SELECT 1 FROM dbo.SellerBalanceHolds AS h WHERE h.OrderId = o.Id
+  );
+
+PRINT '67. Consumed/released seller balance hold conflicts with final order state';
+SELECT h.Id AS HoldId, h.OrderId, h.SellerId, h.AmountIRR,
+       h.Status AS HoldStatus, o.Status AS OrderStatus,
+       h.CreatedAtUtc
+FROM dbo.SellerBalanceHolds AS h
+JOIN dbo.Orders AS o ON o.Id = h.OrderId
+WHERE (h.Status = 3 AND o.Status <> 8) -- Consumed should accompany a refunded order
+   OR (h.Status = 2 AND o.Status <> 9); -- Released should accompany a completed order
+
+PRINT '68. Multiple successful provider transactions for one payment';
+SELECT pt.PaymentId, COUNT_BIG(*) AS SuccessfulTransactionCount,
+       MIN(pt.AmountIRR) AS MinimumAmountIRR,
+       MAX(pt.AmountIRR) AS MaximumAmountIRR,
+       MIN(pt.CreatedAtUtc) AS FirstSuccessAtUtc,
+       MAX(pt.CreatedAtUtc) AS LastSuccessAtUtc
+FROM dbo.PaymentTransactions AS pt
+WHERE pt.Status = 3 -- Succeeded
+GROUP BY pt.PaymentId
+HAVING COUNT_BIG(*) > 1;
