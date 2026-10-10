@@ -16,6 +16,8 @@ Only a confirmed successful transfer enters the common finalization path that up
 
 The refund aggregate enforces the same safety boundary: `Fail` is allowed only after gateway processing has started, and `Reject` is allowed only before processing begins. A `Processing` refund cannot be rejected to clear the active-refund guard; it must remain reserved until a definitive bank outcome is established and recorded through reconciliation.
 
+The configured payment provider is validated before creating the refund reservation. An unsupported provider is a local configuration error, not an ambiguous bank result, so the request fails without creating a `Processing` refund or issuing a gateway call. Once the gateway call may have been issued, timeout/transport errors remain `Processing` for manual reconciliation.
+
 ## Verification
 
 The SQL Server integration test `RefundConcurrencyIntegrationTests` runs two refund requests against separate DbContexts. It blocks the first request at the gateway, submits a concurrent second request, then simulates a timeout. Assertions verify one gateway call, one Processing refund, unchanged successful payment state, and no premature ledger movement.
