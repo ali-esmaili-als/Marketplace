@@ -155,6 +155,18 @@ public sealed class RefundService
             if (!gatewayResult.IsSuccessful)
             {
                 refund.Fail(gatewayResult.Error ?? "Payment gateway refund failed.");
+                _life.AddOutboxMessage(OutboxMessage.Create(
+                    await _ids.NextAsync(token),
+                    "Refund.Failed",
+                    JsonSerializer.Serialize(new
+                    {
+                        refund.Id,
+                        refund.OrderId,
+                        refund.PaymentId,
+                        refund.AmountIRR,
+                        Error = refund.FailureReason,
+                        Status = refund.Status.ToString()
+                    })));
                 await _uow.SaveChangesAsync(token);
                 return 0;
             }
@@ -316,5 +328,20 @@ public sealed class RefundService
             _life.AddCommissionReversal(CommissionReversal.Create(
                 await _ids.NextAsync(token), commission.Id, order.Id, refund.Id, refund.AmountIRR, reversed));
         }
+
+        _life.AddOutboxMessage(OutboxMessage.Create(
+            await _ids.NextAsync(token),
+            "Refund.Completed",
+            JsonSerializer.Serialize(new
+            {
+                refund.Id,
+                refund.OrderId,
+                refund.PaymentId,
+                refund.AmountIRR,
+                refund.ProviderReference,
+                OrderStatus = order.Status.ToString(),
+                PaymentStatus = payment.Status.ToString(),
+                RefundStatus = refund.Status.ToString()
+            })));
     }
 }
