@@ -2587,6 +2587,40 @@ app.MapPut("/api/me/profile", async (
     return Results.Ok(new { account.Id, account.Mobile, account.Email, account.DisplayName, account.IsMobileVerified });
 }).RequireAuthorization();
 
+app.MapGet("/api/admin/stores/themes", async (
+    string? q, string? themeCode, string? paletteCode, int? take, int? skip,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
+{
+    var limit = Math.Clamp(take ?? 50, 1, 100);
+    var offset = Math.Max(skip ?? 0, 0);
+    var query =
+        from store in db.Stores.AsNoTracking()
+        join seller in db.Sellers.AsNoTracking() on store.SellerId equals seller.Id
+        select new
+        {
+            store.Id, store.Name, store.Slug,
+            SellerId = seller.Id, SellerUserId = seller.UserId,
+            store.Status, SellerStatus = seller.Status,
+            store.ThemeCode, store.PaletteCode,
+            ProductCount = db.Products.Count(product =>
+                product.StoreId == store.Id && product.Status == Marketplace.Domain.Catalog.ProductStatus.Active),
+            store.CreatedAtUtc
+        };
+
+    var term = q?.Trim();
+    if (!string.IsNullOrWhiteSpace(term))
+        query = query.Where(row => row.Name.Contains(term) || row.Slug.Contains(term));
+    if (!string.IsNullOrWhiteSpace(themeCode))
+        query = query.Where(row => row.ThemeCode == themeCode.Trim().ToLowerInvariant());
+    if (!string.IsNullOrWhiteSpace(paletteCode))
+        query = query.Where(row => row.PaletteCode == paletteCode.Trim().ToLowerInvariant());
+
+    var total = await query.CountAsync(ct);
+    var items = await query.OrderByDescending(row => row.CreatedAtUtc)
+        .ThenBy(row => row.Id).Skip(offset).Take(limit).ToListAsync(ct);
+    return Results.Ok(new { total, items });
+}).RequirePermission("Admin.Identity.Manage");
+
 app.Run();
 
 public sealed record CustomerProfileUpdateRequest(string DisplayName, string? Email);
