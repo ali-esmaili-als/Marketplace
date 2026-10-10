@@ -76,13 +76,9 @@ public sealed class StorefrontMediaCleanupHostedService(
                     try
                     {
                         var info = new FileInfo(filePath);
-                        if ((info.Attributes & FileAttributes.ReparsePoint) != 0 ||
-                            info.LastWriteTimeUtc >= cutoffUtc ||
-                            !IsGeneratedImageName(info.Name))
-                            continue;
-
                         var expectedUrl = $"{UrlPrefix}{storeId}/{info.Name}";
-                        if (activeUrls.Contains(expectedUrl))
+                        if (!StorefrontMediaCleanupPolicy.ShouldDelete(
+                                info.Name, info.LastWriteTimeUtc, cutoffUtc, info.Attributes, expectedUrl, activeUrls))
                             continue;
 
                         File.Delete(filePath);
@@ -116,15 +112,4 @@ public sealed class StorefrontMediaCleanupHostedService(
         }
     }
 
-    private static bool IsGeneratedImageName(string fileName)
-    {
-        var extension = Path.GetExtension(fileName);
-        if (!extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) &&
-            !extension.Equals(".png", StringComparison.OrdinalIgnoreCase) &&
-            !extension.Equals(".webp", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-        return stem.Length == 32 && stem.All(Uri.IsHexDigit);
-    }
 }
