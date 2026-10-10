@@ -19,7 +19,7 @@ public static class StoreMediaEndpoints
         {
             var items = await db.StorefrontMedia.AsNoTracking()
                 .Where(x => x.StoreId == storeId && x.IsActive)
-                .OrderBy(x => x.Kind).ThenBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc)
+                .OrderBy(x => x.Kind).ThenBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)
                 .Select(x => new { x.Id, x.StoreId, x.ProductId, x.Kind, x.Url, x.ContentType, x.AltText, x.SortOrder })
                 .ToListAsync(ct);
             return Results.Ok(items);
@@ -58,6 +58,7 @@ public static class StoreMediaEndpoints
             var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(x => x.Id == storeId, ct);
             if (store is null || store.SellerId != seller.Id) return Results.Forbid();
             media.Deactivate();
+            await NormalizeActiveGroupAsync(db, media, ct);
             await db.SaveChangesAsync(ct);
             DeletePhysicalFile(media.Url, env);
             return Results.NoContent();
@@ -69,6 +70,7 @@ public static class StoreMediaEndpoints
             var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
             if (media is null) return Results.NotFound();
             media.Deactivate();
+            await NormalizeActiveGroupAsync(db, media, ct);
             await db.SaveChangesAsync(ct);
             DeletePhysicalFile(media.Url, env);
             return Results.NoContent();
@@ -88,7 +90,7 @@ public static class StoreMediaEndpoints
             if (media is null) return Results.NotFound();
             var group = await db.StorefrontMedia
                 .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
-                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ToListAsync(ct);
+                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).ToListAsync(ct);
             group.Remove(media);
             group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
             for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
@@ -104,7 +106,7 @@ public static class StoreMediaEndpoints
             if (media is null) return Results.NotFound();
             var group = await db.StorefrontMedia
                 .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
-                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ToListAsync(ct);
+                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).ToListAsync(ct);
             group.Remove(media);
             group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
             for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
@@ -115,7 +117,7 @@ public static class StoreMediaEndpoints
         return app;
     }
 
-    private static async Task<IResult> SaveAsync(
+    private static async Task NormalizeActiveGroupAsync(\n        MarketplaceDbContext db, StorefrontMedia media, CancellationToken ct)\n    {\n        var group = await db.StorefrontMedia\n            .Where(x => x.StoreId == media.StoreId && x.ProductId == media.ProductId\n                && x.Kind == media.Kind && x.IsActive)\n            .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)\n            .ToListAsync(ct);\n\n        for (var index = 0; index < group.Count; index++)\n            if (group[index].SortOrder != index)\n                group[index].ChangeSortOrder(index);\n    }\n\n    private static async Task<IResult> SaveAsync(
         long storeId, IFormFile file, string kind, long? productId, string? altText, int? sortOrder,
         MarketplaceDbContext db, IIdGenerator ids, IWebHostEnvironment env, CancellationToken ct)
     {
