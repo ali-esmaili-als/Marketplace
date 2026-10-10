@@ -399,3 +399,11 @@ Both checks are read-only. They do not create, relink, delete, or reverse financ
 - **Check 100 — duplicate reversal for the same refund and commission:** multiple reversal records share the same `(RefundId, CommissionId)` pair. Verify whether a retry or recovery path created duplicate reversal entries and compare the total reversed amount with the original commission (also covered by check 82).
 
 These checks are read-only signals. Do not delete or amend reversal rows or adjust seller balances until the refund and commission evidence has been reconciled.
+
+### Settlement duplicate-posting diagnostics (101–103)
+
+- **Check 101 — duplicate reservation postings:** more than one `SETTLEMENT_REQUESTED` reserved-bucket ledger entry is linked to a settlement. Confirm whether request retries or recovery logic emitted duplicate reservation records.
+- **Check 102 — duplicate successful payout postings:** a completed settlement has multiple matching available-bucket payout entries, including the supported `RECONCILED_PAID:` reference form. Compare references, timestamps, bank evidence, and seller balance before deciding on any correction.
+- **Check 103 — duplicate failure-release postings:** a failed settlement has multiple matching reserved-bucket release entries. Confirm whether reservation release was repeated during recovery.
+
+These are read-only diagnostics. A duplicate ledger row does not by itself establish whether money was transferred twice; compare provider/bank evidence and the full ledger trail. Do not automatically delete entries, retry transfers, or adjust balances.
