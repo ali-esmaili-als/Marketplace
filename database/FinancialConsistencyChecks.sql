@@ -1062,3 +1062,34 @@ LEFT JOIN dbo.BalanceTransactions AS bt
 WHERE s.Status = 4 -- Failed
 GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
 HAVING COUNT(bt.Id) <> 1;
+
+
+PRINT '89. Completed refund is inconsistent with order or payment terminal state';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.Status AS RefundStatus,
+       o.Status AS OrderStatus, p.Status AS PaymentStatus,
+       r.AmountIRR, r.ProviderReference, r.CompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 4 -- Completed
+  AND (o.Status <> 8 OR p.Status <> 6); -- Refunded order and payment
+
+PRINT '90. Processing refund no longer has its expected order/payment state';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.Status AS RefundStatus,
+       o.Status AS OrderStatus, p.Status AS PaymentStatus,
+       r.AmountIRR, r.RequestedAtUtc, r.ProviderReference
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status = 3 -- Processing
+  AND (o.Status <> 7 OR p.Status <> 3); -- RefundRequested order, Succeeded payment
+
+PRINT '91. Failed or rejected refund is inconsistent with refunded order/payment state';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId, r.Status AS RefundStatus,
+       o.Status AS OrderStatus, p.Status AS PaymentStatus,
+       r.AmountIRR, r.ProviderReference
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.Status IN (5, 6) -- Failed, Rejected
+  AND (o.Status = 8 OR p.Status = 6); -- A failed refund must not finalize the order/payment
