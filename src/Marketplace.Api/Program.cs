@@ -105,6 +105,7 @@ builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationP
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionHandler>();
 
 builder.Services.AddHostedService<MarketplaceMaintenanceHostedService>();
+builder.Services.AddHostedService<StorefrontMediaCleanupHostedService>();
 builder.Services.AddHostedService<Marketplace.Infrastructure.Outbox.OutboxRetentionHostedService>();
 var app=builder.Build();
 if (app.Environment.IsDevelopment()) app.UseSwagger().UseSwaggerUI();
