@@ -314,6 +314,42 @@ public sealed class OrderLifecycleServiceTests
 
 
     [Fact]
+    public async Task Repeated_ready_command_does_not_issue_a_second_delivery_code()
+    {
+        var now = DateTime.UtcNow;
+        var order = Order.Create(491, 492, 493, 494, 700_000, 700_000);
+        order.MarkPaid(now.AddMinutes(-5));
+        order.SetDeliveryExpiry(now.AddDays(2));
+        order.MarkReady();
+        var delivery = DeliveryEntity.Create(495, order.Id, order.SellerId, now.AddDays(2));
+        delivery.MarkReady();
+        var code = Marketplace.Domain.Delivery.DeliveryCode.Create(496, order.Id, "123456", now.AddDays(2));
+
+        var orders = new Mock<IOrderRepository>();
+        orders.Setup(x => x.GetAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(order);
+        var lifecycle = new Mock<ILifecycleRepository>();
+        lifecycle.Setup(x => x.GetDeliveryByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(delivery);
+        lifecycle.Setup(x => x.GetDeliveryCodeByOrderAsync(order.Id, It.IsAny<CancellationToken>())).ReturnsAsync(code);
+        var uow = new Mock<IUnitOfWork>();
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        var ids = new Mock<IIdGenerator>();
+        var notifications = new Mock<INotificationRepository>();
+        var service = new OrderLifecycleService(orders.Object, new Mock<IPaymentRepository>().Object,
+            lifecycle.Object, uow.Object, ids.Object, notifications.Object);
+
+        await service.MarkReadyForDeliveryAsync(order.Id);
+
+        Assert.Equal(OrderStatus.ReadyForDelivery, order.Status);
+        Assert.Equal(Marketplace.Domain.Delivery.DeliveryStatus.Ready, delivery.Status);
+        lifecycle.Verify(x => x.AddDeliveryCode(It.IsAny<Marketplace.Domain.Delivery.DeliveryCode>()), Times.Never);
+        notifications.Verify(x => x.Add(It.IsAny<Marketplace.Domain.Notifications.Notification>()), Times.Never);
+        ids.Verify(x => x.NextAsync(It.IsAny<CancellationToken>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Invalid_delivery_code_persists_failed_attempt_without_changing_financial_state()
     {
         var now = DateTime.UtcNow;
