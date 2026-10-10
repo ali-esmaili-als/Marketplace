@@ -294,7 +294,7 @@ app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeI
                     && (!storeId.HasValue||p.StoreId==storeId.Value)
                     && (string.IsNullOrWhiteSpace(q)||p.Name.Contains(q)||p.Description!.Contains(q)||s.Name.Contains(q))
               orderby p.CreatedAtUtc descending
-              select new { p.Id,p.StoreId,SellerId=s.SellerId,StoreName=s.Name,StoreSlug=s.Slug,p.CategoryId,CategoryName=c.Name,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants };
+              select new { p.Id,p.StoreId,SellerId=s.SellerId,StoreName=s.Name,StoreSlug=s.Slug,StoreThemeCode=s.ThemeCode,StorePaletteCode=s.PaletteCode,StoreThemePrimaryColor=s.ThemePrimaryColor,StoreThemeSecondaryColor=s.ThemeSecondaryColor,StoreThemeBackgroundColor=s.ThemeBackgroundColor,StoreThemeTextColor=s.ThemeTextColor,StoreThemeFontCode=s.ThemeFontCode,StoreThemeCornerStyle=s.ThemeCornerStyle,p.CategoryId,CategoryName=c.Name,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants };
     var products=await query.Skip(offset).Take(limit).ToListAsync(ct);
     var ids=products.Select(x=>x.Id).ToArray();
     var variants=await (from v in db.ProductVariants.AsNoTracking()
@@ -309,7 +309,7 @@ app.MapGet("/api/catalog/products",async(string? q,long? categoryId,long? storeI
         select new { pw.ProductId,WarrantyId=w.Id,w.Name,w.PriceIRR,pw.IsDefault })
         .ToListAsync(ct);
     return Results.Ok(products.Select(p=>new {
-        p.Id,p.StoreId,p.SellerId,p.StoreName,p.StoreSlug,p.CategoryId,p.CategoryName,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants,
+        p.Id,p.StoreId,p.SellerId,p.StoreName,p.StoreSlug,p.StoreThemeCode,p.StorePaletteCode,p.StoreThemePrimaryColor,p.StoreThemeSecondaryColor,p.StoreThemeBackgroundColor,p.StoreThemeTextColor,p.StoreThemeFontCode,p.StoreThemeCornerStyle,p.CategoryId,p.CategoryName,p.Name,p.Slug,p.Description,p.BasePriceIRR,p.HasVariants,
         Variants=variants.Where(v=>v.ProductId==p.Id).Select(v=>new {v.Id,v.SKU,v.VariantKey,PriceIRR=v.PriceIRR??p.BasePriceIRR,v.AvailableQuantity}),
         Warranties=warranties.Where(w=>w.ProductId==p.Id).Select(w=>new {id=w.WarrantyId,w.Name,w.PriceIRR,w.IsDefault})
     }));
