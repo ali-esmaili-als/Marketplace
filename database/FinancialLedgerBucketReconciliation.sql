@@ -113,6 +113,9 @@ PRINT 'FLR-05. Settlement state has missing or duplicate reservation/final outco
                          AND bt.AmountIRR = s.AmountIRR THEN 1 ELSE 0 END) AS ReservationPostingCount,
            SUM(CASE WHEN bt.Type = 4 AND bt.Bucket = 1
                          AND bt.AmountIRR = s.AmountIRR THEN 1 ELSE 0 END) AS SuccessfulPayoutPostingCount,
+           SUM(CASE WHEN bt.Type = 4 AND bt.Bucket = 4
+                         AND bt.Reference <> N'SETTLEMENT_REQUESTED'
+                         AND bt.AmountIRR = s.AmountIRR THEN 1 ELSE 0 END) AS SuccessfulReservationReleasePostingCount,
            SUM(CASE WHEN bt.Type = 14 AND bt.Bucket = 4
                          AND bt.AmountIRR = s.AmountIRR THEN 1 ELSE 0 END) AS FailureReleasePostingCount
     FROM dbo.Settlements AS s
@@ -122,10 +125,12 @@ PRINT 'FLR-05. Settlement state has missing or duplicate reservation/final outco
     GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
 )
 SELECT SettlementId, SellerId, AmountIRR, Status,
-       ReservationPostingCount, SuccessfulPayoutPostingCount, FailureReleasePostingCount,
+       ReservationPostingCount, SuccessfulPayoutPostingCount, SuccessfulReservationReleasePostingCount,
+       FailureReleasePostingCount,
        CASE
            WHEN ReservationPostingCount <> 1 THEN N'RESERVATION_COUNT_MISMATCH'
            WHEN Status = 3 AND SuccessfulPayoutPostingCount <> 1 THEN N'COMPLETED_OUTCOME_COUNT_MISMATCH'
+           WHEN Status = 3 AND SuccessfulReservationReleasePostingCount <> 1 THEN N'COMPLETED_RESERVATION_RELEASE_COUNT_MISMATCH'
            WHEN Status = 4 AND FailureReleasePostingCount <> 1 THEN N'FAILED_OUTCOME_COUNT_MISMATCH'
            WHEN Status IN (1, 2, 6)
                 AND (SuccessfulPayoutPostingCount > 0 OR FailureReleasePostingCount > 0)
@@ -137,6 +142,7 @@ SELECT SettlementId, SellerId, AmountIRR, Status,
 FROM SettlementLedgerCounts
 WHERE ReservationPostingCount <> 1
    OR (Status = 3 AND SuccessfulPayoutPostingCount <> 1)
+   OR (Status = 3 AND SuccessfulReservationReleasePostingCount <> 1)
    OR (Status = 4 AND FailureReleasePostingCount <> 1)
    OR (Status IN (1, 2, 6) AND (SuccessfulPayoutPostingCount > 0 OR FailureReleasePostingCount > 0))
    OR (Status = 3 AND FailureReleasePostingCount > 0)
