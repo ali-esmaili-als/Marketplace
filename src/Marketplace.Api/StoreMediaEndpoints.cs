@@ -117,7 +117,21 @@ public static class StoreMediaEndpoints
         return app;
     }
 
-    private static async Task NormalizeActiveGroupAsync(\n        MarketplaceDbContext db, StorefrontMedia media, CancellationToken ct)\n    {\n        var group = await db.StorefrontMedia\n            .Where(x => x.StoreId == media.StoreId && x.ProductId == media.ProductId\n                && x.Kind == media.Kind && x.IsActive)\n            .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)\n            .ToListAsync(ct);\n\n        for (var index = 0; index < group.Count; index++)\n            if (group[index].SortOrder != index)\n                group[index].ChangeSortOrder(index);\n    }\n\n    private static async Task<IResult> SaveAsync(
+    private static async Task NormalizeActiveGroupAsync(
+        MarketplaceDbContext db, StorefrontMedia media, CancellationToken ct)
+    {
+        var group = await db.StorefrontMedia
+            .Where(x => x.StoreId == media.StoreId && x.ProductId == media.ProductId
+                && x.Kind == media.Kind && x.IsActive)
+            .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)
+            .ToListAsync(ct);
+
+        for (var index = 0; index < group.Count; index++)
+            if (group[index].SortOrder != index)
+                group[index].ChangeSortOrder(index);
+    }
+
+    private static async Task<IResult> SaveAsync(
         long storeId, IFormFile file, string kind, long? productId, string? altText, int? sortOrder,
         MarketplaceDbContext db, IIdGenerator ids, IWebHostEnvironment env, CancellationToken ct)
     {
