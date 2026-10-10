@@ -1111,3 +1111,36 @@ FROM dbo.Payments AS p
 JOIN dbo.Orders AS o ON o.Id = p.OrderId
 WHERE p.Status IN (4, 5) -- Failed, Cancelled
   AND o.Status NOT IN (1, 10); -- PendingPayment, Cancelled
+
+PRINT '94. More than one completed full refund exists for a single order';
+SELECT r.OrderId, COUNT_BIG(*) AS CompletedRefundCount,
+       SUM(r.AmountIRR) AS TotalCompletedRefundIRR,
+       MAX(o.TotalAmountIRR) AS OrderTotalAmountIRR,
+       MIN(r.CompletedAtUtc) AS FirstCompletedAtUtc,
+       MAX(r.CompletedAtUtc) AS LastCompletedAtUtc
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 4 -- Completed
+GROUP BY r.OrderId
+HAVING COUNT_BIG(*) > 1;
+
+PRINT '95. Refund amount differs from the current full-refund contract';
+SELECT r.Id AS RefundId, r.OrderId, r.PaymentId,
+       r.Status AS RefundStatus, r.AmountIRR,
+       o.TotalAmountIRR AS OrderTotalAmountIRR,
+       p.AmountIRR AS PaymentAmountIRR
+FROM dbo.Refunds AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+JOIN dbo.Payments AS p ON p.Id = r.PaymentId
+WHERE r.AmountIRR <> o.TotalAmountIRR
+   OR r.AmountIRR <> p.AmountIRR;
+
+PRINT '96. Payment amount differs from its order total';
+SELECT p.Id AS PaymentId, p.OrderId, p.CustomerId,
+       p.Status AS PaymentStatus, p.AmountIRR AS PaymentAmountIRR,
+       o.CustomerId AS OrderCustomerId,
+       o.TotalAmountIRR AS OrderTotalAmountIRR
+FROM dbo.Payments AS p
+JOIN dbo.Orders AS o ON o.Id = p.OrderId
+WHERE p.AmountIRR <> o.TotalAmountIRR
+   OR p.CustomerId <> o.CustomerId;
