@@ -62,7 +62,7 @@ public sealed class RefundFinalizationFailureTests
 
         var gateway = new Mock<IPaymentGateway>();
         gateway.Setup(x => x.RefundAsync(payment.ReferenceNumber, order.TotalAmountIRR, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+            .ReturnsAsync(new PaymentRefundResult(true, "BANK-REFUND-601", null));
         var gatewayFactory = new Mock<IPaymentGatewayFactory>();
         gatewayFactory.Setup(x => x.GetForExistingPaymentAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
             .ReturnsAsync(gateway.Object);
