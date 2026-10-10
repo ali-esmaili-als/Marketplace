@@ -64,13 +64,22 @@ CREATE TABLE dbo.Stores(
  Id BIGINT NOT NULL CONSTRAINT PK_Stores PRIMARY KEY, SellerId BIGINT NOT NULL,
  Name NVARCHAR(200) NOT NULL, Slug NVARCHAR(250) NOT NULL, Description NVARCHAR(2000) NULL,
  ThemeCode NVARCHAR(20) NOT NULL CONSTRAINT DF_Stores_ThemeCode DEFAULT(N'classic'), PaletteCode NVARCHAR(20) NOT NULL CONSTRAINT DF_Stores_PaletteCode DEFAULT(N'ocean'),
+ ThemePrimaryColor CHAR(7) NOT NULL CONSTRAINT DF_Stores_ThemePrimaryColor DEFAULT('#3159c9'), ThemeSecondaryColor CHAR(7) NOT NULL CONSTRAINT DF_Stores_ThemeSecondaryColor DEFAULT('#f3f7ff'),
+ ThemeBackgroundColor CHAR(7) NOT NULL CONSTRAINT DF_Stores_ThemeBackgroundColor DEFAULT('#ffffff'), ThemeTextColor CHAR(7) NOT NULL CONSTRAINT DF_Stores_ThemeTextColor DEFAULT('#232b49'),
+ ThemeFontCode NVARCHAR(20) NOT NULL CONSTRAINT DF_Stores_ThemeFontCode DEFAULT(N'iran-yekan'), ThemeCornerStyle NVARCHAR(20) NOT NULL CONSTRAINT DF_Stores_ThemeCornerStyle DEFAULT(N'soft'),
  Status TINYINT NOT NULL, CommissionRateBasisPoints INT NOT NULL CONSTRAINT DF_Stores_CommissionRate DEFAULT(0),
  MinimumCommissionIRR BIGINT NOT NULL CONSTRAINT DF_Stores_MinCommission DEFAULT(0),
  CreatedAtUtc DATETIME2(7) NOT NULL,
  CONSTRAINT UQ_Stores_Seller_Slug UNIQUE(SellerId,Slug),
  CONSTRAINT CK_Stores_Commission CHECK(CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR>=0),
  CONSTRAINT CK_Stores_ThemeCode CHECK(ThemeCode IN (N'classic',N'minimal',N'vibrant',N'editorial',N'boutique',N'magazine',N'grid',N'luxe',N'organic',N'tech',N'fashion',N'gallery',N'market',N'mono',N'pastel',N'bold',N'nordic',N'artisan',N'urban',N'elegant')),
- CONSTRAINT CK_Stores_PaletteCode CHECK(PaletteCode IN (N'ocean',N'forest',N'sunset',N'rose',N'monochrome'))
+ CONSTRAINT CK_Stores_PaletteCode CHECK(PaletteCode IN (N'ocean',N'forest',N'sunset',N'rose',N'monochrome')),
+ CONSTRAINT CK_Stores_ThemeFontCode CHECK(ThemeFontCode IN (N'iran-yekan',N'system',N'serif',N'modern')),
+ CONSTRAINT CK_Stores_ThemeCornerStyle CHECK(ThemeCornerStyle IN (N'soft',N'square',N'round')),
+ CONSTRAINT CK_Stores_ThemePrimaryColor CHECK(LEN(ThemePrimaryColor)=7 AND ThemePrimaryColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'),
+ CONSTRAINT CK_Stores_ThemeSecondaryColor CHECK(LEN(ThemeSecondaryColor)=7 AND ThemeSecondaryColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'),
+ CONSTRAINT CK_Stores_ThemeBackgroundColor CHECK(LEN(ThemeBackgroundColor)=7 AND ThemeBackgroundColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'),
+ CONSTRAINT CK_Stores_ThemeTextColor CHECK(LEN(ThemeTextColor)=7 AND ThemeTextColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]')
 );
 CREATE TABLE dbo.SellerBankAccounts(
  Id BIGINT NOT NULL CONSTRAINT PK_SellerBankAccounts PRIMARY KEY, SellerId BIGINT NOT NULL,
