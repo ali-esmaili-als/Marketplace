@@ -2145,6 +2145,56 @@ app.MapDelete("/api/me/saved-products/{productId:long}", async (System.Security.
 }).RequirePermission("Order.ReadOwn");
 
 app.MapGet("/api/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrdersAsync(CurrentUserId(user),ct))).RequirePermission("Order.ReadOwn");
+app.MapGet("/api/orders/{orderId:long}/payment/continue", async (
+    System.Security.Claims.ClaimsPrincipal user,
+    long orderId,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    var customerId = CurrentUserId(user);
+    var order = await db.Orders.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.Id == orderId && x.CustomerId == customerId, ct);
+    if (order is null) return Results.NotFound(new { detail = "Order not found." });
+    if (order.Status != Marketplace.Domain.Orders.OrderStatus.PendingPayment)
+        return Results.Conflict(new { detail = "This order is no longer awaiting payment." });
+
+    var payment = await db.Payments.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.OrderId == orderId && x.CustomerId == customerId, ct);
+    if (payment is null || payment.AmountIRR != order.TotalAmountIRR)
+        return Results.Conflict(new { detail = "The order payment is missing or does not match the order; financial reconciliation is required." });
+    if (payment.Status is not (Marketplace.Domain.Payments.PaymentStatus.Pending or Marketplace.Domain.Payments.PaymentStatus.Redirected))
+        return Results.Conflict(new { detail = "This payment can no longer be continued. Refresh the order status before taking another action." });
+
+    var reservations = await db.InventoryReservations.AsNoTracking()
+        .Where(x => x.OrderId == orderId && x.Status == Marketplace.Domain.Inventory.InventoryReservationStatus.Active)
+        .Select(x => new { x.ProductVariantId, x.ExpiresAtUtc })
+        .ToListAsync(ct);
+    var variantIds = await db.OrderItems.AsNoTracking()
+        .Where(x => x.OrderId == orderId && x.VariantId.HasValue)
+        .Select(x => x.VariantId!.Value)
+        .Distinct()
+        .ToListAsync(ct);
+    var now = DateTime.UtcNow;
+    var reservedVariantIds = reservations.Select(x => x.ProductVariantId).Distinct().ToHashSet();
+    if (variantIds.Count == 0 || variantIds.Any(id => !reservedVariantIds.Contains(id))
+        || reservations.Any(x => x.ExpiresAtUtc <= now))
+        return Results.Conflict(new { detail = "The inventory reservation is no longer valid. Refresh the order status before attempting payment again." });
+
+    var redirectUrl = payment.RedirectUrl;
+    if (string.IsNullOrWhiteSpace(redirectUrl) || redirectUrl.Length > 2048
+        || redirectUrl.StartsWith("//", StringComparison.Ordinal)
+        || redirectUrl.Contains('\\'))
+        return Results.Conflict(new { detail = "A valid payment continuation URL is unavailable." });
+    var localPath = redirectUrl.StartsWith("/", StringComparison.Ordinal);
+    var absoluteUrl = Uri.TryCreate(redirectUrl, UriKind.Absolute, out var parsed)
+        && (parsed.Scheme == Uri.UriSchemeHttps || parsed.Scheme == Uri.UriSchemeHttp)
+        && string.IsNullOrEmpty(parsed.UserInfo);
+    if (!localPath && !absoluteUrl)
+        return Results.Conflict(new { detail = "A valid payment continuation URL is unavailable." });
+
+    return Results.Ok(new { orderId = order.Id, paymentId = payment.Id, redirectUrl });
+}).RequirePermission("Order.ReadOwn");
+
 app.MapGet("/api/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,CancellationToken ct)=>Results.Ok(await service.GetCustomerOrderAsync(CurrentUserId(user),orderId,ct))).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/seller/orders",async(System.Security.Claims.ClaimsPrincipal user,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrdersAsync(seller.Id,ct));}).RequirePermission("Order.ReadOwn");
 app.MapGet("/api/seller/orders/{orderId:long}",async(System.Security.Claims.ClaimsPrincipal user,long orderId,Marketplace.Application.Orders.OrderQueryService service,Marketplace.Application.Abstractions.ISellerManagementRepository sellers,CancellationToken ct)=>{var seller=await sellers.GetSellerByUserIdAsync(CurrentUserId(user),ct)??throw new UnauthorizedAccessException();return Results.Ok(await service.GetSellerOrderAsync(seller.Id,orderId,ct));}).RequirePermission("Order.ReadOwn");
