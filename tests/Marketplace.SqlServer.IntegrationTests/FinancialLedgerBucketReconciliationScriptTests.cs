@@ -66,7 +66,7 @@ public sealed class FinancialLedgerBucketReconciliationScriptTests
                 Assert.Contains("910002", findings[0]);
                 // FLR-02: current Available (70) differs from the latest Available ledger snapshot (50).
                 Assert.Contains("910001", findings[1]);
-                // FLR-03: non-zero Pending and ReservedForSettlement buckets have no bucket ledger history.
+                // FLR-03: the non-zero Pending bucket has no bucket ledger history.
                 Assert.Contains("910001", findings[2]);
                 // FLR-04: reserved bucket is 40 while the active settlement total is 50.
                 Assert.Contains("910001", findings[3]);
