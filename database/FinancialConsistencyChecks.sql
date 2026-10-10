@@ -832,3 +832,40 @@ JOIN dbo.Orders AS o ON o.Id = r.OrderId
 WHERE r.Status = 1 -- Active
   AND o.Status = 1 -- PendingPayment
   AND r.ExpiresAtUtc <= SYSUTCDATETIME();
+
+
+PRINT '72. Reserved seller balance differs from active settlement requests';
+;WITH ActiveSettlementTotals AS
+(
+    SELECT s.SellerId, SUM(s.AmountIRR) AS ActiveSettlementAmountIRR,
+           COUNT_BIG(*) AS ActiveSettlementCount
+    FROM dbo.Settlements AS s
+    WHERE s.Status IN (1, 2, 6) -- Requested, Processing, OnHold
+    GROUP BY s.SellerId
+)
+SELECT sb.SellerId, sb.ReservedForSettlementIRR,
+       ISNULL(ast.ActiveSettlementAmountIRR, 0) AS ActiveSettlementAmountIRR,
+       sb.ReservedForSettlementIRR - ISNULL(ast.ActiveSettlementAmountIRR, 0) AS DifferenceIRR,
+       ISNULL(ast.ActiveSettlementCount, 0) AS ActiveSettlementCount
+FROM dbo.SellerBalances AS sb
+LEFT JOIN ActiveSettlementTotals AS ast ON ast.SellerId = sb.SellerId
+WHERE sb.ReservedForSettlementIRR <> ISNULL(ast.ActiveSettlementAmountIRR, 0);
+
+PRINT '73. Completed settlements missing a bank reference';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       s.Reference, s.CompletedAtUtc, s.CreatedAtUtc
+FROM dbo.Settlements AS s
+WHERE s.Status = 3 -- Completed
+  AND LEN(LTRIM(RTRIM(ISNULL(s.Reference, N'')))) = 0;
+
+PRINT '74. Completed or failed settlements missing their outcome ledger transaction';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT(bt.Id) AS SettlementLinkedLedgerTransactionCount,
+       MIN(bt.CreatedAtUtc) AS FirstLedgerAtUtc,
+       MAX(bt.CreatedAtUtc) AS LastLedgerAtUtc
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt ON bt.SettlementId = s.Id
+WHERE s.Status IN (3, 4) -- Completed, Failed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT(bt.Id) < 2; -- request reservation plus completion/failure outcome
+
