@@ -1046,7 +1046,7 @@ LEFT JOIN dbo.BalanceTransactions AS bt
     ON bt.SettlementId = s.Id
    AND bt.Type = 4 -- Settlement outcome
    AND bt.AmountIRR = s.AmountIRR
-   AND (bt.Reference = s.Reference OR bt.Reference LIKE N'RECONCILED_PAID:' + s.Reference + N':%')
+   AND (bt.Reference = s.Reference OR LEFT(bt.Reference, LEN(N'RECONCILED_PAID:' + s.Reference + N':')) = N'RECONCILED_PAID:' + s.Reference + N':')
 WHERE s.Status = 3 -- Completed
 GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status, s.Reference
 HAVING COUNT(bt.Id) <> 1;
