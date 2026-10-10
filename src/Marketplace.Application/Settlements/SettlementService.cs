@@ -161,7 +161,7 @@ public sealed class SettlementService
                 }
 
                 settlement.Complete(result.Reference);
-                var reservedBefore = balance.ReservedForSettlementIRR;
+                var reservedBeforeCompletion = balance.ReservedForSettlementIRR;
                 var before = balance.AvailableIRR;
                 balance.CompleteSettlement(amount);
                 balance.RemoveAvailable(amount);
@@ -170,7 +170,7 @@ public sealed class SettlementService
                 // in the same transaction as the settlement state, balance, and outbox event.
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token), sellerId, null, settlement.Id,
-                    BalanceTransactionType.Settlement, amount, reservedBefore,
+                    BalanceTransactionType.Settlement, amount, reservedBeforeCompletion,
                     balance.ReservedForSettlementIRR, "SETTLEMENT_COMPLETED", BalanceBucket.ReservedForSettlement));
                 _life.AddBalanceTransaction(BalanceTransaction.Create(
                     await _ids.NextAsync(token), sellerId, null, settlement.Id,
