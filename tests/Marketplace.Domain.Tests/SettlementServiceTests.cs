@@ -92,6 +92,44 @@ public sealed class SettlementServiceTests
     }
 
     [Fact]
+    public async Task Request_rejects_reusing_idempotency_key_with_different_bank_account()
+    {
+        var seller = Seller.Create(721, 722);
+        seller.Activate();
+        var existing = Settlement.Create(723, seller.Id, 400_000, 724,
+            "Test Bank", "IR0724", "Seller", "checkout-bank-mismatch");
+        var lifecycle = new Mock<ILifecycleRepository>(MockBehavior.Strict);
+        lifecycle.Setup(x => x.GetSellerBalanceAsync(seller.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SellerBalance?)null);
+        lifecycle.Setup(x => x.GetSettlementByRequestKeyAsync(
+                seller.Id, "checkout-bank-mismatch", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+
+        var sellers = new Mock<ISellerManagementRepository>(MockBehavior.Strict);
+        sellers.Setup(x => x.GetSellerByUserIdAsync(seller.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(seller);
+
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<SettlementResult>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<SettlementResult>> action, CancellationToken token) => action(token));
+
+        var service = new SettlementService(
+            lifecycle.Object, uow.Object, CreateIdGenerator(),
+            Mock.Of<ISellerPayoutGateway>(), sellers.Object);
+
+        await Assert.ThrowsAsync<Marketplace.Domain.Common.DomainException>(() =>
+            service.RequestAsync(seller.UserId, existing.BankAccountId + 1, existing.AmountIRR, "checkout-bank-mismatch"));
+
+        lifecycle.Verify(x => x.AddSettlement(It.IsAny<Settlement>()), Times.Never);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        lifecycle.VerifyAll();
+        sellers.VerifyAll();
+        uow.VerifyAll();
+    }
+
+    [Fact]
     public async Task Concurrent_processing_requests_for_same_settlement_call_payout_only_once()
     {
         var settlement = Settlement.Create(700, 701, 400_000, 702, "Test Bank", "IR0702", "Seller");
