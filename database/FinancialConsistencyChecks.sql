@@ -1022,3 +1022,43 @@ SELECT c.OrderId, COUNT_BIG(*) AS CommissionCount,
 FROM dbo.Commissions AS c
 GROUP BY c.OrderId
 HAVING COUNT_BIG(*) > 1;
+
+
+PRINT '86. Active settlements missing their exact reservation ledger entry';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT(bt.Id) AS MatchingReservationEntryCount
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.SettlementId = s.Id
+   AND bt.Type = 4 -- Settlement
+   AND bt.Reference = N'SETTLEMENT_REQUESTED'
+   AND bt.AmountIRR = s.AmountIRR
+WHERE s.Status IN (1, 2, 6) -- Requested, Processing, OnHold
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT(bt.Id) <> 1;
+
+PRINT '87. Completed settlements missing the exact payout outcome ledger entry';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       s.Reference AS SettlementBankReference,
+       COUNT(bt.Id) AS MatchingOutcomeEntryCount
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.SettlementId = s.Id
+   AND bt.Type = 4 -- Settlement outcome
+   AND bt.AmountIRR = s.AmountIRR
+   AND (bt.Reference = s.Reference OR bt.Reference LIKE N'RECONCILED_PAID:' + s.Reference + N':%')
+WHERE s.Status = 3 -- Completed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status, s.Reference
+HAVING COUNT(bt.Id) <> 1;
+
+PRINT '88. Failed settlements missing the exact reservation-release ledger entry';
+SELECT s.Id AS SettlementId, s.SellerId, s.AmountIRR, s.Status,
+       COUNT(bt.Id) AS MatchingFailureEntryCount
+FROM dbo.Settlements AS s
+LEFT JOIN dbo.BalanceTransactions AS bt
+    ON bt.SettlementId = s.Id
+   AND bt.Type = 14 -- SettlementFailed
+   AND bt.AmountIRR = s.AmountIRR
+WHERE s.Status = 4 -- Failed
+GROUP BY s.Id, s.SellerId, s.AmountIRR, s.Status
+HAVING COUNT(bt.Id) <> 1;
