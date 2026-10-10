@@ -346,6 +346,37 @@ public sealed class PaymentVerificationServiceTests
         factory.VerifyAll();
     }
 
+    [Fact]
+    public async Task VerifyTestReturn_CancellationDoesNotOverrideConcurrentSuccessfulCallback()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Func<CancellationToken, Task<int>> action, CancellationToken token) =>
+            {
+                // Simulate a bank callback committing success just before the stale
+                // browser cancellation handler re-reads payment state.
+                payment.Succeed("BANK-REF-CONCURRENT");
+                return await action(token);
+            });
+
+        var service = CreateService(payments, factory, uow);
+
+        var result = await service.VerifyTestReturnAsync(10, "AUTH-10", success: false);
+
+        Assert.True(result.Paid);
+        Assert.Equal("BANK-REF-CONCURRENT", result.Reference);
+        Assert.Null(result.Error);
+        Assert.Equal(PaymentStatus.Succeeded, payment.Status);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        factory.VerifyNoOtherCalls();
+    }
+
     private static PaymentVerificationService CreateService(
         Mock<IPaymentRepository> payments,
         Mock<IPaymentGatewayFactory> factory,
