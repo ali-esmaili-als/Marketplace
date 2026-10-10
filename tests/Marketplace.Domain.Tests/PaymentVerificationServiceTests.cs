@@ -98,6 +98,38 @@ public sealed class PaymentVerificationServiceTests
     }
 
     [Fact]
+    public async Task VerifyTestReturn_DefinitiveGatewayRejectionMarksPaymentAndTransactionFailed()
+    {
+        var payment = Payment.Create(10, 20, 30, 500_000);
+        payment.Redirect("TestBank", "AUTH-10");
+        var transaction = PaymentTransaction.Create(11, payment.Id, payment.AmountIRR, "TestBank", "AUTH-10");
+        var payments = new Mock<IPaymentRepository>();
+        payments.Setup(x => x.GetAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(payment);
+        payments.Setup(x => x.GetLatestTransactionAsync(10, It.IsAny<CancellationToken>())).ReturnsAsync(transaction);
+        var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
+        gateway.Setup(x => x.VerifyAsync("AUTH-10", 500_000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentVerification(false, null, "Test provider rejected payment."));
+        var factory = new Mock<IPaymentGatewayFactory>(MockBehavior.Strict);
+        factory.Setup(x => x.GetForExistingPaymentAsync(PaymentProviderCode.TestBank, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(gateway.Object);
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+        uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<int>>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<int>> action, CancellationToken token) => action(token));
+        uow.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var service = CreateService(payments, factory, uow);
+
+        var result = await service.VerifyTestReturnAsync(10, "AUTH-10", success: true);
+
+        Assert.False(result.Paid);
+        Assert.Equal("Test provider rejected payment.", result.Error);
+        Assert.Equal(PaymentStatus.Failed, payment.Status);
+        Assert.Equal(PaymentTransactionStatus.Failed, transaction.Status);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        factory.VerifyAll();
+    }
+
+    [Fact]
     public async Task Verify_ProviderTimeoutKeepsPaymentAndTransactionPendingForSafeRetry()
     {
         var payment = Payment.Create(10, 20, 30, 500_000);
