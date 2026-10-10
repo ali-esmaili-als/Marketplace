@@ -44,8 +44,16 @@ public sealed class OrderLifecycleService
         var p=await _payments.GetByOrderAsync(orderId,token)??throw new DomainException("Payment not found.");
         var b=await _life.GetSellerBalanceAsync(o.SellerId,token)??throw new DomainException("Seller balance not found.");
 
-        if(p.Status==Marketplace.Domain.Payments.PaymentStatus.Succeeded && o.Status!=OrderStatus.PendingPayment)
+        if (p.Status == Marketplace.Domain.Payments.PaymentStatus.Succeeded)
+        {
+            // Idempotent callbacks are safe only after the order lifecycle has advanced
+            // consistently. A successful payment attached to a pending/cancelled order
+            // is a financial exception and must be reconciled, not silently ignored.
+            if (o.Status is OrderStatus.PendingPayment or OrderStatus.Cancelled)
+                throw new DomainException("Successful payment is inconsistent with the order status and requires reconciliation.");
+
             return 0;
+        }
 
         p.Succeed(reference);
         var paymentTransaction=await _payments.GetLatestTransactionAsync(p.Id,token);
