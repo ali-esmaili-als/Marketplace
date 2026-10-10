@@ -1653,6 +1653,123 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
     });
 }).RequirePermission("Admin.Settlement.Process");
 
+app.MapGet("/api/admin/financial-integrity/work-queue", async (
+    string? kind,
+    int? minAgeHours,
+    int? take,
+    Marketplace.Infrastructure.Persistence.MarketplaceDbContext db,
+    CancellationToken ct) =>
+{
+    // Read-only triage queue: it classifies current unresolved financial states and never
+    // changes balances, statuses, reservations, or provider state.
+    var allowedKinds = new[] { "PaymentReview", "PaymentOrderMismatch", "RefundProcessing", "SettlementOnHold" };
+    if (!string.IsNullOrWhiteSpace(kind) && !allowedKinds.Contains(kind, StringComparer.Ordinal))
+        throw new Marketplace.Domain.Common.DomainException("Unsupported financial work-queue kind.");
+
+    var ageFilter = Math.Clamp(minAgeHours ?? 0, 0, 24 * 365);
+    var limit = Math.Clamp(take ?? 100, 1, 500);
+    var now = DateTime.UtcNow;
+    var candidates = new List<FinancialWorkQueueItem>();
+
+    var paymentReviews = await db.Payments.AsNoTracking()
+        .Where(x => x.Status == Marketplace.Domain.Payments.PaymentStatus.ReconciliationRequired)
+        .OrderBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).Take(200)
+        .Select(x => new { x.Id, x.OrderId, x.CustomerId, x.AmountIRR, x.CreatedAtUtc, x.Provider, x.ReferenceNumber, Status = x.Status.ToString() })
+        .ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentReview")
+    {
+        candidates.AddRange(paymentReviews.Select(x => BuildFinancialWorkQueueItem(
+            "PaymentReview", x.Id, x.OrderId, null, x.AmountIRR, x.Status, x.CreatedAtUtc,
+            $"Payment provider={x.Provider}; reference={x.ReferenceNumber ?? "(missing)"}", now)));
+    }
+
+    var successfulMismatches = await (
+        from payment in db.Payments.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on payment.OrderId equals order.Id
+        where payment.Status == Marketplace.Domain.Payments.PaymentStatus.Succeeded
+            && (order.Status == Marketplace.Domain.Orders.OrderStatus.PendingPayment
+                || order.Status == Marketplace.Domain.Orders.OrderStatus.Cancelled
+                || order.Status == Marketplace.Domain.Orders.OrderStatus.Refunded)
+        orderby payment.CreatedAtUtc, payment.Id
+        select new { payment.Id, payment.OrderId, order.SellerId, payment.AmountIRR, payment.CreatedAtUtc,
+            PaymentStatus = payment.Status, OrderStatus = order.Status, payment.ReferenceNumber })
+        .Take(200).ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentOrderMismatch")
+    {
+        candidates.AddRange(successfulMismatches.Select(x => BuildFinancialWorkQueueItem(
+            "PaymentOrderMismatch", x.Id, x.OrderId, x.SellerId, x.AmountIRR,
+            $"Payment={x.PaymentStatus};Order={x.OrderStatus}", x.CreatedAtUtc,
+            $"Payment reference={x.ReferenceNumber ?? "(missing)"}", now)));
+    }
+
+    var refundedMismatches = await (
+        from payment in db.Payments.AsNoTracking()
+        join order in db.Orders.AsNoTracking() on payment.OrderId equals order.Id
+        where payment.Status == Marketplace.Domain.Payments.PaymentStatus.Refunded
+            && order.Status != Marketplace.Domain.Orders.OrderStatus.Refunded
+        orderby payment.CreatedAtUtc, payment.Id
+        select new { payment.Id, payment.OrderId, order.SellerId, payment.AmountIRR, payment.CreatedAtUtc,
+            PaymentStatus = payment.Status, OrderStatus = order.Status, payment.ReferenceNumber })
+        .Take(200).ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "PaymentOrderMismatch")
+    {
+        candidates.AddRange(refundedMismatches.Select(x => BuildFinancialWorkQueueItem(
+            "PaymentOrderMismatch", x.Id, x.OrderId, x.SellerId, x.AmountIRR,
+            $"Payment={x.PaymentStatus};Order={x.OrderStatus}", x.CreatedAtUtc,
+            $"Payment reference={x.ReferenceNumber ?? "(missing)"}", now)));
+    }
+
+    var processingRefunds = await db.Refunds.AsNoTracking()
+        .Where(x => x.Status == Marketplace.Domain.Refunds.RefundStatus.Processing)
+        .OrderBy(x => x.RequestedAtUtc).ThenBy(x => x.Id).Take(200)
+        .Select(x => new { x.Id, x.OrderId, x.AmountIRR, x.RequestedAtUtc, x.ProviderReference, x.FailureReason, x.PaymentId })
+        .ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "RefundProcessing")
+    {
+        var orderIds = processingRefunds.Select(x => x.OrderId).Distinct().ToArray();
+        var sellerByOrder = await db.Orders.AsNoTracking().Where(x => orderIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.SellerId }).ToDictionaryAsync(x => x.Id, x => x.SellerId, ct);
+        candidates.AddRange(processingRefunds.Select(x => BuildFinancialWorkQueueItem(
+            "RefundProcessing", x.Id, x.OrderId,
+            sellerByOrder.TryGetValue(x.OrderId, out var sellerId) ? sellerId : null,
+            x.AmountIRR, "Processing", x.RequestedAtUtc,
+            $"PaymentId={x.PaymentId}; providerReference={x.ProviderReference ?? "(missing)"}; reason={x.FailureReason ?? "(none)"}", now)));
+    }
+
+    var heldSettlements = await db.Settlements.AsNoTracking()
+        .Where(x => x.Status == Marketplace.Domain.Finance.SettlementStatus.OnHold)
+        .OrderBy(x => x.RequestedAtUtc).ThenBy(x => x.Id).Take(200)
+        .Select(x => new { x.Id, x.SellerId, x.AmountIRR, x.RequestedAtUtc, x.Reference, x.FailureReason })
+        .ToListAsync(ct);
+    if (string.IsNullOrWhiteSpace(kind) || kind == "SettlementOnHold")
+    {
+        candidates.AddRange(heldSettlements.Select(x => BuildFinancialWorkQueueItem(
+            "SettlementOnHold", x.Id, null, x.SellerId, x.AmountIRR, "OnHold", x.RequestedAtUtc,
+            $"Bank reference={x.Reference ?? "(missing)"}; reason={x.FailureReason ?? "(none)"}", now)));
+    }
+
+    var filtered = candidates
+        .Where(x => x.AgeHours >= ageFilter)
+        .OrderByDescending(x => x.Priority == "Critical")
+        .ThenByDescending(x => x.Priority == "High")
+        .ThenByDescending(x => x.AgeHours)
+        .ThenBy(x => x.Kind, StringComparer.Ordinal)
+        .ThenBy(x => x.EntityId)
+        .ToList();
+
+    return Results.Ok(new
+    {
+        generatedAtUtc = now,
+        readOnly = true,
+        totalCandidates = filtered.Count,
+        returnedCount = Math.Min(limit, filtered.Count),
+        itemsTruncated = filtered.Count > limit || candidates.Count >= 200,
+        countsByKind = filtered.GroupBy(x => x.Kind).ToDictionary(g => g.Key, g => g.Count()),
+        countsByPriority = filtered.GroupBy(x => x.Priority).ToDictionary(g => g.Key, g => g.Count()),
+        items = filtered.Take(limit).ToList()
+    });
+}).RequirePermission("Admin.Settlement.Process");
+
 app.MapGet("/api/admin/financial-integrity/summary", async (Marketplace.Infrastructure.Persistence.MarketplaceDbContext db, CancellationToken ct) =>
 {
     var paymentReview = await db.Payments.AsNoTracking()
@@ -2736,6 +2853,20 @@ public sealed record RefundReconciliationRequest(bool TransferCompleted,string? 
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
 public sealed record FinancialIntegrityCaseStatusRequest(string Kind,string EntityKey,string Status,string Note);
+public sealed record FinancialWorkQueueItem(
+    string Kind, long EntityId, long? OrderId, long? SellerId, long? AmountIRR,
+    string Status, DateTime CreatedAtUtc, double AgeHours, string Priority, string Summary);
+
+static FinancialWorkQueueItem BuildFinancialWorkQueueItem(
+    string kind, long entityId, long? orderId, long? sellerId, long? amountIRR,
+    string status, DateTime createdAtUtc, string summary, DateTime nowUtc)
+{
+    var ageHours = Math.Max(0, (nowUtc - createdAtUtc).TotalHours);
+    var priority = ageHours >= 24 ? "Critical" : ageHours >= 4 ? "High" : "Normal";
+    return new FinancialWorkQueueItem(kind, entityId, orderId, sellerId, amountIRR,
+        status, createdAtUtc, Math.Round(ageHours, 2), priority, summary);
+}
+
 public sealed record FinancialLedgerFinding(long SellerId,string FindingType,string Bucket,long? CurrentBalanceIRR,long? LedgerBalanceAfterIRR,long? DifferenceIRR,long? LatestLedgerTransactionId,DateTime? LatestLedgerAtUtc,long? ActiveSettlementTotalIRR);
 public sealed record FinancialOrderFlowFinding(string FindingType,long OrderId,long EntityId,long? RefundId,long? SellerId,long? ExpectedSellerId,long AmountIRR,long? ExpectedAmountIRR,long? CommissionAmountIRR,long? SellerAmountIRR,DateTime CreatedAtUtc);
 public sealed record PaymentProviderConfigureRequest(bool IsEnabled,bool IsVisible,int SortOrder,string ConfigurationJson);
