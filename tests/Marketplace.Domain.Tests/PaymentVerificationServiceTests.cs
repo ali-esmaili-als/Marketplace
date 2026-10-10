@@ -353,7 +353,7 @@ public sealed class PaymentVerificationServiceTests
         Assert.False(result.Paid);
         Assert.False(result.OutcomeUnknown);
         Assert.Contains("reconciliation", result.Error, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(OrderStatus.Cancelled, order.Status);
+        Assert.Equal(Marketplace.Domain.Orders.OrderStatus.Cancelled, order.Status);
         Assert.Equal(PaymentStatus.ReconciliationRequired, payment.Status);
         Assert.Equal("BANK-974", payment.ReferenceNumber);
         Assert.Equal(0, balance.PendingIRR);
