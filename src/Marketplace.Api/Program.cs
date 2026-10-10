@@ -1203,6 +1203,22 @@ app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/assignment"
         throw new Marketplace.Domain.Common.DomainException("Assignee user ID must be positive or null to unassign.");
     if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length > 800)
         throw new Marketplace.Domain.Common.DomainException("An assignment note of at most 800 characters is required.");
+    var nextAction = request.NextAction?.Trim();
+    DateTimeOffset? dueAtUtc = null;
+    if (request.AssigneeUserId.HasValue)
+    {
+        if (string.IsNullOrWhiteSpace(nextAction) || nextAction.Length is < 5 or > 300)
+            throw new Marketplace.Domain.Common.DomainException("A next action between 5 and 300 characters is required when assigning a case.");
+        if (!request.DueAtUtc.HasValue)
+            throw new Marketplace.Domain.Common.DomainException("A due date is required when assigning a case.");
+        dueAtUtc = request.DueAtUtc.Value.ToUniversalTime();
+        if (dueAtUtc.Value <= DateTimeOffset.UtcNow)
+            throw new Marketplace.Domain.Common.DomainException("The due date must be in the future.");
+    }
+    else if (!string.IsNullOrWhiteSpace(nextAction) || request.DueAtUtc.HasValue)
+    {
+        throw new Marketplace.Domain.Common.DomainException("Next action and due date must be empty when unassigning a case.");
+    }
 
     var exists = kind switch
     {
@@ -1222,6 +1238,8 @@ app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/assignment"
         entityId,
         assigneeUserId = request.AssigneeUserId,
         note = request.Note.Trim(),
+        nextAction,
+        dueAtUtc,
         workflowOnly = true
     }, new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
     var correlationId = http.TraceIdentifier;
@@ -1238,6 +1256,8 @@ app.MapPost("/api/admin/financial-integrity/cases/{kind}/{entityKey}/assignment"
         entityKey = entityId.ToString(System.Globalization.CultureInfo.InvariantCulture),
         assigneeUserId = request.AssigneeUserId,
         note = request.Note.Trim(),
+        nextAction,
+        dueAtUtc,
         updatedAtUtc = audit.CreatedAtUtc,
         workflowOnly = true
     });
@@ -1830,7 +1850,7 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
         .Select(x => new { x.EntityType, x.EntityKey, x.Action, x.DetailsJson, x.ActorUserId, x.CreatedAtUtc, x.Id })
         .ToListAsync(ct);
     var workflowByCase = new Dictionary<(string Kind, string EntityKey), (string Status, string Note, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
-    var assignmentByCase = new Dictionary<(string Kind, string EntityKey), (long? AssigneeUserId, string Note, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
+    var assignmentByCase = new Dictionary<(string Kind, string EntityKey), (long? AssigneeUserId, string Note, string NextAction, DateTimeOffset? DueAtUtc, long ActorUserId, DateTime UpdatedAtUtc, long AuditId)>();
     foreach (var activity in workflowEvents)
     {
         var key = (activity.EntityType, activity.EntityKey);
@@ -1846,7 +1866,14 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
                         && assigneeElement.ValueKind == System.Text.Json.JsonValueKind.Number
                         && assigneeElement.TryGetInt64(out var parsedAssignee)) assigneeId = parsedAssignee;
                     var note = document.RootElement.TryGetProperty("note", out var assignmentNote) ? assignmentNote.GetString() ?? "" : "";
-                    assignmentByCase[key] = (assigneeId, note, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
+                    var nextAction = document.RootElement.TryGetProperty("nextAction", out var nextActionElement) ? nextActionElement.GetString() ?? "" : "";
+                    DateTimeOffset? dueAtUtc = null;
+                    if (document.RootElement.TryGetProperty("dueAtUtc", out var dueElement)
+                        && dueElement.ValueKind == System.Text.Json.JsonValueKind.String
+                        && DateTimeOffset.TryParse(dueElement.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsedDue))
+                        dueAtUtc = parsedDue;
+                    assignmentByCase[key] = (assigneeId, note, nextAction, dueAtUtc, activity.ActorUserId, activity.CreatedAtUtc, activity.Id);
                 }
                 continue;
             }
@@ -1887,6 +1914,12 @@ app.MapGet("/api/admin/financial-integrity/work-queue", async (
             workflowAuditId = hasWorkflow ? (long?)workflow.AuditId : null,
             assignedUserId = hasAssignment ? assignment.AssigneeUserId : null,
             assignmentNote = hasAssignment ? assignment.Note : "",
+            assignmentNextAction = hasAssignment ? assignment.NextAction : "",
+            assignmentDueAtUtc = hasAssignment ? assignment.DueAtUtc : null,
+            assignmentSlaStatus = !hasAssignment || !assignment.AssigneeUserId.HasValue ? "Unassigned"
+                : !assignment.DueAtUtc.HasValue ? "NoDeadline"
+                : assignment.DueAtUtc.Value <= DateTimeOffset.UtcNow ? "Overdue"
+                : assignment.DueAtUtc.Value <= DateTimeOffset.UtcNow.AddHours(4) ? "DueSoon" : "Scheduled",
             assignmentUpdatedAtUtc = hasAssignment ? (DateTime?)assignment.UpdatedAtUtc : null,
             assignmentActorUserId = hasAssignment ? (long?)assignment.ActorUserId : null,
             assignmentAuditId = hasAssignment ? (long?)assignment.AuditId : null
@@ -2990,7 +3023,7 @@ public sealed record RefundReconciliationRequest(bool TransferCompleted,string? 
 public sealed record PaymentReconciliationRequest(string Action,string? BankReference,string Note);
 public sealed record FinancialIntegrityReviewRequest(string Kind,string EntityKey,string Note);
 public sealed record FinancialIntegrityCaseStatusRequest(string Kind,string EntityKey,string Status,string Note);
-public sealed record FinancialIntegrityCaseAssignmentRequest(long? AssigneeUserId, string Note);
+public sealed record FinancialIntegrityCaseAssignmentRequest(long? AssigneeUserId, string Note, string? NextAction, DateTimeOffset? DueAtUtc);
 public sealed record FinancialWorkQueueItem(
     string Kind, long EntityId, long? OrderId, long? SellerId, long? AmountIRR,
     string Status, DateTime CreatedAtUtc, double AgeHours, string Priority, string Summary);
