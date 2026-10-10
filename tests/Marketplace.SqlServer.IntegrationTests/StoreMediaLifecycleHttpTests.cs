@@ -126,7 +126,9 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
     {
         using var first = CreateUpload("first.png", "image/png", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2 });
         using var firstResponse = await _client!.PostAsync($"/api/sellers/me/stores/{StoreId}/media?kind=logo", first);
-        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+        var uploadResponseBody = await firstResponse.Content.ReadAsStringAsync();
+        Assert.True(firstResponse.StatusCode == HttpStatusCode.Created,
+            $"Expected upload to return Created but received {(int)firstResponse.StatusCode} {firstResponse.StatusCode}. Response: {uploadResponseBody}");
         var firstBody = await firstResponse.Content.ReadFromJsonAsync<MediaResponse>();
         Assert.NotNull(firstBody);
         Assert.Equal(0, firstBody.SortOrder);
