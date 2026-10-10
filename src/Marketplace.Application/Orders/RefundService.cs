@@ -92,8 +92,38 @@ public sealed class RefundService
         }, ct);
 
         // Never keep a database transaction open while calling an external payment provider.
-        var gateway = await _gatewayFactory.GetForExistingPaymentAsync(providerCode, ct);
-        // An exception/timeout is intentionally not converted to Failed: the bank outcome may be unknown.
+        IPaymentGateway gateway;
+        try
+        {
+            // Factory resolution/configuration completes before any refund request is sent to the bank.
+            gateway = await _gatewayFactory.GetForExistingPaymentAsync(providerCode, ct);
+        }
+        catch
+        {
+            // No gateway instance was returned, therefore no bank refund call was issued. Release the
+            // active-refund guard by recording a definitive local failure; never do this around RefundAsync.
+            try
+            {
+                await _uow.ExecuteInSerializableTransactionAsync(async token =>
+                {
+                    var refund = await _life.GetRefundAsync(refundId, token);
+                    if (refund is not null && refund.Status == RefundStatus.Processing)
+                    {
+                        refund.Fail("Payment gateway could not be initialized; no refund request was sent.");
+                        await _uow.SaveChangesAsync(token);
+                    }
+                    return 0;
+                }, CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original initialization exception. If persistence is unavailable, the
+                // reserved Processing row remains visible for audited manual reconciliation.
+            }
+            throw;
+        }
+
+        // An exception/timeout from RefundAsync is intentionally not converted to Failed: the bank outcome may be unknown.
         var gatewayOk = await gateway.RefundAsync(paymentReference, amount, ct);
 
         await _uow.ExecuteInSerializableTransactionAsync(async token =>
