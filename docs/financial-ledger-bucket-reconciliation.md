@@ -1,0 +1,33 @@
+# Financial Ledger and Seller Balance Reconciliation
+
+## Purpose and safety boundary
+
+Use `database/FinancialLedgerBucketReconciliation.sql` alongside `database/FinancialConsistencyChecks.sql` when investigating seller balance buckets and settlement lifecycle inconsistencies.
+
+The new script is diagnostic-only. It does not modify data. A returned row is a review candidate, not authority to post a compensating transaction, change a balance, release a reservation, or alter a settlement status. Do not automatically repair the ledger, seller balances, payments, refunds, inventory, or settlements.
+
+## Recommended procedure
+
+1. Record the incident/change identifier, database name, UTC time, settlement IDs, and operator.
+2. Run both consistency scripts with a read-only SQL account where possible. Securely retain the complete result sets.
+3. For each affected seller, compare the five current buckets (Available, Pending, Blocked, ReservedForSettlement, Liability) with the ledger history for the same bucket.
+4. Investigate chain discontinuities and current-vs-latest-snapshot differences using the full chronological transaction history. Timestamp ordering uses `CreatedAtUtc` and then `Id`; historical imports, old ledger semantics, or legacy opening balances may explain a finding and must be verified rather than assumed corrupt.
+5. For settlements, verify the original `SETTLEMENT_REQUESTED` entry in the ReservedForSettlement bucket and exactly one final outcome matching the persisted status. A timeout or exception is ambiguous: retain reserved funds and obtain authoritative bank/provider evidence before reconciliation.
+6. Check the settlement state, `SettlementReconciliationAudits`, `OutboxMessages`, bank reference, and operator evidence together. A ledger row by itself does not prove the bank transferred funds.
+7. Only use the authorized application reconciliation flow after the bank/provider outcome is established. Never update `SellerBalances`, `BalanceTransactions`, or `Settlements` directly to silence a finding.
+8. Re-run both scripts after the application transaction commits. Confirm that the intended finding is resolved and investigate any new findings.
+
+## Query interpretation
+
+- **FLR-01 — Bucket chain discontinuity:** a later ledger row's `BalanceBeforeIRR` differs from the prior row's `BalanceAfterIRR` for that seller/bucket. Confirm transaction ordering, legacy rows, and whether every balance mutation is represented.
+- **FLR-02 — Current bucket differs from latest snapshot:** current aggregate balance differs from the latest recorded `BalanceAfterIRR` for that bucket. This can indicate an unlogged mutation or legacy/imported data; verify history before deciding.
+- **FLR-03 — Non-zero bucket without ledger history:** the bucket may have an opening balance or a missing ledger history. This is a candidate, not a finding of fraud or proof of a broken transaction.
+- **FLR-04 — Reserved balance differs from active settlements:** compare the aggregate with individual settlement reservation and outcome entries before any correction.
+- **FLR-05 — Settlement ledger lifecycle:** each settlement should have one reservation entry; Completed should have one successful payout entry, Failed should have one definitive failure-release entry, and non-terminal settlements must not have final outcomes. Review the exact settlement ID and references to distinguish duplicates from legitimate historical semantics.
+- **FLR-06 — Invalid bucket/snapshot values:** inspect schema constraints, imported rows, and the originating application path.
+
+## Transaction boundary expectations
+
+Settlement reservation, settlement state, balance mutation, ledger posting, and outbox event are expected to persist in one database transaction. The external bank transfer is not part of that transaction. The application first claims a settlement as Processing, calls the gateway, and then finalizes it in a separate serializable transaction. If the gateway result is ambiguous, funds remain reserved and the settlement is held for manual reconciliation. If the bank returns a definitive result but database finalization fails, the application attempts to place the settlement OnHold; if persistence is unavailable, the remaining Processing state must be investigated.
+
+These database checks cannot prove that a remote provider completed a transfer. They also cannot establish atomicity merely by looking at a successful final state; use SQL Server integration tests for transactional behavior and provider evidence for the external outcome.
