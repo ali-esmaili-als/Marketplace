@@ -65,7 +65,7 @@ public sealed class RefundFinancialPreflightTests
             service.ReconcileAsync(refund.Id, adminUserId: 1609, transferCompleted: true,
                 bankReference: "BANK-REFUND-1606", note: "Provider confirms transfer"));
 
-        Assert.Contains("does not match", error.Message, StringComparison.Ordinal);
+        Assert.Contains("does not match", error.Message);
         Assert.Equal(RefundStatus.Processing, refund.Status);
         Assert.Equal(OrderStatus.RefundRequested, order.Status);
         Assert.Equal(PaymentStatus.Succeeded, payment.Status);
