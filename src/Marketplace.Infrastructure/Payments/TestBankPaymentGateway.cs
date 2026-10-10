@@ -35,6 +35,10 @@ public sealed class TestBankPaymentGateway(string? returnBaseUrl) : IPaymentGate
             : new PaymentVerification(false, null, "Invalid test-bank authority."));
     }
 
-    public Task<bool> RefundAsync(string? paymentReference, long amountIRR, CancellationToken cancellationToken = default)
-        => Task.FromResult(!string.IsNullOrWhiteSpace(paymentReference) && amountIRR > 0);
+    public Task<PaymentRefundResult> RefundAsync(string? paymentReference, long amountIRR, CancellationToken cancellationToken = default)
+    {
+        var successful = !string.IsNullOrWhiteSpace(paymentReference) && amountIRR > 0;
+        var reference = successful ? $"TEST-REFUND-{Guid.NewGuid():N}" : null;
+        return Task.FromResult(new PaymentRefundResult(successful, reference, successful ? null : "Invalid test-bank refund details."));
+    }
 }
