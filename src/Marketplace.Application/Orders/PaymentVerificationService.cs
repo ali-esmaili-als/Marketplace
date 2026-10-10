@@ -31,8 +31,9 @@ public sealed class PaymentVerificationService
 
         if (payment.Status == PaymentStatus.Succeeded)
             return new PaymentVerificationResult(true, payment.ReferenceNumber, null);
-        if (payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired)
-            return new PaymentVerificationResult(false, null, "Payment is no longer payable.");
+        if (payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired
+            or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+            return new PaymentVerificationResult(false, payment.ReferenceNumber, "Payment is no longer payable.");
 
         if (!success)
         {
@@ -79,8 +80,9 @@ public sealed class PaymentVerificationService
         if(payment.Status==PaymentStatus.Succeeded)
             return new PaymentVerificationResult(true,payment.ReferenceNumber,null);
 
-        if(payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired)
-            return new PaymentVerificationResult(false,null,"Payment is no longer payable.");
+        if(payment.Status is PaymentStatus.Failed or PaymentStatus.Cancelled or PaymentStatus.ReconciliationRequired
+            or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded)
+            return new PaymentVerificationResult(false,payment.ReferenceNumber,"Payment is no longer payable.");
 
         var provider=Enum.TryParse<PaymentProviderCode>(payment.Provider,true,out var parsed) ? parsed : throw new DomainException("Invalid payment provider.");
         var gateway=await _gatewayFactory.GetAsync(provider,ct);
