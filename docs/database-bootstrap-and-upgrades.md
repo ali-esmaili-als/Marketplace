@@ -43,3 +43,11 @@ The bootstrap and the historical migrations intentionally remain separate entry 
 ## Outbox delivery readiness
 
 The dispatcher is disabled by default. Actual delivery requires the intended deployment configuration, including `Outbox__Enabled=true`, an HTTPS `Outbox__Webhook__Url`, and a strong `Outbox__Webhook__Secret`. Validate HMAC signature verification and receiver-side idempotency before enabling delivery in production. A persisted Outbox row does not mean the external receiver accepted the event.
+
+
+## Storefront layout and palette upgrade
+
+For an existing database that already has the previous store-theme migration applied, run
+`database/032_StoreLayoutsAndPalettes.sql` after `database/031_StoreThemes.sql`. This adds the
+persisted palette and expands the allowed layout values. For a new/empty database, use only
+`database/Marketplace_Complete.sql`; do not run numbered upgrade scripts after the canonical schema.
