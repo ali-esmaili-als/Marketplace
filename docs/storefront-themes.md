@@ -1,6 +1,42 @@
-# Persistent storefront themes
+# Storefront layouts and color palettes
 
-- Stores persist one of three validated theme codes: `classic`, `minimal`, or `vibrant`.
-- Sellers configure the selected store theme in the seller catalog page. The authenticated API verifies store ownership and permission.
-- Public store, product-detail, cart-summary, and checkout responses include the theme context. Store home, category, product detail, cart, and checkout pages apply it from API data and path-based store routing; theme state is not carried in query strings.
-- Existing stores receive `classic` as the default. Apply `database/031_StoreThemes.sql` to existing databases, or use the updated `database/Marketplace_Complete.sql` for a new database.
+A store persists its presentation settings on the store record. Public storefront, category, product-detail, cart-summary, and checkout APIs return the saved theme and palette; the client must not use query-string parameters to choose presentation.
+
+## Layouts
+
+The seller can select one of 20 distinct layout treatments:
+
+- `classic`
+- `minimal`
+- `vibrant`
+- `editorial`
+- `boutique`
+- `magazine`
+- `grid`
+- `luxe`
+- `organic`
+- `tech`
+- `fashion`
+- `gallery`
+- `market`
+- `mono`
+- `pastel`
+- `bold`
+- `nordic`
+- `artisan`
+- `urban`
+- `elegant`
+
+## Palettes
+
+Every layout can be combined with one of five palettes:
+
+- `ocean` — blue/teal
+- `forest` — green
+- `sunset` — amber/coral
+- `rose` — rose/magenta
+- `monochrome` — neutral grayscale
+
+The server validates both codes, the database has matching check constraints, and `database/032_StoreLayoutsAndPalettes.sql` upgrades existing databases. The canonical `database/Marketplace_Complete.sql` includes both columns and constraints for new databases.
+
+Default values remain backward-compatible: `classic` layout and `ocean` palette.
