@@ -87,7 +87,8 @@ public sealed class RefundService
         // Never keep a database transaction open while calling an external payment provider.
         var paymentForGateway = await _payments.GetAsync(paymentId, ct)
             ?? throw new DomainException("Payment not found.");
-        if (!Enum.TryParse<PaymentProviderCode>(paymentForGateway.Provider, true, out var provider))
+        if (!Enum.TryParse<PaymentProviderCode>(paymentForGateway.Provider, true, out var provider)
+            || !Enum.IsDefined(typeof(PaymentProviderCode), provider))
             throw new DomainException("Invalid payment provider.");
 
         var gateway = await _gatewayFactory.GetForExistingPaymentAsync(provider, ct);
