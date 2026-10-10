@@ -36,7 +36,7 @@ public static class StoreMediaEndpoints
             if (store is null) return Results.NotFound();
             if (store.SellerId != seller.Id) return Results.Forbid();
             return await SaveAsync(storeId, file, kind, productId, altText, sortOrder, db, ids, env, ct);
-        }).RequirePermission("Seller.Catalog.Manage");
+        }).RequirePermission("Seller.Catalog.Manage").DisableAntiforgery();
 
         app.MapPost("/api/admin/stores/{storeId:long}/media", async (
             long storeId, IFormFile file, string kind, long? productId, string? altText,
@@ -45,7 +45,7 @@ public static class StoreMediaEndpoints
             var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(x => x.Id == storeId, ct);
             if (store is null) return Results.NotFound();
             return await SaveAsync(storeId, file, kind, productId, altText, sortOrder, db, ids, env, ct);
-        }).RequirePermission("Admin.Identity.Manage");
+        }).RequirePermission("Admin.Identity.Manage").DisableAntiforgery();
 
         app.MapDelete("/api/sellers/me/stores/{storeId:long}/media/{mediaId:long}", async (
             ClaimsPrincipal user, long storeId, long mediaId, MarketplaceDbContext db,
@@ -102,7 +102,11 @@ public static class StoreMediaEndpoints
                 var header = new byte[12];
                 var read = await input.ReadAsync(header.AsMemory(0, header.Length), ct);
                 if (!HasValidSignature(header.AsSpan(0, read), file.ContentType))
+                {
+                    output.Close();
+                    File.Delete(fullPath);
                     return Results.BadRequest(new { error = "File content does not match its image type." });
+                }
                 await output.WriteAsync(header.AsMemory(0, read), ct);
                 await input.CopyToAsync(output, ct);
             }
