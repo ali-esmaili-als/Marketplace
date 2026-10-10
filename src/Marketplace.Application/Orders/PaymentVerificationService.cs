@@ -182,5 +182,32 @@ public sealed class PaymentVerificationService
                 return 0;
             },ct);
         }
+        catch(Exception)
+        {
+            // The provider already confirmed success, but finalizing the order/ledger failed
+            // for a non-domain reason (for example a persistence exception). Best-effort
+            // persist a reconciliation marker so a retry cannot mistake this payment for
+            // an ordinary unpaid checkout. If the database is unavailable, preserve and
+            // rethrow the original failure; operations must then reconcile from provider data.
+            try
+            {
+                await _uow.ExecuteInSerializableTransactionAsync(async token =>
+                {
+                    var current=await _payments.GetAsync(paymentId,token)??throw new DomainException("Payment not found.");
+                    if(current.Status is PaymentStatus.Succeeded or PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded
+                        or PaymentStatus.ReconciliationRequired)
+                        return 0;
+
+                    current.RequireReconciliation(reference);
+                    await _uow.SaveChangesAsync(token);
+                    return 0;
+                }, CancellationToken.None);
+            }
+            catch
+            {
+                // Do not mask the original finalization failure with a failed recovery write.
+                throw;
+            }
+        }
     }
 }
