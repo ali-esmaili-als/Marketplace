@@ -145,6 +145,16 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
         Assert.NotNull(secondBody);
         Assert.Equal(1, secondBody.SortOrder);
 
+        using var batchResponse = await _client.GetAsync("/api/public/stores/media?storeIds=73101,73102");
+        Assert.Equal(HttpStatusCode.OK, batchResponse.StatusCode);
+        var batchGallery = await batchResponse.Content.ReadFromJsonAsync<List<MediaResponse>>();
+        Assert.NotNull(batchGallery);
+        Assert.Equal(new[] { firstBody.Id, secondBody.Id }, batchGallery.Select(x => x.Id).ToArray());
+        Assert.All(batchGallery, item => Assert.Equal(StoreId, item.StoreId));
+
+        using var invalidBatchResponse = await _client.GetAsync("/api/public/stores/media?storeIds=73101,invalid");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidBatchResponse.StatusCode);
+
         using var galleryResponse = await _client.GetAsync($"/api/public/stores/{StoreId}/media");
         Assert.Equal(HttpStatusCode.OK, galleryResponse.StatusCode);
         var gallery = await galleryResponse.Content.ReadFromJsonAsync<List<MediaResponse>>();
