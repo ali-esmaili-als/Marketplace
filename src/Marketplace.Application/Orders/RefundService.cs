@@ -181,7 +181,22 @@ public sealed class RefundService
             {
                 refund.Fail(note);
                 _life.AddRefundReconciliationAudit(
-                    RefundReconciliationAudit.Create(refund.Id, adminUserId, false, note, null));
+                    RefundReconciliationAudit.Create(refund.Id, adminUserId, false, note, bankReference));
+                _life.AddOutboxMessage(OutboxMessage.Create(
+                    await _ids.NextAsync(token),
+                    "Refund.Reconciled",
+                    JsonSerializer.Serialize(new
+                    {
+                        refund.Id,
+                        refund.OrderId,
+                        refund.PaymentId,
+                        refund.AmountIRR,
+                        AdminUserId = adminUserId,
+                        TransferCompleted = false,
+                        BankReference = bankReference,
+                        Note = note.Trim(),
+                        Status = refund.Status.ToString()
+                    })));
                 await _uow.SaveChangesAsync(token);
                 return 0;
             }
@@ -202,6 +217,21 @@ public sealed class RefundService
             await ApplySuccessfulRefundAsync(refund, order, payment, bankReference, token);
             _life.AddRefundReconciliationAudit(
                 RefundReconciliationAudit.Create(refund.Id, adminUserId, true, note, bankReference));
+            _life.AddOutboxMessage(OutboxMessage.Create(
+                await _ids.NextAsync(token),
+                "Refund.Reconciled",
+                JsonSerializer.Serialize(new
+                {
+                    refund.Id,
+                    refund.OrderId,
+                    refund.PaymentId,
+                    refund.AmountIRR,
+                    AdminUserId = adminUserId,
+                    TransferCompleted = true,
+                    BankReference = bankReference.Trim(),
+                    Note = note.Trim(),
+                    Status = refund.Status.ToString()
+                })));
             await _uow.SaveChangesAsync(token);
             return 0;
         }, ct);
