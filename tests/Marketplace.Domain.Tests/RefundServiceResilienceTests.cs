@@ -20,7 +20,7 @@ namespace Marketplace.Domain.Tests;
 public sealed class RefundServiceResilienceTests
 {
     [Fact]
-    public async Task Undefined_numeric_payment_provider_keeps_refund_reserved_for_reconciliation()
+    public async Task Undefined_numeric_payment_provider_is_rejected_before_refund_reservation()
     {
         var now = DateTime.UtcNow;
         var order = Order.Create(820, 830, 840, 850, 500_000, 500_000);
@@ -66,12 +66,11 @@ public sealed class RefundServiceResilienceTests
         await Assert.ThrowsAsync<DomainException>(() =>
             service.ProcessAsync(order.Id, RefundReason.DeliveryExpired));
 
-        Assert.NotNull(createdRefund);
-        Assert.Equal(RefundStatus.Processing, createdRefund!.Status);
+        Assert.Null(createdRefund);
         Assert.Equal(OrderStatus.RefundRequested, order.Status);
         Assert.Equal(PaymentStatus.Succeeded, payment.Status);
         gatewayFactory.VerifyNoOtherCalls();
-        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
