@@ -338,3 +338,12 @@ If the payout provider throws or times out, the transfer outcome is ambiguous. T
 4. Use the audited reconciliation flow only after the provider's final status is established.
 
 Failure to persist the recovery state is not evidence that the payout failed. A regression test verifies that the original bank timeout is preserved, funds remain reserved, and the payout is invoked only once.
+
+
+### Settlement ledger identity diagnostics (86–88)
+
+- **Check 86 — active settlement is missing exactly one reservation entry:** compare the settlement-linked SETTLEMENT_REQUESTED transaction with the settlement amount. An active settlement should have one reservation posting, regardless of whether its current status is Requested, Processing, or OnHold.
+- **Check 87 — completed settlement is missing exactly one matching payout entry:** compare the amount and bank reference against the settlement's final reference. A manually reconciled payout uses a RECONCILED_PAID ledger reference that retains the same bank reference; inspect that entry rather than creating another payout posting.
+- **Check 88 — failed settlement is missing exactly one reservation-release entry:** verify the SettlementFailed transaction and balance before/after values. Do not release funds a second time if a valid outcome entry already exists.
+
+Checks 86–88 are read-only. They complement check 74's coarse transaction-count check by verifying the expected settlement identity, amount, and outcome reference. Historical records created before the reservation ledger contract was deployed may need version-aware triage; do not automatically backfill financial postings from these query results.
