@@ -295,11 +295,16 @@ public sealed class OrderLifecycleServiceTests
         var service = new OrderLifecycleService(orders.Object, payments.Object, lifecycle.Object,
             uow.Object, ids.Object, notifications.Object);
 
-        await service.MarkDeliveredAsync(order.Id, "123456", " CUSTOMER-CONFIRM ", now, now.AddDays(2));
+        await service.MarkDeliveredAsync(order.Id, "123456", " CUSTOMER-CONFIRM ", now.AddYears(-1), now.AddYears(10));
 
         Assert.Equal(OrderStatus.Delivered, order.Status);
         Assert.Equal(Marketplace.Domain.Delivery.DeliveryStatus.Delivered, delivery.Status);
-        Assert.Equal(now, code.UsedAtUtc);
+        Assert.NotNull(code.UsedAtUtc);
+        Assert.InRange(code.UsedAtUtc!.Value, now.AddMinutes(-1), DateTime.UtcNow.AddMinutes(1));
+        Assert.Equal(code.UsedAtUtc, delivery.DeliveredAtUtc);
+        Assert.Equal(code.UsedAtUtc!.Value.AddDays(7), order.ComplaintExpiresAtUtc);
+        Assert.NotEqual(now.AddYears(-1), delivery.DeliveredAtUtc);
+        Assert.NotEqual(now.AddYears(10), order.ComplaintExpiresAtUtc);
         Assert.Equal(0, balance.PendingIRR);
         Assert.Equal(order.SellerAmountIRR, balance.BlockedIRR);
         Assert.Equal(8, inventory.AvailableQuantity);
