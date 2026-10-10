@@ -31,11 +31,11 @@ public sealed class SettlementReconciliationSafetyTests
             .ReturnsAsync(balance);
 
         SettlementReconciliationAudit? capturedAudit = null;
-        var capturedTransactions = new List<BalanceTransaction>();
+        BalanceTransaction? capturedTransaction = null;
         lifecycle.Setup(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()))
             .Callback<SettlementReconciliationAudit>(audit => capturedAudit = audit);
         lifecycle.Setup(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()))
-            .Callback<BalanceTransaction>(transaction => capturedTransactions.Add(transaction));
+            .Callback<BalanceTransaction>(transaction => capturedTransaction = transaction);
 
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
@@ -81,7 +81,7 @@ public sealed class SettlementReconciliationSafetyTests
             settlement.Id, 910, false, null, "Attempt duplicate reconciliation"));
         Assert.Equal(0, balance.ReservedForSettlementIRR);
         lifecycle.Verify(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()), Times.Once);
-        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -103,11 +103,11 @@ public sealed class SettlementReconciliationSafetyTests
             .ReturnsAsync(balance);
 
         SettlementReconciliationAudit? capturedAudit = null;
-        BalanceTransaction? capturedTransaction = null;
+        var capturedTransactions = new List<BalanceTransaction>();
         lifecycle.Setup(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()))
             .Callback<SettlementReconciliationAudit>(audit => capturedAudit = audit);
         lifecycle.Setup(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()))
-            .Callback<BalanceTransaction>(transaction => capturedTransaction = transaction);
+            .Callback<BalanceTransaction>(transaction => capturedTransactions.Add(transaction));
 
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
@@ -167,7 +167,7 @@ public sealed class SettlementReconciliationSafetyTests
         Assert.Equal(450_000, balance.AvailableIRR);
         Assert.Equal(0, balance.ReservedForSettlementIRR);
         lifecycle.Verify(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()), Times.Once);
-        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
