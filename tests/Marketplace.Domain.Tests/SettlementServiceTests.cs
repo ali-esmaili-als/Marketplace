@@ -230,7 +230,7 @@ public sealed class SettlementServiceTests
         Assert.Equal(400_000, balance.ReservedForSettlementIRR);
         Assert.Null(settlement.Reference);
         lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Never);
-        lifecycle.Verify(x => x.AddOutboxMessage(It.Is<Marketplace.Domain.Notifications.OutboxMessage>(
+        lifecycle.Verify(x => x.AddOutboxMessage(It.Is<Marketplace.Domain.Finance.OutboxMessage>(
             message => message.EventType == "Settlement.OnHold")), Times.Once);
         payout.Verify(x => x.TransferAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()),
