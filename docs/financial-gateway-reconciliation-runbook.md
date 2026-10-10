@@ -248,3 +248,15 @@ The existing automated timeout tests use mocked gateways and persistence. They e
 - **68 — Multiple successful provider transactions for one payment:** inspect every authority/reference and the provider's transaction history. Confirm whether the bank captured more than once. Do not assume duplicate rows are duplicate charges, and do not issue a compensating refund until the external outcome and local ledger effects are established.
 
 These checks complement payment/order, refund/commission, inventory-reservation, and settlement diagnostics. Run them before and after an authorized reconciliation. They are intentionally read-only and do not infer a corrective balance adjustment.
+
+### Successful gateway response for a cancelled or still-pending order
+
+The payment verification path must not turn a cancelled order back into a payable/fulfillable order merely because a gateway later reports success. If a definitive success cannot be committed together with the expected order transition, the payment is moved to ReconciliationRequired and its provider reference is retained.
+
+1. Verify the provider authority, amount, currency, and final bank status directly from the provider's transaction history.
+2. Trace the order, payment attempts, inventory reservations, seller balance hold, and ledger entries with the order financial trace and read-only consistency checks.
+3. If the bank did not capture funds, document the provider's definitive rejection and resolve the reconciliation case without creating seller funds.
+4. If the bank did capture funds, keep the payment in reconciliation until an authorized, auditable recovery decision is made. Do not recreate the order, reserve inventory again, or credit seller balance based only on the callback.
+5. Record the provider reference and the operator's evidence in the reconciliation audit. Confirm inventory availability and customer communication separately from financial settlement.
+
+A successful gateway response and a successful order finalization are separate facts. The first must never be treated as proof that inventory, seller funds, and order state were all committed.
