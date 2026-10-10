@@ -31,6 +31,15 @@ public sealed class StorefrontMediaTests
     }
 
     [Fact]
+    public void Create_RejectsAltTextLongerThan250Characters()
+    {
+        var altText = new string('a', 251);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StorefrontMedia.Create(1, 2, null, "logo", "/uploads/storefront/2/logo.webp", "image/webp", altText, 0));
+    }
+
+    [Fact]
     public void ChangeSortOrder_UpdatesOrderAndRejectsNegativeValues()
     {
         var media = StorefrontMedia.Create(1, 2, null, "banner", "/uploads/storefront/2/banner.jpg", "image/jpeg", null, 0);
