@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Marketplace.Application.Abstractions;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Complaints;
@@ -124,7 +125,7 @@ public sealed class RefundService
         }
 
         // An exception/timeout from RefundAsync is intentionally not converted to Failed: the bank outcome may be unknown.
-        var gatewayOk = await gateway.RefundAsync(paymentReference, amount, ct);
+        var gatewayResult = await gateway.RefundAsync(paymentReference, amount, ct);
 
         await _uow.ExecuteInSerializableTransactionAsync(async token =>
         {
@@ -138,14 +139,27 @@ public sealed class RefundService
             if (refund.Status == RefundStatus.Completed)
                 return 0;
 
-            if (!gatewayOk)
+            if (!gatewayResult.IsOutcomeDefinitive || (gatewayResult.IsSuccessful && string.IsNullOrWhiteSpace(gatewayResult.Reference)))
             {
-                refund.Fail("Payment gateway refund failed.");
+                // A positive boolean alone is not durable evidence of a completed refund. Keep the
+                // refund in Processing so the active-refund guard prevents a duplicate bank request.
+                _life.AddOutboxMessage(OutboxMessage.Create(
+                    await _ids.NextAsync(token),
+                    "Refund.ReconciliationRequired",
+                    JsonSerializer.Serialize(new { refund.Id, refund.OrderId, refund.PaymentId, refund.AmountIRR,
+                        Reason = !gatewayResult.IsOutcomeDefinitive ? "Provider outcome is ambiguous." : "Provider reported success without a refund reference." })));
                 await _uow.SaveChangesAsync(token);
                 return 0;
             }
 
-            await ApplySuccessfulRefundAsync(refund, order, payment, null, token);
+            if (!gatewayResult.IsSuccessful)
+            {
+                refund.Fail(gatewayResult.Error ?? "Payment gateway refund failed.");
+                await _uow.SaveChangesAsync(token);
+                return 0;
+            }
+
+            await ApplySuccessfulRefundAsync(refund, order, payment, gatewayResult.Reference, token);
             await _uow.SaveChangesAsync(token);
             return 0;
         }, ct);
