@@ -67,14 +67,14 @@ public static class StoreMediaEndpoints
 
         app.MapDelete("/api/admin/stores/{storeId:long}/media/{mediaId:long}", async (
             long storeId, long mediaId, MarketplaceDbContext db, IWebHostEnvironment env,
-            ILogger<StoreMediaEndpoints> logger, CancellationToken ct) =>
+            ILoggerFactory loggerFactory, CancellationToken ct) =>
         {
             var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
             if (media is null) return Results.NotFound();
             media.Deactivate();
             await NormalizeActiveGroupAsync(db, media, ct);
             await db.SaveChangesAsync(ct);
-            DeletePhysicalFile(media.Url, env, logger);
+            DeletePhysicalFile(media.Url, env, loggerFactory.CreateLogger("Marketplace.Api.StoreMediaEndpoints"));
             return Results.NoContent();
         }).RequirePermission("Admin.Identity.Manage");
 
