@@ -159,9 +159,9 @@ public sealed class StoreMediaLifecycleHttpTests : IAsyncLifetime, IDisposable
         Assert.False(File.Exists(Path.Combine(_webRoot, secondBody.Url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar))));
         using var finalResponse = await _client.GetAsync($"/api/public/stores/{StoreId}/media");
         var finalGallery = await finalResponse.Content.ReadFromJsonAsync<List<MediaResponse>>();
-        Assert.Single(finalGallery!);
-        Assert.Equal(firstBody.Id, finalGallery[0].Id);
-        Assert.Equal(0, finalGallery[0].SortOrder);
+        var remainingMedia = Assert.Single(finalGallery!);
+        Assert.Equal(firstBody.Id, remainingMedia.Id);
+        Assert.Equal(0, remainingMedia.SortOrder);
     }
 
     [Fact]
