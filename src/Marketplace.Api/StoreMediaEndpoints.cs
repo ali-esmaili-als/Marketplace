@@ -151,8 +151,17 @@ public static class StoreMediaEndpoints
                 await input.CopyToAsync(output, ct);
             }
 
+            var resolvedSortOrder = sortOrder;
+            if (!resolvedSortOrder.HasValue)
+            {
+                var maxSortOrder = await db.StorefrontMedia.AsNoTracking()
+                    .Where(x => x.StoreId == storeId && x.ProductId == productId && x.Kind == kind && x.IsActive)
+                    .Select(x => (int?)x.SortOrder)
+                    .MaxAsync(ct);
+                resolvedSortOrder = (maxSortOrder ?? -1) + 1;
+            }
             var media = StorefrontMedia.Create(await ids.NextAsync(ct), storeId, productId, kind,
-                $"/uploads/storefront/{storeId}/{fileName}", file.ContentType.ToLowerInvariant(), altText, Math.Max(0, sortOrder ?? 0));
+                $"/uploads/storefront/{storeId}/{fileName}", file.ContentType.ToLowerInvariant(), altText, Math.Max(0, resolvedSortOrder.Value));
             db.StorefrontMedia.Add(media);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/public/stores/{storeId}/media", new
