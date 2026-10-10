@@ -1256,7 +1256,7 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
         throw new Marketplace.Domain.Common.DomainException("Entity key must be a positive numeric ID.");
 
     var history = await db.AdminAuditEvents.AsNoTracking()
-        .Where(x => (x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseRechecked")
+        .Where(x => (x.Action == "FinancialIntegrity.CaseStatusChanged" || x.Action == "FinancialIntegrity.CaseRechecked" || x.Action == "FinancialIntegrity.CaseAssigned")
             && x.EntityType == kind && x.EntityKey == entityId.ToString(System.Globalization.CultureInfo.InvariantCulture))
         .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id)
         .Take(200)
@@ -1287,6 +1287,12 @@ app.MapGet("/api/admin/financial-integrity/cases/{kind}/{entityKey}/history", as
                     && activeElement.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
                     findingActive = activeElement.GetBoolean();
                 status = findingActive == true ? "FindingStillActive" : "RecheckClear";
+            }
+            else if (x.Action == "FinancialIntegrity.CaseAssigned")
+            {
+                status = document.RootElement.TryGetProperty("assigneeUserId", out var assigneeElement)
+                    && assigneeElement.ValueKind == System.Text.Json.JsonValueKind.Number
+                    ? $"AssignedToUser:{assigneeElement.GetInt64()}" : "Unassigned";
             }
             else if (document.RootElement.TryGetProperty("status", out var statusElement))
                 status = statusElement.GetString() ?? "Unknown";
