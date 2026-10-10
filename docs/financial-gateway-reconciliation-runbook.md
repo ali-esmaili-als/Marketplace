@@ -301,3 +301,16 @@ The regression test for this path simulates a persistence exception before the l
 - **Check 79 — refund has remained Processing for over 30 minutes:** this is an operational triage threshold, not an automatic timeout. Confirm the provider's authoritative refund result before calling `ReconcileAsync`; a timeout or exception can mean the bank completed the transfer.
 
 Checks 75–79 are read-only. The 30-minute threshold is intentionally a review signal and must not trigger automatic failure, retry, or balance release. Current refund processing is a full-refund flow; any future partial-refund feature must update the amount diagnostics and financial invariants in the same change.
+
+
+### Payout confirmed but settlement finalization cannot be persisted
+
+The payout provider can return a definitive result while the subsequent SQL transaction that updates the settlement, seller balance, and final ledger row fails. The service makes a best-effort recovery transition from Processing to OnHold after such a finalization exception, without releasing reserved funds. The original persistence exception is preserved for logging and alerting. If the recovery write also fails, the settlement may remain Processing and requires operational review after the database recovers.
+
+1. Do not retry the payout or manually release the reserve.
+2. Query the bank/provider using the settlement's immutable bank-account snapshot, amount, and any returned reference.
+3. Inspect settlement status, reservation and outcome ledger entries, seller balance snapshots, and outbox events.
+4. If the record is OnHold, use the audited settlement reconciliation workflow only after confirming the provider's final transfer result.
+5. If it remains Processing because the recovery write could not persist, restore database availability and reconcile the original settlement before any payout retry.
+
+A regression test covers a successful provider response followed by a simulated finalization persistence exception. It verifies the settlement is put on hold, reserved funds remain unchanged, the original exception is rethrown, and the payout provider is called only once.
