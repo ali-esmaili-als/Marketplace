@@ -25,6 +25,7 @@ public sealed class MarketplaceDbContext : DbContext
     public DbSet<SellerBankAccount> SellerBankAccounts => Set<SellerBankAccount>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<StorefrontMedia> StorefrontMedia => Set<StorefrontMedia>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
     public DbSet<Marketplace.Domain.Catalog.SavedProduct> SavedProducts => Set<Marketplace.Domain.Catalog.SavedProduct>();
@@ -181,6 +182,23 @@ public sealed class MarketplaceDbContext : DbContext
             e.Property(x => x.Description).HasMaxLength(5000);
             e.HasIndex(x => new { x.StoreId, x.Slug }).IsUnique();
             e.HasIndex(x => new { x.StoreId, x.Status });
+        });
+        b.Entity<StorefrontMedia>(e =>
+        {
+            e.ToTable("StorefrontMedia", t =>
+            {
+                t.HasCheckConstraint("CK_StorefrontMedia_Kind", "(Kind IN ('logo','banner') AND ProductId IS NULL) OR (Kind = 'product' AND ProductId IS NOT NULL)");
+                t.HasCheckConstraint("CK_StorefrontMedia_SortOrder", "SortOrder >= 0");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Url).HasMaxLength(500).IsRequired();
+            e.Property(x => x.ContentType).HasMaxLength(50).IsRequired();
+            e.Property(x => x.AltText).HasMaxLength(250);
+            e.HasIndex(x => new { x.StoreId, x.Kind, x.IsActive, x.SortOrder });
+            e.HasIndex(x => new { x.ProductId, x.IsActive, x.SortOrder });
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
         b.Entity<Marketplace.Domain.Catalog.SavedProduct>(e =>
         {
