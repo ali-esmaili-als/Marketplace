@@ -31,6 +31,17 @@ public sealed class StorefrontMediaTests
     }
 
     [Fact]
+    public void ChangeSortOrder_UpdatesOrderAndRejectsNegativeValues()
+    {
+        var media = StorefrontMedia.Create(1, 2, null, "banner", "/uploads/storefront/2/banner.jpg", "image/jpeg", null, 0);
+
+        media.ChangeSortOrder(3);
+
+        Assert.Equal(3, media.SortOrder);
+        Assert.Throws<ArgumentOutOfRangeException>(() => media.ChangeSortOrder(-1));
+    }
+
+    [Fact]
     public void Deactivate_HidesMediaWithoutChangingItsUrl()
     {
         var media = StorefrontMedia.Create(1, 2, null, "banner", "/uploads/storefront/2/banner.jpg", "image/jpeg", null, 0);
