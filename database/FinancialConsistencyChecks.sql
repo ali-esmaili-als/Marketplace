@@ -796,3 +796,39 @@ FROM dbo.PaymentTransactions AS pt
 WHERE pt.Status = 3 -- Succeeded
 GROUP BY pt.PaymentId
 HAVING COUNT_BIG(*) > 1;
+
+PRINT '69. Active inventory reservations attached to orders that should no longer reserve stock';
+SELECT r.Id AS ReservationId, r.OrderId, r.ProductVariantId, r.Quantity,
+       r.Status AS ReservationStatus, r.ExpiresAtUtc,
+       o.Status AS OrderStatus, o.CreatedAtUtc
+FROM dbo.InventoryReservations AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 1 -- Active
+  AND o.Status IN (5, 6, 7, 8, 9, 10); -- Delivered or any later/terminal lifecycle state
+
+PRINT '70. Inventory reserved quantity differs from the sum of active reservation records';
+;WITH ActiveReservations AS
+(
+    SELECT ProductVariantId, SUM(Quantity) AS ActiveReservedQuantity,
+           COUNT_BIG(*) AS ActiveReservationCount
+    FROM dbo.InventoryReservations
+    WHERE Status = 1 -- Active
+    GROUP BY ProductVariantId
+)
+SELECT i.Id AS InventoryItemId, i.ProductVariantId,
+       i.StockQuantity, i.ReservedQuantity,
+       ISNULL(r.ActiveReservedQuantity, 0) AS ReservationRecordsQuantity,
+       ISNULL(r.ActiveReservationCount, 0) AS ActiveReservationCount,
+       i.ReservedQuantity - ISNULL(r.ActiveReservedQuantity, 0) AS DifferenceQuantity
+FROM dbo.InventoryItems AS i
+LEFT JOIN ActiveReservations AS r ON r.ProductVariantId = i.ProductVariantId
+WHERE i.ReservedQuantity <> ISNULL(r.ActiveReservedQuantity, 0);
+
+PRINT '71. Expired pending-payment inventory reservations awaiting lifecycle cleanup';
+SELECT r.Id AS ReservationId, r.OrderId, r.ProductVariantId, r.Quantity,
+       r.ExpiresAtUtc, r.CreatedAtUtc, o.Status AS OrderStatus
+FROM dbo.InventoryReservations AS r
+JOIN dbo.Orders AS o ON o.Id = r.OrderId
+WHERE r.Status = 1 -- Active
+  AND o.Status = 1 -- PendingPayment
+  AND r.ExpiresAtUtc <= SYSUTCDATETIME();
