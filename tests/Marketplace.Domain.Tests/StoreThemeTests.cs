@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using Marketplace.Domain.Common;
 using Marketplace.Domain.Sellers;
 using Xunit;
