@@ -132,13 +132,25 @@ public sealed class MarketplaceDbContext : DbContext
         });
         b.Entity<Store>(e =>
         {
-            e.ToTable("Stores", t => { t.HasCheckConstraint("CK_Stores_Commission", "CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR >= 0"); t.HasCheckConstraint("CK_Stores_ThemeCode", "ThemeCode IN ('classic','minimal','vibrant','editorial','boutique','magazine','grid','luxe','organic','tech','fashion','gallery','market','mono','pastel','bold','nordic','artisan','urban','elegant')"); t.HasCheckConstraint("CK_Stores_PaletteCode", "PaletteCode IN ('ocean','forest','sunset','rose','monochrome')"); }); e.HasKey(x => x.Id);
+            e.ToTable("Stores", t => { t.HasCheckConstraint("CK_Stores_Commission", "CommissionRateBasisPoints BETWEEN 0 AND 10000 AND MinimumCommissionIRR >= 0"); t.HasCheckConstraint("CK_Stores_ThemeCode", "ThemeCode IN ('classic','minimal','vibrant','editorial','boutique','magazine','grid','luxe','organic','tech','fashion','gallery','market','mono','pastel','bold','nordic','artisan','urban','elegant')"); t.HasCheckConstraint("CK_Stores_PaletteCode", "PaletteCode IN ('ocean','forest','sunset','rose','monochrome')");
+                t.HasCheckConstraint("CK_Stores_ThemeFontCode", "ThemeFontCode IN ('iran-yekan','system','serif','modern')");
+                t.HasCheckConstraint("CK_Stores_ThemeCornerStyle", "ThemeCornerStyle IN ('soft','square','round')");
+                t.HasCheckConstraint("CK_Stores_ThemePrimaryColor", "LEN(ThemePrimaryColor)=7 AND ThemePrimaryColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'");
+                t.HasCheckConstraint("CK_Stores_ThemeSecondaryColor", "LEN(ThemeSecondaryColor)=7 AND ThemeSecondaryColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'");
+                t.HasCheckConstraint("CK_Stores_ThemeBackgroundColor", "LEN(ThemeBackgroundColor)=7 AND ThemeBackgroundColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'");
+                t.HasCheckConstraint("CK_Stores_ThemeTextColor", "LEN(ThemeTextColor)=7 AND ThemeTextColor LIKE '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'"); }); e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasConversion<byte>();
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Slug).HasMaxLength(250).IsRequired();
             e.Property(x => x.Description).HasMaxLength(2000);
             e.Property(x => x.ThemeCode).HasMaxLength(20).IsRequired().HasDefaultValue("classic");
             e.Property(x => x.PaletteCode).HasMaxLength(20).IsRequired().HasDefaultValue("ocean");
+            e.Property(x => x.ThemePrimaryColor).HasMaxLength(7).IsRequired().HasDefaultValue("#3159c9");
+            e.Property(x => x.ThemeSecondaryColor).HasMaxLength(7).IsRequired().HasDefaultValue("#f3f7ff");
+            e.Property(x => x.ThemeBackgroundColor).HasMaxLength(7).IsRequired().HasDefaultValue("#ffffff");
+            e.Property(x => x.ThemeTextColor).HasMaxLength(7).IsRequired().HasDefaultValue("#232b49");
+            e.Property(x => x.ThemeFontCode).HasMaxLength(20).IsRequired().HasDefaultValue("iran-yekan");
+            e.Property(x => x.ThemeCornerStyle).HasMaxLength(20).IsRequired().HasDefaultValue("soft");
             e.HasIndex(x => new { x.SellerId, x.Slug }).IsUnique();
             e.HasIndex(x => x.SellerId);
         });
