@@ -146,6 +146,24 @@ public sealed class SettlementService
                 if(settlement.Status==SettlementStatus.Completed)
                     return new SettlementResult(settlement.Id,settlement.AmountIRR,settlement.Status.ToString(),settlement.Reference);
 
+                // A "successful" provider response without a durable bank reference is not
+                // sufficient evidence to finalize a payout. Keep the reservation and require
+                // reconciliation rather than recording an untraceable completed transfer.
+                if (result.Success && string.IsNullOrWhiteSpace(result.Reference))
+                {
+                    settlement.PutOnHold();
+                    await AddOutboxAsync("Settlement.OnHold", new
+                    {
+                        settlement.Id,
+                        settlement.SellerId,
+                        settlement.AmountIRR,
+                        settlement.Status,
+                        Reason = "Provider reported success without a bank reference."
+                    }, token);
+                    await _uow.SaveChangesAsync(token);
+                    return new SettlementResult(settlement.Id, amount, settlement.Status.ToString(), null);
+                }
+
                 if(!result.Success)
                 {
                     settlement.Fail(result.Error??"Payout failed.");
