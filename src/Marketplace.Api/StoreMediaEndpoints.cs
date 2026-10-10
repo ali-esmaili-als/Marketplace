@@ -15,6 +15,27 @@ public static class StoreMediaEndpoints
 
     public static IEndpointRouteBuilder MapStoreMediaEndpoints(this IEndpointRouteBuilder app)
     {
+        // Public catalog and directory pages commonly show many stores at once. A bounded
+        // batch endpoint avoids one media request per store while keeping media anonymous/read-only.
+        app.MapGet("/api/public/stores/media", async (string? storeIds, MarketplaceDbContext db, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(storeIds)) return Results.BadRequest(new { error = "storeIds is required." });
+            var parsed = new List<long>();
+            foreach (var token in storeIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!long.TryParse(token, out var id) || id <= 0) return Results.BadRequest(new { error = "storeIds must contain positive numeric IDs." });
+                if (!parsed.Contains(id)) parsed.Add(id);
+                if (parsed.Count > 100) return Results.BadRequest(new { error = "At most 100 store IDs may be requested." });
+            }
+            if (parsed.Count == 0) return Results.BadRequest(new { error = "At least one store ID is required." });
+            var items = await db.StorefrontMedia.AsNoTracking()
+                .Where(x => parsed.Contains(x.StoreId) && x.IsActive)
+                .OrderBy(x => x.StoreId).ThenBy(x => x.Kind).ThenBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)
+                .Select(x => new { x.Id, x.StoreId, x.ProductId, x.Kind, x.Url, x.ContentType, x.AltText, x.SortOrder })
+                .ToListAsync(ct);
+            return Results.Ok(items);
+        }).AllowAnonymous();
+
         app.MapGet("/api/public/stores/{storeId:long}/media", async (long storeId, MarketplaceDbContext db, CancellationToken ct) =>
         {
             var items = await db.StorefrontMedia.AsNoTracking()
