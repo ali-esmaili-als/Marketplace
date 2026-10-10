@@ -51,3 +51,8 @@ For an existing database that already has the previous store-theme migration app
 `database/032_StoreLayoutsAndPalettes.sql` after `database/031_StoreThemes.sql`. This adds the
 persisted palette and expands the allowed layout values. For a new/empty database, use only
 `database/Marketplace_Complete.sql`; do not run numbered upgrade scripts after the canonical schema.
+
+
+## Seller-customizable storefront appearance
+
+For an existing database after upgrades 031 and 032, run `database/033_StoreThemeCustomization.sql`. This adds validated custom colors, font preset, and corner style. The seller may edit their own store appearance; administrators with `Admin.Identity.Manage` may assign or override the same settings. For a new database, `database/Marketplace_Complete.sql` already includes these columns.
