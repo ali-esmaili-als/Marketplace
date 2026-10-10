@@ -1588,6 +1588,16 @@ app.MapGet("/api/admin/financial-integrity/order-trace/{orderId:long}", async (
         findings.Add(new { code = "OrderHasNoPayment", severity = "warning", message = "برای این سفارش رکورد پرداختی پیدا نشد." });
     if (payments.Any(x => x.AmountIRR != order.TotalAmountIRR))
         findings.Add(new { code = "PaymentAmountMismatch", severity = "error", message = "مبلغ حداقل یکی از پرداخت‌ها با مبلغ سفارش متفاوت است." });
+    if (payments.Any(x => x.CustomerId != order.CustomerId))
+        findings.Add(new { code = "PaymentCustomerMismatch", severity = "error", message = "شناسه مشتری حداقل یکی از پرداخت‌ها با مالک سفارش متفاوت است." });
+    if (paymentTransactions.Any(transaction =>
+        payments.Any(payment => payment.paymentId == transaction.PaymentId && payment.AmountIRR != transaction.AmountIRR)))
+        findings.Add(new { code = "ProviderTransactionAmountMismatch", severity = "error", message = "مبلغ حداقل یکی از تراکنش‌های ثبت‌شده درگاه با مبلغ تلاش پرداخت متناظر متفاوت است." });
+    if (refunds.Any(refund => refund.AmountIRR != order.TotalAmountIRR
+        || payments.All(payment => payment.paymentId != refund.PaymentId || payment.CustomerId != refund.CustomerId)))
+        findings.Add(new { code = "RefundIdentityOrAmountMismatch", severity = "error", message = "مبلغ یا ارتباط مشتری/پرداخت حداقل یکی از بازپرداخت‌ها با سفارش و پرداخت متناظر سازگار نیست." });
+    if (refunds.Count(x => x.status == (int)Marketplace.Domain.Refunds.RefundStatus.Completed) > 1)
+        findings.Add(new { code = "MultipleCompletedRefunds", severity = "error", message = "بیش از یک بازپرداخت تکمیل‌شده برای سفارش ثبت شده است؛ نتیجه هر انتقال باید با شواهد بانکی بررسی شود." });
     if (payments.Any(x => x.status == (int)Marketplace.Domain.Payments.PaymentStatus.Succeeded)
         && (order.Status == (int)Marketplace.Domain.Orders.OrderStatus.PendingPayment
             || order.Status == (int)Marketplace.Domain.Orders.OrderStatus.Cancelled
