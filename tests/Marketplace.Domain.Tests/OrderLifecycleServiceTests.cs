@@ -534,7 +534,12 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(BalanceHoldStatus.Released, hold.Status);
         lifecycle.Verify(x => x.AddBalanceTransaction(
             It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
-                t.Bucket == BalanceBucket.Blocked && t.AmountIRR == order.SellerAmountIRR)), Times.Once);
+                t.Bucket == BalanceBucket.Blocked && t.AmountIRR == order.SellerAmountIRR &&
+                t.BalanceBeforeIRR == order.SellerAmountIRR && t.BalanceAfterIRR == 0)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Available && t.AmountIRR == order.SellerAmountIRR &&
+                t.BalanceBeforeIRR == 0 && t.BalanceAfterIRR == order.SellerAmountIRR)), Times.Once);
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -634,7 +639,12 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(order.SellerAmountIRR, balance.AvailableIRR);
         Assert.Equal(BalanceHoldStatus.Released, hold.Status);
         lifecycle.Verify(x => x.AddBalanceTransaction(
-            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased)), Times.Once);
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Blocked)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Available)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -678,10 +688,17 @@ public sealed class OrderLifecycleServiceTests
         Assert.Equal(BalanceHoldStatus.Released, hold.Status);
         lifecycle.Verify(x => x.AddBalanceTransaction(
             It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
-                t.Reference == "COMPLAINT_WINDOW_CLOSED" && t.AmountIRR == order.SellerAmountIRR)), Times.Once);
+                t.Bucket == BalanceBucket.Blocked && t.Reference == "COMPLAINT_WINDOW_CLOSED" &&
+                t.AmountIRR == order.SellerAmountIRR && t.BalanceBeforeIRR == order.SellerAmountIRR &&
+                t.BalanceAfterIRR == 0)), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(
+            It.Is<BalanceTransaction>(t => t.Type == BalanceTransactionType.ComplaintHoldReleased &&
+                t.Bucket == BalanceBucket.Available && t.Reference == "COMPLAINT_WINDOW_CLOSED" &&
+                t.AmountIRR == order.SellerAmountIRR && t.BalanceBeforeIRR == 0 &&
+                t.BalanceAfterIRR == order.SellerAmountIRR)), Times.Once);
         await Assert.ThrowsAsync<DomainException>(() => service.CloseCompletedOrderAsync(order.Id, now));
         Assert.Equal(order.SellerAmountIRR, balance.AvailableIRR);
-        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
