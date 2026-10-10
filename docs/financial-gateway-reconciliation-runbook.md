@@ -347,3 +347,12 @@ Failure to persist the recovery state is not evidence that the payout failed. A 
 - **Check 88 — failed settlement is missing exactly one reservation-release entry:** verify the SettlementFailed transaction and balance before/after values. Do not release funds a second time if a valid outcome entry already exists.
 
 Checks 86–88 are read-only. They complement check 74's coarse transaction-count check by verifying the expected settlement identity, amount, and outcome reference. Historical records created before the reservation ledger contract was deployed may need version-aware triage; do not automatically backfill financial postings from these query results.
+
+
+### Refund/order/payment state diagnostics (89–91)
+
+- **Check 89 — completed refund but order/payment is not in its refunded terminal state:** inspect the provider result and the atomic finalization transaction. The current refund implementation supports full refunds; a completed refund should correspond to a Refunded order and Refunded payment. Do not edit statuses independently of the ledger.
+- **Check 90 — Processing refund with an unexpected order/payment state:** confirm whether a manual action or older deployment changed the order or payment after the refund reservation. A normal ambiguous refund remains Processing while the order is RefundRequested and payment remains Succeeded. Confirm the bank outcome before reconciliation.
+- **Check 91 — failed/rejected refund but order/payment is marked refunded:** inspect audit history, provider result, and refund-linked postings. A failed or rejected refund must not finalize the order/payment. Do not revert the terminal status or delete financial records without tracing the original operation.
+
+Checks 89–91 are read-only and assume the current full-refund contract. If partial refunds are introduced, revise the expected payment state and amount invariants together with the domain lifecycle and ledger posting rules.
