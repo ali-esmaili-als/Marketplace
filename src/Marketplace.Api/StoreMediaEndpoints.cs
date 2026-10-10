@@ -57,30 +57,40 @@ public static class StoreMediaEndpoints
             var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(x => x.Id == storeId, ct);
             if (store is null || store.SellerId != seller.Id) return Results.Forbid();
 
-            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-            var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
-            if (media is null) return Results.NotFound();
-            media.Deactivate();
-            await NormalizeActiveGroupAsync(db, media, ct);
-            await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-            DeletePhysicalFile(media.Url, env, loggerFactory.CreateLogger("Marketplace.Api.StoreMediaEndpoints"));
-            return Results.NoContent();
+            string? deletedUrl = null;
+            var result = await InSerializableTransactionAsync<IResult>(db, async () =>
+            {
+                var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
+                if (media is null) return Results.NotFound();
+                media.Deactivate();
+                deletedUrl = media.Url;
+                await NormalizeActiveGroupAsync(db, media, ct);
+                await db.SaveChangesAsync(ct);
+                return Results.NoContent();
+            }, ct);
+            if (deletedUrl is not null)
+                DeletePhysicalFile(deletedUrl, env, loggerFactory.CreateLogger("Marketplace.Api.StoreMediaEndpoints"));
+            return result;
         }).RequirePermission("Seller.Catalog.Manage");
 
         app.MapDelete("/api/admin/stores/{storeId:long}/media/{mediaId:long}", async (
             long storeId, long mediaId, MarketplaceDbContext db, IWebHostEnvironment env,
             ILoggerFactory loggerFactory, CancellationToken ct) =>
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-            var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
-            if (media is null) return Results.NotFound();
-            media.Deactivate();
-            await NormalizeActiveGroupAsync(db, media, ct);
-            await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-            DeletePhysicalFile(media.Url, env, loggerFactory.CreateLogger("Marketplace.Api.StoreMediaEndpoints"));
-            return Results.NoContent();
+            string? deletedUrl = null;
+            var result = await InSerializableTransactionAsync<IResult>(db, async () =>
+            {
+                var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId, ct);
+                if (media is null) return Results.NotFound();
+                media.Deactivate();
+                deletedUrl = media.Url;
+                await NormalizeActiveGroupAsync(db, media, ct);
+                await db.SaveChangesAsync(ct);
+                return Results.NoContent();
+            }, ct);
+            if (deletedUrl is not null)
+                DeletePhysicalFile(deletedUrl, env, loggerFactory.CreateLogger("Marketplace.Api.StoreMediaEndpoints"));
+            return result;
         }).RequirePermission("Admin.Identity.Manage");
 
         app.MapPut("/api/sellers/me/stores/{storeId:long}/media/{mediaId:long}/sort-order", async (
@@ -93,39 +103,58 @@ public static class StoreMediaEndpoints
             var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(x => x.Id == storeId, ct);
             if (store is null) return Results.NotFound();
             if (store.SellerId != seller.Id) return Results.Forbid();
-            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-            var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
-            if (media is null) return Results.NotFound();
-            var group = await db.StorefrontMedia
-                .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
-                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).ToListAsync(ct);
-            group.Remove(media);
-            group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
-            for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
-            await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-            return Results.NoContent();
+            return await InSerializableTransactionAsync<IResult>(db, async () =>
+            {
+                var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
+                if (media is null) return Results.NotFound();
+                var group = await db.StorefrontMedia
+                    .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
+                    .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).ToListAsync(ct);
+                group.Remove(media);
+                group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
+                for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
+                await db.SaveChangesAsync(ct);
+                return Results.NoContent();
+            }, ct);
         }).RequirePermission("Seller.Catalog.Manage");
 
         app.MapPut("/api/admin/stores/{storeId:long}/media/{mediaId:long}/sort-order", async (
             long storeId, long mediaId, StoreMediaSortOrderRequest request, MarketplaceDbContext db, CancellationToken ct) =>
         {
             if (request.SortOrder < 0) return Results.BadRequest(new { error = "sortOrder must be non-negative." });
-            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-            var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
-            if (media is null) return Results.NotFound();
-            var group = await db.StorefrontMedia
-                .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
-                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).ToListAsync(ct);
-            group.Remove(media);
-            group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
-            for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
-            await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-            return Results.NoContent();
+            return await InSerializableTransactionAsync<IResult>(db, async () =>
+            {
+                var media = await db.StorefrontMedia.SingleOrDefaultAsync(x => x.Id == mediaId && x.StoreId == storeId && x.IsActive, ct);
+                if (media is null) return Results.NotFound();
+                var group = await db.StorefrontMedia
+                    .Where(x => x.StoreId == storeId && x.ProductId == media.ProductId && x.Kind == media.Kind && x.IsActive)
+                    .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id).ToListAsync(ct);
+                group.Remove(media);
+                group.Insert(Math.Clamp(request.SortOrder, 0, group.Count), media);
+                for (var index = 0; index < group.Count; index++) group[index].ChangeSortOrder(index);
+                await db.SaveChangesAsync(ct);
+                return Results.NoContent();
+            }, ct);
         }).RequirePermission("Admin.Identity.Manage");
 
         return app;
+    }
+
+    private static async Task<T> InSerializableTransactionAsync<T>(
+        MarketplaceDbContext db, Func<Task<T>> operation, CancellationToken ct)
+    {
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            // Each retry must start with a clean tracked state; the previous attempt may have
+            // saved entities before a transient failure interrupted the transaction.
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable, ct);
+            var result = await operation();
+            await transaction.CommitAsync(ct);
+            return result;
+        });
     }
 
     private static async Task NormalizeActiveGroupAsync(
@@ -179,44 +208,41 @@ public static class StoreMediaEndpoints
                 await input.CopyToAsync(output, ct);
             }
 
-            // Serialize order allocation with the insert/reorder work so concurrent uploads
-            // to the same gallery cannot both allocate the same tail position.
-            await using var transaction = await db.Database.BeginTransactionAsync(
-                System.Data.IsolationLevel.Serializable, ct);
-
-            var resolvedSortOrder = sortOrder;
-            if (!resolvedSortOrder.HasValue)
+            // Execute the entire serializable gallery mutation through EF's configured retry strategy.
+            return await InSerializableTransactionAsync<IResult>(db, async () =>
             {
-                var maxSortOrder = await db.StorefrontMedia.AsNoTracking()
+                var resolvedSortOrder = sortOrder;
+                if (!resolvedSortOrder.HasValue)
+                {
+                    var maxSortOrder = await db.StorefrontMedia.AsNoTracking()
+                        .Where(x => x.StoreId == storeId && x.ProductId == productId && x.Kind == kind && x.IsActive)
+                        .Select(x => (int?)x.SortOrder)
+                        .MaxAsync(ct);
+                    resolvedSortOrder = (maxSortOrder ?? -1) + 1;
+                }
+
+                var media = StorefrontMedia.Create(await ids.NextAsync(ct), storeId, productId, kind,
+                    $"/uploads/storefront/{storeId}/{fileName}", file.ContentType.ToLowerInvariant(), altText, Math.Max(0, resolvedSortOrder.Value));
+                db.StorefrontMedia.Add(media);
+                await db.SaveChangesAsync(ct);
+
+                var group = await db.StorefrontMedia
                     .Where(x => x.StoreId == storeId && x.ProductId == productId && x.Kind == kind && x.IsActive)
-                    .Select(x => (int?)x.SortOrder)
-                    .MaxAsync(ct);
-                resolvedSortOrder = (maxSortOrder ?? -1) + 1;
-            }
-            // Keep the database row and gallery ordering in the same transaction. If either save fails,
-            // the transaction rolls back and the outer catch removes the newly written file.
-            var media = StorefrontMedia.Create(await ids.NextAsync(ct), storeId, productId, kind,
-                $"/uploads/storefront/{storeId}/{fileName}", file.ContentType.ToLowerInvariant(), altText, Math.Max(0, resolvedSortOrder.Value));
-            db.StorefrontMedia.Add(media);
-            await db.SaveChangesAsync(ct);
+                    .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)
+                    .ToListAsync(ct);
+                group.Remove(media);
+                group.Insert(Math.Clamp(Math.Max(0, resolvedSortOrder.Value), 0, group.Count), media);
+                for (var index = 0; index < group.Count; index++)
+                    if (group[index].SortOrder != index)
+                        group[index].ChangeSortOrder(index);
 
-            var group = await db.StorefrontMedia
-                .Where(x => x.StoreId == storeId && x.ProductId == productId && x.Kind == kind && x.IsActive)
-                .OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAtUtc).ThenBy(x => x.Id)
-                .ToListAsync(ct);
-            group.Remove(media);
-            group.Insert(Math.Clamp(Math.Max(0, resolvedSortOrder.Value), 0, group.Count), media);
-            for (var index = 0; index < group.Count; index++)
-                if (group[index].SortOrder != index)
-                    group[index].ChangeSortOrder(index);
-
-            await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-            return Results.Created($"/api/public/stores/{storeId}/media", new
-            {
-                media.Id, media.StoreId, media.ProductId, media.Kind, media.Url, media.ContentType,
-                media.AltText, media.SortOrder, media.CreatedAtUtc
-            });
+                await db.SaveChangesAsync(ct);
+                return Results.Created($"/api/public/stores/{storeId}/media", new
+                {
+                    media.Id, media.StoreId, media.ProductId, media.Kind, media.Url, media.ContentType,
+                    media.AltText, media.SortOrder, media.CreatedAtUtc
+                });
+            }, ct);
         }
         catch
         {
