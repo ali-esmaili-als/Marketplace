@@ -364,3 +364,11 @@ Checks 89–91 are read-only and assume the current full-refund contract. If par
 - **Check 93 — Failed/Cancelled payment attached to an order that progressed beyond PendingPayment/Cancelled:** compare the order transition history with the payment transaction and bank evidence. This can indicate a stale payment status, an incorrectly advanced order, or an incomplete finalization. Do not reverse an order or post/reverse seller funds based on this diagnostic alone.
 
 Checks 92–93 are read-only state-pair diagnostics and deliberately do not infer the bank outcome from the local status. Review them alongside checks 53–59 and the order trace; the correct recovery depends on the authoritative provider result and the ledger/inventory evidence. These checks must never trigger automatic retries, reservation release, balance changes, or ledger repair.
+
+### Full-refund amount and identity diagnostics (94–96)
+
+- **Check 94 — more than one completed refund exists for one order:** the current application contract is full refunds, and a completed refund makes the order/payment terminal. Inspect every refund attempt, provider reference, and refund-linked ledger/reversal entry. Do not delete duplicate rows or issue compensating transfers until the provider outcomes are independently confirmed.
+- **Check 95 — refund amount differs from the order total or payment amount:** the current refund workflow sends the full order total to the gateway. Verify the immutable order/payment snapshots and provider amount. If historical partial-refund behavior existed in an older deployment, classify those records before treating them as invalid.
+- **Check 96 — payment amount or customer identity differs from the order:** compare the payment attempt to the order's immutable total and owner. Do not retry payment, refund, or seller-balance operations while the financial identity is inconsistent.
+
+Checks 94–96 are read-only and supplement checks 75, 80–85, and 89–93. They do not initiate gateway requests, change order/payment/refund states, release inventory, or modify seller balances/ledger entries. These checks assume the current full-refund contract; a future partial-refund feature must update the application invariants, database diagnostics, and operator procedure together.
