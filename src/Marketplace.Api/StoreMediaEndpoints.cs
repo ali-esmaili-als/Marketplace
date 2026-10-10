@@ -170,6 +170,11 @@ public static class StoreMediaEndpoints
                 await input.CopyToAsync(output, ct);
             }
 
+            // Serialize order allocation with the insert/reorder work so concurrent uploads
+            // to the same gallery cannot both allocate the same tail position.
+            await using var transaction = await db.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable, ct);
+
             var resolvedSortOrder = sortOrder;
             if (!resolvedSortOrder.HasValue)
             {
@@ -179,9 +184,8 @@ public static class StoreMediaEndpoints
                     .MaxAsync(ct);
                 resolvedSortOrder = (maxSortOrder ?? -1) + 1;
             }
-            // Keep the database row and gallery ordering in one transaction. If either save fails,
+            // Keep the database row and gallery ordering in the same transaction. If either save fails,
             // the transaction rolls back and the outer catch removes the newly written file.
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
             var media = StorefrontMedia.Create(await ids.NextAsync(ct), storeId, productId, kind,
                 $"/uploads/storefront/{storeId}/{fileName}", file.ContentType.ToLowerInvariant(), altText, Math.Max(0, resolvedSortOrder.Value));
             db.StorefrontMedia.Add(media);
