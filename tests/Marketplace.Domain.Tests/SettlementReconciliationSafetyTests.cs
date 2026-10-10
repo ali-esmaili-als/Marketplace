@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,11 +31,11 @@ public sealed class SettlementReconciliationSafetyTests
             .ReturnsAsync(balance);
 
         SettlementReconciliationAudit? capturedAudit = null;
-        BalanceTransaction? capturedTransaction = null;
+        var capturedTransactions = new List<BalanceTransaction>();
         lifecycle.Setup(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()))
             .Callback<SettlementReconciliationAudit>(audit => capturedAudit = audit);
         lifecycle.Setup(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()))
-            .Callback<BalanceTransaction>(transaction => capturedTransaction = transaction);
+            .Callback<BalanceTransaction>(transaction => capturedTransactions.Add(transaction));
 
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(x => x.ExecuteInSerializableTransactionAsync(
@@ -80,7 +81,7 @@ public sealed class SettlementReconciliationSafetyTests
             settlement.Id, 910, false, null, "Attempt duplicate reconciliation"));
         Assert.Equal(0, balance.ReservedForSettlementIRR);
         lifecycle.Verify(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()), Times.Once);
-        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -140,18 +141,25 @@ public sealed class SettlementReconciliationSafetyTests
         Assert.Equal("BANK-PAID-121", capturedAudit.BankReference);
         Assert.Equal("Confirmed against bank statement", capturedAudit.Note);
 
-        Assert.NotNull(capturedTransaction);
-        Assert.Equal(BalanceTransactionType.Settlement, capturedTransaction!.Type);
-        Assert.Equal(BalanceBucket.Available, capturedTransaction.Bucket);
-        Assert.Equal(settlement.Id, capturedTransaction.SettlementId);
-        Assert.Equal(250_000, capturedTransaction.AmountIRR);
-        Assert.Equal(700_000, capturedTransaction.BalanceBeforeIRR);
-        Assert.Equal(450_000, capturedTransaction.BalanceAfterIRR);
-        Assert.Contains("RECONCILED_PAID:BANK-PAID-121", capturedTransaction.Reference);
+        var availablePosting = Assert.Single(capturedTransactions, t => t.Bucket == BalanceBucket.Available);
+        Assert.Equal(BalanceTransactionType.Settlement, availablePosting.Type);
+        Assert.Equal(settlement.Id, availablePosting.SettlementId);
+        Assert.Equal(250_000, availablePosting.AmountIRR);
+        Assert.Equal(700_000, availablePosting.BalanceBeforeIRR);
+        Assert.Equal(450_000, availablePosting.BalanceAfterIRR);
+        Assert.Contains("RECONCILED_PAID:BANK-PAID-121", availablePosting.Reference);
+
+        var reservationPosting = Assert.Single(capturedTransactions, t => t.Bucket == BalanceBucket.ReservedForSettlement);
+        Assert.Equal(BalanceTransactionType.Settlement, reservationPosting.Type);
+        Assert.Equal(settlement.Id, reservationPosting.SettlementId);
+        Assert.Equal(250_000, reservationPosting.AmountIRR);
+        Assert.Equal(250_000, reservationPosting.BalanceBeforeIRR);
+        Assert.Equal(0, reservationPosting.BalanceAfterIRR);
+        Assert.Contains("RECONCILED_PAID:BANK-PAID-121", reservationPosting.Reference);
 
         uow.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         lifecycle.Verify(x => x.AddSettlementReconciliationAudit(It.IsAny<SettlementReconciliationAudit>()), Times.Once);
-        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Once);
+        lifecycle.Verify(x => x.AddBalanceTransaction(It.IsAny<BalanceTransaction>()), Times.Exactly(2));
 
         await Assert.ThrowsAsync<DomainException>(() => service.ReconcileAsync(
             settlement.Id, 920, transferCompleted: true, bankReference: "BANK-PAID-121",
